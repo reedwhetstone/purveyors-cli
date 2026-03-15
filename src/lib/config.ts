@@ -6,10 +6,27 @@ import type { StoredCredentials } from '../types/index.js';
 
 const CONFIG_DIR = join(homedir(), '.config', 'purvey');
 const CREDENTIALS_FILE = join(CONFIG_DIR, 'credentials.json');
+const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 // Legacy path from v0.1.x (was ~/.config/prvrs/)
 const LEGACY_CONFIG_DIR = join(homedir(), '.config', 'prvrs');
 const LEGACY_CREDENTIALS_FILE = join(LEGACY_CONFIG_DIR, 'credentials.json');
+
+// ─── App config types ────────────────────────────────────────────────────────
+
+export interface PurveyConfig {
+  'form-mode'?: boolean;
+}
+
+/** All valid config keys and their accepted value types. */
+const CONFIG_KEYS = ['form-mode'] as const;
+export type ConfigKey = (typeof CONFIG_KEYS)[number];
+
+export function isValidConfigKey(key: string): key is ConfigKey {
+  return (CONFIG_KEYS as readonly string[]).includes(key);
+}
+
+// ─── Credentials ─────────────────────────────────────────────────────────────
 
 /**
  * Ensure the config directory exists with secure permissions.
@@ -62,6 +79,63 @@ export async function deleteCredentials(): Promise<void> {
   } catch {
     // Already gone — that's fine
   }
+}
+
+// ─── App config read/write ────────────────────────────────────────────────────
+
+/**
+ * Read the purvey app config from ~/.config/purvey/config.json.
+ * Returns an empty config object if the file does not exist.
+ */
+export async function readConfig(): Promise<PurveyConfig> {
+  try {
+    await access(CONFIG_FILE, constants.R_OK);
+    const raw = await readFile(CONFIG_FILE, 'utf-8');
+    return JSON.parse(raw) as PurveyConfig;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Write the purvey app config to ~/.config/purvey/config.json.
+ */
+export async function writeConfig(config: PurveyConfig): Promise<void> {
+  await ensureConfigDir();
+  await writeFile(CONFIG_FILE, JSON.stringify(config, null, 2) + '\n', { mode: 0o600 });
+}
+
+/**
+ * Get a single config value by key.
+ * Returns undefined if the key is not set.
+ */
+export async function getConfigValue(key: string): Promise<string | undefined> {
+  if (!isValidConfigKey(key)) return undefined;
+  const config = await readConfig();
+  const value = config[key as ConfigKey];
+  if (value === undefined) return undefined;
+  return String(value);
+}
+
+/**
+ * Set a single config value by key.
+ * Throws if the key is invalid or the value cannot be coerced to the expected type.
+ */
+export async function setConfigValue(key: string, value: string): Promise<void> {
+  if (!isValidConfigKey(key)) {
+    throw new Error(`Unknown config key: "${key}". Valid keys: ${CONFIG_KEYS.join(', ')}.`);
+  }
+
+  const config = await readConfig();
+
+  if (key === 'form-mode') {
+    if (value !== 'true' && value !== 'false') {
+      throw new Error(`"form-mode" must be "true" or "false".`);
+    }
+    config['form-mode'] = value === 'true';
+  }
+
+  await writeConfig(config);
 }
 
 export { CONFIG_DIR, CREDENTIALS_FILE };
