@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { readCredentials } from './config.js';
+import { readCredentials, writeCredentials, deleteCredentials } from './config.js';
 import { AuthError } from './errors.js';
 
 /**
@@ -47,10 +47,26 @@ export async function createAuthenticatedClient(): Promise<SupabaseClient> {
     },
   });
 
-  await client.auth.setSession({
+  const { data, error } = await client.auth.setSession({
     access_token: creds.accessToken,
     refresh_token: creds.refreshToken,
   });
+
+  // If the session was refreshed (access token rotated), persist the new tokens
+  if (!error && data.session && data.session.access_token !== creds.accessToken) {
+    await writeCredentials({
+      ...creds, // preserve user info
+      accessToken: data.session.access_token,
+      refreshToken: data.session.refresh_token,
+      expiresAt: (data.session.expires_at ?? 0) * 1000,
+    });
+  }
+
+  if (error) {
+    // Refresh failed — credentials are expired
+    await deleteCredentials();
+    throw new AuthError('Session expired. Run `prvrs auth login` to re-authenticate.');
+  }
 
   return client;
 }

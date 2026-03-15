@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { createAuthenticatedClient } from '../lib/supabase.js';
-import { outputData, info } from '../lib/output.js';
+import { outputData, info, success } from '../lib/output.js';
 import { withErrorHandling, AuthError, PrvrsError } from '../lib/errors.js';
 import type { OutputOptions } from '../types/index.js';
 
@@ -34,15 +34,47 @@ export interface TastingResult {
   user: UserTastingNotes | null;
 }
 
+export interface CuppingNotes {
+  aroma?: number;
+  body?: number;
+  acidity?: number;
+  sweetness?: number;
+  aftertaste?: number;
+  brew_method?: string;
+  notes?: string;
+  rated_at?: string;
+}
+
+// ─── Validation helpers ───────────────────────────────────────────────────────
+
+/** Validate a cupping score is an integer in [1, 5]. */
+export function isValidCuppingScore(value: number): boolean {
+  return Number.isInteger(value) && value >= 1 && value <= 5;
+}
+
+/** Parse and validate a cupping score flag value. */
+export function parseCuppingScore(raw: string, flag: string): number {
+  const n = parseInt(raw, 10);
+  if (isNaN(n) || !isValidCuppingScore(n)) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `--${flag} must be an integer between 1 and 5 (got "${raw}").`
+    );
+  }
+  return n;
+}
+
 // ─── Command builder ──────────────────────────────────────────────────────────
 
 /**
- * `prvrs tasting` — View tasting notes for a bean.
+ * `prvrs tasting` — View and record tasting notes for a bean.
  * Combines supplier notes from coffee_catalog with user notes from green_coffee_inv.
  * Requires authentication.
  */
 export function buildTastingCommand(): Command {
-  const tasting = new Command('tasting').description('View tasting notes for a coffee bean');
+  const tasting = new Command('tasting').description(
+    'View and record tasting notes for a coffee bean'
+  );
 
   // ── tasting get <bean-id> ─────────────────────────────────────────────────
   tasting
@@ -149,6 +181,93 @@ export function buildTastingCommand(): Command {
         }
 
         outputData(result, globalOpts);
+      })
+    );
+
+  // ── tasting rate <bean-id> ────────────────────────────────────────────────
+  tasting
+    .command('rate <bean-id>')
+    .description('Rate a bean from your inventory using cupping scores (updates green_coffee_inv)')
+    .requiredOption('--aroma <1-5>', 'Aroma score (1-5)')
+    .requiredOption('--body <1-5>', 'Body score (1-5)')
+    .requiredOption('--acidity <1-5>', 'Acidity score (1-5)')
+    .requiredOption('--sweetness <1-5>', 'Sweetness score (1-5)')
+    .requiredOption('--aftertaste <1-5>', 'Aftertaste score (1-5)')
+    .option('--brew-method <method>', 'Brew method (e.g. pour_over, french_press, espresso)')
+    .option('--notes <text>', 'Additional tasting notes')
+    .action(
+      withErrorHandling(async (beanId: string, opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+
+        const inventoryId = parseInt(beanId, 10);
+        if (isNaN(inventoryId)) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid bean ID: "${beanId}". Pass a green_coffee_inv ID.`
+          );
+        }
+
+        // Parse and validate all scores
+        const cupping: CuppingNotes = {
+          aroma: parseCuppingScore(opts.aroma as string, 'aroma'),
+          body: parseCuppingScore(opts.body as string, 'body'),
+          acidity: parseCuppingScore(opts.acidity as string, 'acidity'),
+          sweetness: parseCuppingScore(opts.sweetness as string, 'sweetness'),
+          aftertaste: parseCuppingScore(opts.aftertaste as string, 'aftertaste'),
+          rated_at: new Date().toISOString(),
+        };
+
+        if (opts.brewMethod !== undefined) {
+          cupping.brew_method = opts.brewMethod as string;
+        }
+
+        if (opts.notes !== undefined) {
+          cupping.notes = opts.notes as string;
+        }
+
+        const supabase = await createAuthenticatedClient();
+
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user) {
+          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+        }
+
+        // Verify ownership of the inventory item
+        const { data: existing, error: fetchError } = await supabase
+          .from('green_coffee_inv')
+          .select('id, catalog_id')
+          .eq('id', inventoryId)
+          .eq('user', user.id)
+          .single();
+
+        if (fetchError || !existing) {
+          throw new AuthError(`Inventory item ${inventoryId} not found or does not belong to you.`);
+        }
+
+        // Update the cupping_notes JSONB field
+        const { error: updateError } = await supabase
+          .from('green_coffee_inv')
+          // Pass object directly — Supabase JS serializes JSONB columns correctly
+          .update({ cupping_notes: cupping as unknown as string })
+          .eq('id', inventoryId)
+          .eq('user', user.id);
+
+        if (updateError) throw updateError;
+
+        // Re-fetch the updated row
+        const { data, error } = await supabase
+          .from('green_coffee_inv')
+          .select('id, catalog_id, cupping_notes, notes, last_updated')
+          .eq('id', inventoryId)
+          .single();
+
+        if (error) throw error;
+
+        success(`Cupping notes saved for inventory item ${inventoryId}.`);
+        outputData(data, globalOpts);
       })
     );
 

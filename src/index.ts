@@ -4,6 +4,7 @@ import { buildAuthCommand } from './commands/auth.js';
 import { buildCatalogCommand } from './commands/catalog.js';
 import { buildInventoryCommand } from './commands/inventory.js';
 import { buildRoastCommand } from './commands/roast.js';
+import { buildSalesCommand } from './commands/sales.js';
 import { buildTastingCommand } from './commands/tasting.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -27,6 +28,8 @@ program
   .name('prvrs')
   .description('The official CLI for purveyors.io — coffee intelligence from your terminal')
   .version(version, '-v, --version', 'Print version')
+  .option('--pretty', 'Pretty-print JSON output with colors')
+  .option('--csv', 'Output results as CSV (useful for piping to spreadsheets)')
   .addHelpText(
     'after',
     `
@@ -38,9 +41,19 @@ Examples:
   $ prvrs catalog stats
   $ prvrs inventory list --stocked
   $ prvrs inventory get 7
+  $ prvrs inventory add --catalog-id 42 --qty 5 --cost 28.50
+  $ prvrs inventory update 7 --stocked true
+  $ prvrs inventory delete 7
   $ prvrs roast list --limit 5
   $ prvrs roast get 123 --include-temps
+  $ prvrs roast create --coffee-id 7 --batch-name "Ethiopia Guji" --oz-in 16
+  $ prvrs roast delete 123
+  $ prvrs sales list
+  $ prvrs sales record --roast-id 123 --oz 12 --price 22.00
+  $ prvrs sales update 5 --price 24.00
+  $ prvrs sales delete 5
   $ prvrs tasting get 42 --filter both
+  $ prvrs tasting rate 7 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
   $ prvrs --help                          # Show this help
 
 Docs: https://purveyors.io/docs/cli
@@ -52,6 +65,7 @@ program.addCommand(buildAuthCommand());
 program.addCommand(buildCatalogCommand());
 program.addCommand(buildInventoryCommand());
 program.addCommand(buildRoastCommand());
+program.addCommand(buildSalesCommand());
 program.addCommand(buildTastingCommand());
 
 // Parse and dispatch

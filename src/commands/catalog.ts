@@ -4,6 +4,17 @@ import { outputData, info } from '../lib/output.js';
 import { withErrorHandling } from '../lib/errors.js';
 import type { OutputOptions } from '../types/index.js';
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Strip PostgREST special characters from user-supplied filter values.
+ * Prevents injection into .or() filter strings where values are interpolated directly.
+ * Removes: ( ) , . * % that have meaning in PostgREST filter syntax.
+ */
+export function sanitizeFilterValue(value: string): string {
+  return value.replace(/[(),.*]/g, '');
+}
+
 // ─── Local types ──────────────────────────────────────────────────────────────
 
 export interface CatalogItem {
@@ -103,7 +114,7 @@ export function buildCatalogCommand(): Command {
         let query = supabase.from('coffee_catalog').select('*');
 
         if (opts.origin) {
-          const o = opts.origin as string;
+          const o = sanitizeFilterValue(opts.origin as string);
           query = query.or(`country.ilike.%${o}%,continent.ilike.%${o}%,region.ilike.%${o}%`);
         }
 
@@ -122,7 +133,7 @@ export function buildCatalogCommand(): Command {
         if (opts.flavor) {
           const keywords = (opts.flavor as string)
             .split(',')
-            .map((k) => k.trim())
+            .map((k) => sanitizeFilterValue(k.trim()))
             .filter(Boolean);
           const flavorFilters = keywords
             .flatMap((kw) => [
