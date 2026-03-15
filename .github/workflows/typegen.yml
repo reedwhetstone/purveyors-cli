@@ -9,6 +9,9 @@ on:
         default: 'true'
         type: boolean
 
+permissions:
+  contents: write
+
 jobs:
   generate-types:
     runs-on: ubuntu-latest
