@@ -1,7 +1,8 @@
 import { Command } from 'commander';
 import { createAuthenticatedClient } from '../lib/supabase.js';
-import { outputData, info } from '../lib/output.js';
-import { withErrorHandling, AuthError } from '../lib/errors.js';
+import { outputData, info, success } from '../lib/output.js';
+import { withErrorHandling, AuthError, PrvrsError } from '../lib/errors.js';
+import { confirm, todayIso } from '../lib/prompts.js';
 import type { OutputOptions } from '../types/index.js';
 
 // ─── Local types ──────────────────────────────────────────────────────────────
@@ -53,11 +54,11 @@ export interface RoastEventEntry {
 // ─── Command builder ──────────────────────────────────────────────────────────
 
 /**
- * `prvrs roast` — Browse your roast profiles.
+ * `prvrs roast` — Browse and manage your roast profiles.
  * Requires authentication.
  */
 export function buildRoastCommand(): Command {
-  const roast = new Command('roast').description('Browse your roast profiles');
+  const roast = new Command('roast').description('Browse and manage your roast profiles');
 
   // ── roast list ────────────────────────────────────────────────────────────
   roast
@@ -168,6 +169,172 @@ export function buildRoastCommand(): Command {
         outputData(result, globalOpts);
       })
     );
+
+  // ── roast create ──────────────────────────────────────────────────────────
+  roast
+    .command('create')
+    .description('Create a new roast profile')
+    .requiredOption('--coffee-id <id>', 'green_coffee_inv ID for this roast')
+    .option('--batch-name <name>', "Batch name (defaults to coffee name + today's date)")
+    .option('--oz-in <oz>', 'Green weight in ounces')
+    .option('--oz-out <oz>', 'Roasted weight in ounces')
+    .option('--roast-date <YYYY-MM-DD>', 'Roast date (defaults to today)')
+    .option('--notes <text>', 'Roast notes')
+    .action(
+      withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        const supabase = await createAuthenticatedClient();
+
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user) {
+          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+        }
+
+        const coffeeId = parseInt(opts.coffeeId as string, 10);
+        if (isNaN(coffeeId)) {
+          throw new PrvrsError('INVALID_ARGUMENT', `Invalid --coffee-id: "${opts.coffeeId}".`);
+        }
+
+        // Verify ownership of the inventory item and get coffee name for default batch name
+        const { data: invItem, error: invError } = await supabase
+          .from('green_coffee_inv')
+          .select('id, coffee_catalog!catalog_id (name)')
+          .eq('id', coffeeId)
+          .eq('user', user.id)
+          .single();
+
+        if (invError || !invItem) {
+          throw new AuthError(`Inventory item ${coffeeId} not found or does not belong to you.`);
+        }
+
+        const roastDate = (opts.roastDate as string | undefined) ?? todayIso();
+
+        // Default batch name: coffee name + roast date
+        let batchName = opts.batchName as string | undefined;
+        if (!batchName) {
+          const catalogRaw = invItem.coffee_catalog as
+            | { name: string | null }
+            | { name: string | null }[]
+            | null;
+          const catalog = Array.isArray(catalogRaw) ? (catalogRaw[0] ?? null) : catalogRaw;
+          const coffeeName = catalog?.name ?? `Coffee #${coffeeId}`;
+          batchName = `${coffeeName} — ${roastDate}`;
+        }
+
+        const insertPayload: Record<string, unknown> = {
+          user: user.id,
+          coffee_id: coffeeId,
+          batch_name: batchName,
+          roast_date: roastDate,
+        };
+
+        if (opts.ozIn !== undefined) {
+          const ozIn = parseFloat(opts.ozIn as string);
+          if (isNaN(ozIn) || ozIn <= 0)
+            throw new PrvrsError('INVALID_ARGUMENT', `Invalid --oz-in: "${opts.ozIn}".`);
+          insertPayload.oz_in = ozIn;
+        }
+
+        if (opts.ozOut !== undefined) {
+          const ozOut = parseFloat(opts.ozOut as string);
+          if (isNaN(ozOut) || ozOut <= 0)
+            throw new PrvrsError('INVALID_ARGUMENT', `Invalid --oz-out: "${opts.ozOut}".`);
+          insertPayload.oz_out = ozOut;
+        }
+
+        if (opts.notes !== undefined) {
+          insertPayload.roast_notes = opts.notes;
+        }
+
+        const { data: inserted, error: insertError } = await supabase
+          .from('roast_profiles')
+          .insert(insertPayload)
+          .select('roast_id')
+          .single();
+
+        if (insertError) throw insertError;
+
+        // Re-fetch the full row
+        const { data, error } = await supabase
+          .from('roast_profiles')
+          .select(
+            'roast_id, batch_name, coffee_id, coffee_name, roast_date, oz_in, oz_out, weight_loss_percent, roast_notes, roaster_type, total_roast_time, data_source, last_updated'
+          )
+          .eq('roast_id', inserted.roast_id)
+          .single();
+
+        if (error) throw error;
+
+        success(`Roast profile ${inserted.roast_id} created.`);
+        outputData(data, globalOpts);
+      })
+    );
+
+  // ── roast delete <id> ─────────────────────────────────────────────────────
+  roast
+    .command('delete <id>')
+    .description('Delete a roast profile (must be yours)')
+    .option('-y, --yes', 'Skip confirmation prompt')
+    .action(
+      withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
+        void cmd; // global opts not needed for delete
+        const supabase = await createAuthenticatedClient();
+
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user) {
+          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+        }
+
+        const roastId = parseInt(id, 10);
+        if (isNaN(roastId)) {
+          throw new PrvrsError('INVALID_ARGUMENT', `Invalid roast ID: "${id}".`);
+        }
+
+        // Verify ownership
+        const { data: existing, error: fetchError } = await supabase
+          .from('roast_profiles')
+          .select('roast_id, batch_name')
+          .eq('roast_id', roastId)
+          .eq('user', user.id)
+          .single();
+
+        if (fetchError || !existing) {
+          throw new AuthError(`Roast profile ${id} not found or does not belong to you.`);
+        }
+
+        if (!opts.yes) {
+          const label = existing.batch_name ? `"${existing.batch_name}"` : `#${roastId}`;
+          const ok = await confirm(`Delete roast profile ${label}?`);
+          if (!ok) {
+            info('Aborted.');
+            return;
+          }
+        }
+
+        const { error: deleteError } = await supabase
+          .from('roast_profiles')
+          .delete()
+          .eq('roast_id', roastId)
+          .eq('user', user.id);
+
+        if (deleteError) throw deleteError;
+
+        success(`Roast profile ${roastId} deleted.`);
+      })
+    );
+
+  // ── roast import-artisan <id> <file.alog> ─────────────────────────────────
+  // TODO (Phase 3): Wire up artisan import.
+  // The .alog parser runs server-side on the SvelteKit API. This command needs
+  // to POST the file content to the app's /api/artisan-import endpoint, which
+  // requires the SvelteKit server URL to be configurable (not just Supabase URL).
+  // Tracked for Phase 3 implementation.
 
   return roast;
 }
