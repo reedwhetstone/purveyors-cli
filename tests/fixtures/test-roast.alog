@@ -1,0 +1,1 @@
+{'title': 'Test Roast', 'mode': 'F', 'roastertype': 'Bullet R1', 'timex': [0, 30, 60, 90, 120], 'temp1': [350, 360, 370, 380, 390], 'temp2': [200, 250, 300, 350, 380], 'timeindex': [0, -1, 3, -1, -1, -1, 4, -1], 'weight': [16, 13.5, 'oz'], 'roastersize': 550}
