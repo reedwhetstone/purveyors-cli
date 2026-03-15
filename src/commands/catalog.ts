@@ -2,89 +2,19 @@ import { Command } from 'commander';
 import { createAnonClient } from '../lib/supabase.js';
 import { outputData, info } from '../lib/output.js';
 import { withErrorHandling } from '../lib/errors.js';
+import {
+  searchCatalog,
+  getCatalog,
+  getCatalogStats,
+  computeCatalogStats,
+  sanitizeFilterValue,
+} from '../lib/catalog.js';
+import type { CatalogItem, CatalogStats } from '../lib/catalog.js';
 import type { OutputOptions } from '../types/index.js';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Strip PostgREST special characters from user-supplied filter values.
- * Prevents injection into .or() filter strings where values are interpolated directly.
- * Removes: ( ) , . * % that have meaning in PostgREST filter syntax.
- */
-export function sanitizeFilterValue(value: string): string {
-  return value.replace(/[(),.*]/g, '');
-}
-
-// ─── Local types ──────────────────────────────────────────────────────────────
-
-export interface CatalogItem {
-  id: number;
-  name: string | null;
-  source: string | null;
-  continent: string | null;
-  country: string | null;
-  region: string | null;
-  processing: string | null;
-  drying_method: string | null;
-  cultivar_detail: string | null;
-  grade: string | null;
-  appearance: string | null;
-  type: string | null;
-  description_short: string | null;
-  description_long: string | null;
-  farm_notes: string | null;
-  cupping_notes: string | null;
-  ai_description: string | null;
-  roast_recs: string | null;
-  cost_lb: number | null;
-  lot_size: string | null;
-  bag_size: string | null;
-  score_value: number | null;
-  stocked: boolean | null;
-  stocked_date: string | null;
-  unstocked_date: string | null;
-  arrival_date: string | null;
-  last_updated: string | null;
-  public_coffee: boolean | null;
-  wholesale: boolean | null;
-  price_tiers: Array<{ min_lbs: number; price: number }> | null;
-}
-
-export interface CatalogStats {
-  total: number;
-  stocked: number;
-  byOrigin: Record<string, number>;
-  avgPricePerLb: number | null;
-  priceRange: { min: number | null; max: number | null };
-}
-
-// ─── Pure logic (exported for unit testing) ───────────────────────────────────
-
-/**
- * Aggregate stats from an array of catalog items.
- * Pure function — no I/O, safe to unit test.
- */
-export function computeCatalogStats(items: CatalogItem[]): CatalogStats {
-  const stocked = items.filter((i) => i.stocked === true).length;
-
-  const byOrigin: Record<string, number> = {};
-  for (const item of items) {
-    const key = item.country ?? item.continent ?? 'Unknown';
-    byOrigin[key] = (byOrigin[key] ?? 0) + 1;
-  }
-
-  const prices = items.map((i) => i.cost_lb).filter((p): p is number => p !== null);
-  const avgPricePerLb =
-    prices.length > 0
-      ? Math.round((prices.reduce((a, b) => a + b, 0) / prices.length) * 100) / 100
-      : null;
-  const priceRange = {
-    min: prices.length > 0 ? Math.min(...prices) : null,
-    max: prices.length > 0 ? Math.max(...prices) : null,
-  };
-
-  return { total: items.length, stocked, byOrigin, avgPricePerLb, priceRange };
-}
+// Re-export types and helpers for backwards compatibility
+export type { CatalogItem, CatalogStats };
+export { sanitizeFilterValue, computeCatalogStats };
 
 // ─── Command builder ──────────────────────────────────────────────────────────
 
@@ -111,50 +41,17 @@ export function buildCatalogCommand(): Command {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
         const supabase = createAnonClient();
 
-        let query = supabase.from('coffee_catalog').select('*');
+        const data = await searchCatalog(supabase, {
+          origin: opts.origin as string | undefined,
+          process: opts.process as string | undefined,
+          priceMin: opts.priceMin !== undefined ? parseFloat(opts.priceMin as string) : undefined,
+          priceMax: opts.priceMax !== undefined ? parseFloat(opts.priceMax as string) : undefined,
+          flavor: opts.flavor as string | undefined,
+          stocked: opts.stocked ? true : undefined,
+          limit: Math.max(1, parseInt(opts.limit as string, 10)),
+        });
 
-        if (opts.origin) {
-          const o = sanitizeFilterValue(opts.origin as string);
-          query = query.or(`country.ilike.%${o}%,continent.ilike.%${o}%,region.ilike.%${o}%`);
-        }
-
-        if (opts.process) {
-          query = query.ilike('processing', `%${opts.process as string}%`);
-        }
-
-        if (opts.priceMin !== undefined) {
-          query = query.gte('cost_lb', parseFloat(opts.priceMin as string));
-        }
-
-        if (opts.priceMax !== undefined) {
-          query = query.lte('cost_lb', parseFloat(opts.priceMax as string));
-        }
-
-        if (opts.flavor) {
-          const keywords = (opts.flavor as string)
-            .split(',')
-            .map((k) => sanitizeFilterValue(k.trim()))
-            .filter(Boolean);
-          const flavorFilters = keywords
-            .flatMap((kw) => [
-              `description_short.ilike.%${kw}%`,
-              `description_long.ilike.%${kw}%`,
-              `cupping_notes.ilike.%${kw}%`,
-              `farm_notes.ilike.%${kw}%`,
-            ])
-            .join(',');
-          query = query.or(flavorFilters);
-        }
-
-        if (opts.stocked) {
-          query = query.eq('stocked', true);
-        }
-
-        const limit = Math.max(1, parseInt(opts.limit as string, 10));
-        const { data, error } = await query.limit(limit);
-        if (error) throw error;
-
-        if (!data || data.length === 0) {
+        if (data.length === 0) {
           info('No coffees found matching your criteria.');
           return;
         }
@@ -172,13 +69,7 @@ export function buildCatalogCommand(): Command {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
         const supabase = createAnonClient();
 
-        const { data, error } = await supabase
-          .from('coffee_catalog')
-          .select('*')
-          .eq('id', parseInt(id, 10))
-          .single();
-
-        if (error) throw error;
+        const data = await getCatalog(supabase, parseInt(id, 10));
         outputData(data, globalOpts);
       })
     );
@@ -192,13 +83,7 @@ export function buildCatalogCommand(): Command {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
         const supabase = createAnonClient();
 
-        const { data, error } = await supabase
-          .from('coffee_catalog')
-          .select('id, country, continent, cost_lb, stocked');
-
-        if (error) throw error;
-
-        const stats = computeCatalogStats((data ?? []) as CatalogItem[]);
+        const stats = await getCatalogStats(supabase);
         outputData(stats, globalOpts);
       })
     );

@@ -3,53 +3,18 @@ import { createAuthenticatedClient } from '../lib/supabase.js';
 import { outputData, info, success } from '../lib/output.js';
 import { withErrorHandling, AuthError, PrvrsError } from '../lib/errors.js';
 import { confirm, todayIso } from '../lib/prompts.js';
+import {
+  listInventory,
+  getInventory,
+  addInventory,
+  updateInventory,
+  deleteInventory,
+} from '../lib/inventory.js';
+import type { InventoryItem } from '../lib/inventory.js';
 import type { OutputOptions } from '../types/index.js';
 
-// ─── Local types ──────────────────────────────────────────────────────────────
-
-export interface InventoryItem {
-  id: number;
-  rank: number | null;
-  notes: string | null;
-  cupping_notes: string | null;
-  purchase_date: string | null;
-  purchased_qty_lbs: number | null;
-  bean_cost: number | null;
-  tax_ship_cost: number | null;
-  last_updated: string;
-  user: string;
-  catalog_id: number | null;
-  stocked: boolean | null;
-  coffee_catalog: {
-    id: number;
-    name: string | null;
-    source: string | null;
-    country: string | null;
-    region: string | null;
-    processing: string | null;
-    cost_lb: number | null;
-    description_short: string | null;
-    stocked: boolean | null;
-  } | null;
-}
-
-// ─── Shared select columns ────────────────────────────────────────────────────
-
-const LIST_SELECT = [
-  'id',
-  'rank',
-  'notes',
-  'cupping_notes',
-  'purchase_date',
-  'purchased_qty_lbs',
-  'bean_cost',
-  'tax_ship_cost',
-  'last_updated',
-  'user',
-  'catalog_id',
-  'stocked',
-  'coffee_catalog!catalog_id (id, name, source, country, region, processing, cost_lb, description_short, stocked)',
-].join(', ');
+// Re-export type for backwards compatibility
+export type { InventoryItem };
 
 // ─── Command builder ──────────────────────────────────────────────────────────
 
@@ -79,20 +44,12 @@ export function buildInventoryCommand(): Command {
           throw new AuthError('Not logged in. Run `purvey auth login` first.');
         }
 
-        let query = supabase.from('green_coffee_inv').select(LIST_SELECT).eq('user', user.id);
+        const data = await listInventory(supabase, user.id, {
+          stocked: opts.stocked ? true : undefined,
+          limit: Math.max(1, parseInt(opts.limit as string, 10)),
+        });
 
-        if (opts.stocked) {
-          query = query.eq('stocked', true);
-        }
-
-        const limit = Math.max(1, parseInt(opts.limit as string, 10));
-        const { data, error } = await query
-          .order('last_updated', { ascending: false })
-          .limit(limit);
-
-        if (error) throw error;
-
-        if (!data || data.length === 0) {
+        if (data.length === 0) {
           info('No inventory items found.');
           return;
         }
@@ -118,36 +75,7 @@ export function buildInventoryCommand(): Command {
           throw new AuthError('Not logged in. Run `purvey auth login` first.');
         }
 
-        const selectColumns = [
-          'id',
-          'rank',
-          'notes',
-          'cupping_notes',
-          'purchase_date',
-          'purchased_qty_lbs',
-          'bean_cost',
-          'tax_ship_cost',
-          'last_updated',
-          'user',
-          'catalog_id',
-          'stocked',
-          'coffee_catalog!catalog_id (id, name, source, country, region, processing, cost_lb, description_short, description_long, farm_notes, cupping_notes, stocked)',
-        ].join(', ');
-
-        const { data, error } = await supabase
-          .from('green_coffee_inv')
-          .select(selectColumns)
-          .eq('id', parseInt(id, 10))
-          .eq('user', user.id)
-          .single();
-
-        if (error) {
-          if (error.code === 'PGRST116') {
-            throw new AuthError(`Inventory item ${id} not found or does not belong to you.`);
-          }
-          throw error;
-        }
-
+        const data = await getInventory(supabase, user.id, parseInt(id, 10));
         outputData(data, globalOpts);
       })
     );
@@ -188,49 +116,26 @@ export function buildInventoryCommand(): Command {
           );
         }
 
-        const insertPayload: Record<string, unknown> = {
-          user: user.id,
-          catalog_id: catalogId,
-          purchased_qty_lbs: qty,
-          purchase_date: (opts.purchaseDate as string | undefined) ?? todayIso(),
-        };
-
-        if (opts.cost !== undefined) {
-          const cost = parseFloat(opts.cost as string);
-          if (isNaN(cost))
-            throw new PrvrsError('INVALID_ARGUMENT', `Invalid --cost: "${opts.cost}".`);
-          insertPayload.bean_cost = cost;
+        const cost = opts.cost !== undefined ? parseFloat(opts.cost as string) : undefined;
+        if (cost !== undefined && isNaN(cost)) {
+          throw new PrvrsError('INVALID_ARGUMENT', `Invalid --cost: "${opts.cost}".`);
         }
 
-        if (opts.taxShip !== undefined) {
-          const taxShip = parseFloat(opts.taxShip as string);
-          if (isNaN(taxShip))
-            throw new PrvrsError('INVALID_ARGUMENT', `Invalid --tax-ship: "${opts.taxShip}".`);
-          insertPayload.tax_ship_cost = taxShip;
+        const taxShip = opts.taxShip !== undefined ? parseFloat(opts.taxShip as string) : undefined;
+        if (taxShip !== undefined && isNaN(taxShip)) {
+          throw new PrvrsError('INVALID_ARGUMENT', `Invalid --tax-ship: "${opts.taxShip}".`);
         }
 
-        if (opts.notes !== undefined) {
-          insertPayload.notes = opts.notes;
-        }
+        const data = await addInventory(supabase, user.id, {
+          catalogId,
+          qty,
+          cost,
+          taxShip,
+          notes: opts.notes as string | undefined,
+          purchaseDate: (opts.purchaseDate as string | undefined) ?? todayIso(),
+        });
 
-        const { data: inserted, error: insertError } = await supabase
-          .from('green_coffee_inv')
-          .insert(insertPayload)
-          .select('id')
-          .single();
-
-        if (insertError) throw insertError;
-
-        // Re-fetch the full row with catalog join
-        const { data, error } = await supabase
-          .from('green_coffee_inv')
-          .select(LIST_SELECT)
-          .eq('id', inserted.id)
-          .single();
-
-        if (error) throw error;
-
-        success(`Inventory item ${inserted.id} created.`);
+        success(`Inventory item ${data.id} created.`);
         outputData(data, globalOpts);
       })
     );
@@ -262,77 +167,57 @@ export function buildInventoryCommand(): Command {
           throw new PrvrsError('INVALID_ARGUMENT', `Invalid inventory ID: "${id}".`);
         }
 
-        // Verify ownership
-        const { data: existing, error: fetchError } = await supabase
-          .from('green_coffee_inv')
-          .select('id')
-          .eq('id', itemId)
-          .eq('user', user.id)
-          .single();
-
-        if (fetchError || !existing) {
-          throw new AuthError(`Inventory item ${id} not found or does not belong to you.`);
-        }
-
-        // Build partial update — only include fields that were explicitly passed
-        const updates: Record<string, unknown> = {};
-
+        // Parse CLI strings into typed values
+        let qty: number | undefined;
         if (opts.qty !== undefined) {
-          const qty = parseFloat(opts.qty as string);
+          qty = parseFloat(opts.qty as string);
           if (isNaN(qty) || qty <= 0)
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --qty: "${opts.qty}".`);
-          updates.purchased_qty_lbs = qty;
         }
 
+        let cost: number | undefined;
         if (opts.cost !== undefined) {
-          const cost = parseFloat(opts.cost as string);
+          cost = parseFloat(opts.cost as string);
           if (isNaN(cost))
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --cost: "${opts.cost}".`);
-          updates.bean_cost = cost;
         }
 
+        let taxShip: number | undefined;
         if (opts.taxShip !== undefined) {
-          const taxShip = parseFloat(opts.taxShip as string);
+          taxShip = parseFloat(opts.taxShip as string);
           if (isNaN(taxShip))
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --tax-ship: "${opts.taxShip}".`);
-          updates.tax_ship_cost = taxShip;
         }
 
-        if (opts.notes !== undefined) {
-          updates.notes = opts.notes;
-        }
-
+        let stocked: boolean | undefined;
         if (opts.stocked !== undefined) {
           const stockedStr = (opts.stocked as string).toLowerCase();
           if (stockedStr !== 'true' && stockedStr !== 'false') {
             throw new PrvrsError('INVALID_ARGUMENT', `--stocked must be "true" or "false".`);
           }
-          updates.stocked = stockedStr === 'true';
+          stocked = stockedStr === 'true';
         }
 
-        if (Object.keys(updates).length === 0) {
+        if (
+          qty === undefined &&
+          cost === undefined &&
+          taxShip === undefined &&
+          opts.notes === undefined &&
+          stocked === undefined
+        ) {
           throw new PrvrsError(
             'INVALID_ARGUMENT',
             'No update fields provided. Pass at least one of: --qty, --cost, --tax-ship, --notes, --stocked.'
           );
         }
 
-        const { error: updateError } = await supabase
-          .from('green_coffee_inv')
-          .update(updates)
-          .eq('id', itemId)
-          .eq('user', user.id);
-
-        if (updateError) throw updateError;
-
-        // Re-fetch the updated row
-        const { data, error } = await supabase
-          .from('green_coffee_inv')
-          .select(LIST_SELECT)
-          .eq('id', itemId)
-          .single();
-
-        if (error) throw error;
+        const data = await updateInventory(supabase, user.id, itemId, {
+          qty,
+          cost,
+          taxShip,
+          notes: opts.notes as string | undefined,
+          stocked,
+        });
 
         success(`Inventory item ${itemId} updated.`);
         outputData(data, globalOpts);
@@ -346,7 +231,7 @@ export function buildInventoryCommand(): Command {
     .option('-y, --yes', 'Skip confirmation prompt')
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
-        void cmd; // global opts not needed for delete
+        void cmd;
         const supabase = await createAuthenticatedClient();
 
         const {
@@ -362,18 +247,6 @@ export function buildInventoryCommand(): Command {
           throw new PrvrsError('INVALID_ARGUMENT', `Invalid inventory ID: "${id}".`);
         }
 
-        // Verify ownership
-        const { data: existing, error: fetchError } = await supabase
-          .from('green_coffee_inv')
-          .select('id, catalog_id')
-          .eq('id', itemId)
-          .eq('user', user.id)
-          .single();
-
-        if (fetchError || !existing) {
-          throw new AuthError(`Inventory item ${id} not found or does not belong to you.`);
-        }
-
         if (!opts.yes) {
           const ok = await confirm(`Delete inventory item ${itemId}?`);
           if (!ok) {
@@ -382,14 +255,7 @@ export function buildInventoryCommand(): Command {
           }
         }
 
-        const { error: deleteError } = await supabase
-          .from('green_coffee_inv')
-          .delete()
-          .eq('id', itemId)
-          .eq('user', user.id);
-
-        if (deleteError) throw deleteError;
-
+        await deleteInventory(supabase, user.id, itemId);
         success(`Inventory item ${itemId} deleted.`);
       })
     );

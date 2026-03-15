@@ -1,10 +1,19 @@
 {
   "name": "@purveyors/cli",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "The official CLI for purveyors.io — coffee intelligence from your terminal",
   "type": "module",
   "bin": {
     "purvey": "./dist/index.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./catalog": "./dist/lib/catalog.js",
+    "./inventory": "./dist/lib/inventory.js",
+    "./roast": "./dist/lib/roast.js",
+    "./sales": "./dist/lib/sales.js",
+    "./tasting": "./dist/lib/tasting.js",
+    "./lib": "./dist/lib/index.js"
   },
   "files": [
     "dist",
@@ -42,7 +51,8 @@
     "@supabase/supabase-js": "^2.49.1",
     "chalk": "^5.4.1",
     "commander": "^13.1.0",
-    "ora": "^8.2.0"
+    "ora": "^8.2.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.0",
