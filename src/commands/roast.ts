@@ -54,7 +54,7 @@ export interface RoastEventEntry {
 // ─── Command builder ──────────────────────────────────────────────────────────
 
 /**
- * `prvrs roast` — Browse and manage your roast profiles.
+ * `purvey roast` — Browse and manage your roast profiles.
  * Requires authentication.
  */
 export function buildRoastCommand(): Command {
@@ -76,7 +76,7 @@ export function buildRoastCommand(): Command {
         } = await supabase.auth.getUser();
 
         if (!user) {
-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+          throw new AuthError('Not logged in. Run `purvey auth login` first.');
         }
 
         let query = supabase
@@ -120,7 +120,7 @@ export function buildRoastCommand(): Command {
         } = await supabase.auth.getUser();
 
         if (!user) {
-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+          throw new AuthError('Not logged in. Run `purvey auth login` first.');
         }
 
         const roastId = parseInt(id, 10);
@@ -190,7 +190,7 @@ export function buildRoastCommand(): Command {
         } = await supabase.auth.getUser();
 
         if (!user) {
-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+          throw new AuthError('Not logged in. Run `purvey auth login` first.');
         }
 
         const coffeeId = parseInt(opts.coffeeId as string, 10);
@@ -288,7 +288,7 @@ export function buildRoastCommand(): Command {
         } = await supabase.auth.getUser();
 
         if (!user) {
-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+          throw new AuthError('Not logged in. Run `purvey auth login` first.');
         }
 
         const roastId = parseInt(id, 10);

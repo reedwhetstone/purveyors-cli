@@ -120,7 +120,7 @@ function startCallbackServer(): Promise<CallbackServer> {
 }
 
 /**
- * `prvrs auth login`
+ * `purvey auth login`
  * Opens a browser for Google OAuth via Supabase, captures the callback token.
  */
 const loginAction = withErrorHandling(async () => {
@@ -173,7 +173,7 @@ const loginAction = withErrorHandling(async () => {
 });
 
 /**
- * `prvrs auth status`
+ * `purvey auth status`
  * Shows current login state and token info.
  */
 const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
@@ -185,7 +185,7 @@ const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
   if (!session) {
     const result = {
       authenticated: false,
-      message: 'Not logged in. Run `prvrs auth login` to authenticate.',
+      message: 'Not logged in. Run `purvey auth login` to authenticate.',
     };
     if (!opts.pretty && !opts.csv) {
       warn(result.message);
@@ -213,7 +213,7 @@ const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
 });
 
 /**
- * `prvrs auth logout`
+ * `purvey auth logout`
  * Clears stored credentials from disk.
  */
 const logoutAction = withErrorHandling(async () => {

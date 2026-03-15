@@ -34,7 +34,7 @@ export async function createAuthenticatedClient(): Promise<SupabaseClient> {
   const creds = await readCredentials();
 
   if (!creds) {
-    throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+    throw new AuthError('Not logged in. Run `purvey auth login` first.');
   }
 
   const client = createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
@@ -62,7 +62,7 @@ export async function createAuthenticatedClient(): Promise<SupabaseClient> {
   if (error) {
     // Refresh failed — credentials are expired
     await deleteCredentials();
-    throw new AuthError('Session expired. Run `prvrs auth login` to re-authenticate.');
+    throw new AuthError('Session expired. Run `purvey auth login` to re-authenticate.');
   }
 
   return client;

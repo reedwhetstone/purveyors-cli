@@ -1,0 +1,13 @@
+ AGENTS.md                 | 12 ++++++------
+ README.md                 | 44 ++++++++++++++++++++++----------------------
+ package.json              |  4 ++--
+ src/commands/auth.ts      |  8 ++++----
+ src/commands/catalog.ts   |  2 +-
+ src/commands/inventory.ts | 12 ++++++------
+ src/commands/roast.ts     | 10 +++++-----
+ src/commands/sales.ts     | 10 +++++-----
+ src/commands/tasting.ts   |  6 +++---
+ src/index.ts              | 46 +++++++++++++++++++++++-----------------------
+ src/lib/config.ts         |  2 +-
+ src/lib/supabase.ts       |  4 ++--
+ 12 files changed, 80 insertions(+), 80 deletions(-)

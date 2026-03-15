@@ -32,12 +32,12 @@ export class ConfigError extends PrvrsError {
 export function fatal(error: unknown): never {
   if (error instanceof PrvrsError) {
     console.error(chalk.red(`✖ ${error.message}`));
-    if (process.env.PRVRS_DEBUG && error.details) {
+    if (process.env.PURVEY_DEBUG && error.details) {
       console.error(chalk.dim('Details:'), error.details);
     }
   } else if (error instanceof Error) {
     console.error(chalk.red(`✖ ${error.message}`));
-    if (process.env.PRVRS_DEBUG && error.stack) {
+    if (process.env.PURVEY_DEBUG && error.stack) {
       console.error(chalk.dim(error.stack));
     }
   } else {

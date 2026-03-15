@@ -54,7 +54,7 @@ const LIST_SELECT = [
 // ─── Command builder ──────────────────────────────────────────────────────────
 
 /**
- * `prvrs inventory` — Manage your green coffee inventory.
+ * `purvey inventory` — Manage your green coffee inventory.
  * Requires authentication.
  */
 export function buildInventoryCommand(): Command {
@@ -76,7 +76,7 @@ export function buildInventoryCommand(): Command {
         } = await supabase.auth.getUser();
 
         if (!user) {
-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+          throw new AuthError('Not logged in. Run `purvey auth login` first.');
         }
 
         let query = supabase.from('green_coffee_inv').select(LIST_SELECT).eq('user', user.id);
@@ -115,7 +115,7 @@ export function buildInventoryCommand(): Command {
         } = await supabase.auth.getUser();
 
         if (!user) {
-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+          throw new AuthError('Not logged in. Run `purvey auth login` first.');
         }
 
         const selectColumns = [
@@ -172,7 +172,7 @@ export function buildInventoryCommand(): Command {
         } = await supabase.auth.getUser();
 
         if (!user) {
-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+          throw new AuthError('Not logged in. Run `purvey auth login` first.');
         }
 
         const catalogId = parseInt(opts.catalogId as string, 10);
@@ -254,7 +254,7 @@ export function buildInventoryCommand(): Command {
         } = await supabase.auth.getUser();
 
         if (!user) {
-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+          throw new AuthError('Not logged in. Run `purvey auth login` first.');
         }
 
         const itemId = parseInt(id, 10);
@@ -354,7 +354,7 @@ export function buildInventoryCommand(): Command {
         } = await supabase.auth.getUser();
 
         if (!user) {
-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+          throw new AuthError('Not logged in. Run `purvey auth login` first.');
         }
 
         const itemId = parseInt(id, 10);

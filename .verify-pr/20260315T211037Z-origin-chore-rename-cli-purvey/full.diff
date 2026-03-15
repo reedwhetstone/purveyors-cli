@@ -1,0 +1,542 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index de5491b..6fc11a4 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -1,12 +1,12 @@
+ # AGENTS.md — Contributor Guide for @purveyors/cli
+ 
+-This is the single source of truth for anyone (human or AI agent) contributing to `prvrs`. Read it before opening a PR.
++This is the single source of truth for anyone (human or AI agent) contributing to `purvey`. Read it before opening a PR.
+ 
+ ---
+ 
+ ## Project Overview
+ 
+-`prvrs` is the official command-line interface for [purveyors.io](https://purveyors.io). It gives coffee professionals terminal access to the Purveyors platform: search the catalog, track inventory, monitor pricing, and pipe data into spreadsheets or scripts.
++`purvey` is the official command-line interface for [purveyors.io](https://purveyors.io). It gives coffee professionals terminal access to the Purveyors platform: search the catalog, track inventory, monitor pricing, and pipe data into spreadsheets or scripts.
+ 
+ **Stack:** TypeScript (strict) + Commander.js + Supabase JS SDK + Vitest
+ 
+@@ -89,7 +89,7 @@ src/
+   commands/
+     auth.ts         # auth subcommands (login, status, logout)
+   lib/
+-    config.ts       # ~/.config/prvrs/ directory management
++    config.ts       # ~/.config/purvey/ directory management
+     supabase.ts     # Supabase client factory
+     output.ts       # JSON/CSV/pretty output utilities
+     errors.ts       # PrvrsError hierarchy + fatal() + withErrorHandling()
+@@ -121,7 +121,7 @@ All commands must support:
+ - `--pretty`: indented, colorized JSON for human reading
+ - `--csv`: CSV for spreadsheet import (only works with arrays/collections)
+ 
+-User feedback messages (login success, error messages, spinners) go to **stderr**. Data output goes to **stdout**. This ensures `prvrs coffee list | jq` works correctly.
++User feedback messages (login success, error messages, spinners) go to **stderr**. Data output goes to **stdout**. This ensures `purvey coffee list | jq` works correctly.
+ 
+ ### Supabase client pattern
+ 
+@@ -139,7 +139,7 @@ const client = await createAuthenticatedClient();
+ Use `PrvrsError` subclasses for domain errors:
+ 
+ ```typescript
+-throw new AuthError('Session expired. Run `prvrs auth login`.');
++throw new AuthError('Session expired. Run `purvey auth login`.');
+ ```
+ 
+ Wrap all async action handlers with `withErrorHandling()`:
+@@ -154,7 +154,7 @@ const myAction = withErrorHandling(async (arg, cmd) => {
+ 
+ ## Credentials Storage
+ 
+-Stored at `~/.config/prvrs/credentials.json` (mode 0600, owner-readable only). Contains: `accessToken`, `refreshToken`, `expiresAt` (ms), and basic user info. Never logged or transmitted anywhere beyond Supabase.
++Stored at `~/.config/purvey/credentials.json` (mode 0600, owner-readable only). Contains: `accessToken`, `refreshToken`, `expiresAt` (ms), and basic user info. Never logged or transmitted anywhere beyond Supabase.
+ 
+ ---
+ 
+diff --git a/README.md b/README.md
+index 76d462d..a595ddc 100644
+--- a/README.md
++++ b/README.md
+@@ -1,8 +1,8 @@
+-# prvrs — The Purveyors CLI
++# purvey — The Purveyors CLI
+ 
+ > Coffee intelligence from your terminal.
+ 
+-`prvrs` is the official command-line interface for [purveyors.io](https://purveyors.io). It gives coffee professionals direct terminal access to the Purveyors platform: search green coffee availability, track pricing tiers, monitor inventory, and pipe data into spreadsheets, scripts, or dashboards.
++`purvey` is the official command-line interface for [purveyors.io](https://purveyors.io). It gives coffee professionals direct terminal access to the Purveyors platform: search green coffee availability, track pricing tiers, monitor inventory, and pipe data into spreadsheets, scripts, or dashboards.
+ 
+ ---
+ 
+@@ -17,7 +17,7 @@ Requires **Node.js >= 20**.
+ Verify:
+ 
+ ```bash
+-prvrs --version
++purvey --version
+ ```
+ 
+ ---
+@@ -26,33 +26,33 @@ prvrs --version
+ 
+ ```bash
+ # 1. Authenticate
+-prvrs auth login
++purvey auth login
+ 
+ # 2. Confirm your session
+-prvrs auth status
++purvey auth status
+ 
+ # 3. Explore commands
+-prvrs --help
++purvey --help
+ ```
+ 
+ ---
+ 
+ ## Authentication
+ 
+-`prvrs` authenticates via Google OAuth, using the same account as your purveyors.io web session.
++`purvey` authenticates via Google OAuth, using the same account as your purveyors.io web session.
+ 
+ ### Login
+ 
+ ```bash
+-prvrs auth login
++purvey auth login
+ ```
+ 
+-Opens your browser. Complete Google sign-in, then return to the terminal. Credentials are stored at `~/.config/prvrs/credentials.json` (owner-readable only, mode 0600).
++Opens your browser. Complete Google sign-in, then return to the terminal. Credentials are stored at `~/.config/purvey/credentials.json` (owner-readable only, mode 0600).
+ 
+ ### Status
+ 
+ ```bash
+-prvrs auth status
++purvey auth status
+ ```
+ 
+ ```
+@@ -64,7 +64,7 @@ prvrs auth status
+ ### Logout
+ 
+ ```bash
+-prvrs auth logout
++purvey auth logout
+ ```
+ 
+ Clears stored credentials from disk.
+@@ -73,44 +73,44 @@ Clears stored credentials from disk.
+ 
+ ## Commands
+ 
+-### `prvrs auth`
++### `purvey auth`
+ 
+-| Command             | Description                             |
+-| ------------------- | --------------------------------------- |
+-| `prvrs auth login`  | Log in via Google OAuth (opens browser) |
+-| `prvrs auth status` | Show current authentication state       |
+-| `prvrs auth logout` | Clear stored credentials                |
++| Command              | Description                             |
++| -------------------- | --------------------------------------- |
++| `purvey auth login`  | Log in via Google OAuth (opens browser) |
++| `purvey auth status` | Show current authentication state       |
++| `purvey auth logout` | Clear stored credentials                |
+ 
+ ---
+ 
+ ## Output Formats
+ 
+-All `prvrs` commands default to **compact JSON** — one line, no colors, machine-readable. This makes `prvrs` pipeable into `jq`, `csvkit`, or any script.
++All `purvey` commands default to **compact JSON** — one line, no colors, machine-readable. This makes `purvey` pipeable into `jq`, `csvkit`, or any script.
+ 
+ ### Default (compact JSON)
+ 
+ ```bash
+-prvrs auth status
++purvey auth status
+ # → {"authenticated":true,"email":"you@example.com","role":"authenticated","tokenExpires":"2026-03-16T08:00:00.000Z"}
+ ```
+ 
+ ### Pretty JSON (`--pretty`)
+ 
+ ```bash
+-prvrs auth status --pretty
++purvey auth status --pretty
+ # → indented, colorized JSON
+ ```
+ 
+ ### CSV (`--csv`)
+ 
+ ```bash
+-prvrs coffee list --csv > coffees.csv
++purvey coffee list --csv > coffees.csv
+ ```
+ 
+ ### Piping with jq
+ 
+ ```bash
+-prvrs auth status | jq .email
++purvey auth status | jq .email
+ # → "you@example.com"
+ ```
+ 
+diff --git a/package.json b/package.json
+index a101b17..1fcc723 100644
+--- a/package.json
++++ b/package.json
+@@ -1,10 +1,10 @@
+ {
+   "name": "@purveyors/cli",
+-  "version": "0.1.0",
++  "version": "0.2.0",
+   "description": "The official CLI for purveyors.io — coffee intelligence from your terminal",
+   "type": "module",
+   "bin": {
+-    "prvrs": "./dist/index.js"
++    "purvey": "./dist/index.js"
+   },
+   "files": [
+     "dist",
+diff --git a/src/commands/auth.ts b/src/commands/auth.ts
+index fc2b76b..e79058d 100644
+--- a/src/commands/auth.ts
++++ b/src/commands/auth.ts
+@@ -120,7 +120,7 @@ function startCallbackServer(): Promise<CallbackServer> {
+ }
+ 
+ /**
+- * `prvrs auth login`
++ * `purvey auth login`
+  * Opens a browser for Google OAuth via Supabase, captures the callback token.
+  */
+ const loginAction = withErrorHandling(async () => {
+@@ -173,7 +173,7 @@ const loginAction = withErrorHandling(async () => {
+ });
+ 
+ /**
+- * `prvrs auth status`
++ * `purvey auth status`
+  * Shows current login state and token info.
+  */
+ const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
+@@ -185,7 +185,7 @@ const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
+   if (!session) {
+     const result = {
+       authenticated: false,
+-      message: 'Not logged in. Run `prvrs auth login` to authenticate.',
++      message: 'Not logged in. Run `purvey auth login` to authenticate.',
+     };
+     if (!opts.pretty && !opts.csv) {
+       warn(result.message);
+@@ -213,7 +213,7 @@ const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
+ });
+ 
+ /**
+- * `prvrs auth logout`
++ * `purvey auth logout`
+  * Clears stored credentials from disk.
+  */
+ const logoutAction = withErrorHandling(async () => {
+diff --git a/src/commands/catalog.ts b/src/commands/catalog.ts
+index 4635e2d..0b8d093 100644
+--- a/src/commands/catalog.ts
++++ b/src/commands/catalog.ts
+@@ -89,7 +89,7 @@ export function computeCatalogStats(items: CatalogItem[]): CatalogStats {
+ // ─── Command builder ──────────────────────────────────────────────────────────
+ 
+ /**
+- * `prvrs catalog` — Browse the public coffee catalog.
++ * `purvey catalog` — Browse the public coffee catalog.
+  * The coffee_catalog table is publicly readable; no auth required.
+  */
+ export function buildCatalogCommand(): Command {
+diff --git a/src/commands/inventory.ts b/src/commands/inventory.ts
+index c8f1dfc..5a32189 100644
+--- a/src/commands/inventory.ts
++++ b/src/commands/inventory.ts
+@@ -54,7 +54,7 @@ const LIST_SELECT = [
+ // ─── Command builder ──────────────────────────────────────────────────────────
+ 
+ /**
+- * `prvrs inventory` — Manage your green coffee inventory.
++ * `purvey inventory` — Manage your green coffee inventory.
+  * Requires authentication.
+  */
+ export function buildInventoryCommand(): Command {
+@@ -76,7 +76,7 @@ export function buildInventoryCommand(): Command {
+         } = await supabase.auth.getUser();
+ 
+         if (!user) {
+-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
++          throw new AuthError('Not logged in. Run `purvey auth login` first.');
+         }
+ 
+         let query = supabase.from('green_coffee_inv').select(LIST_SELECT).eq('user', user.id);
+@@ -115,7 +115,7 @@ export function buildInventoryCommand(): Command {
+         } = await supabase.auth.getUser();
+ 
+         if (!user) {
+-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
++          throw new AuthError('Not logged in. Run `purvey auth login` first.');
+         }
+ 
+         const selectColumns = [
+@@ -172,7 +172,7 @@ export function buildInventoryCommand(): Command {
+         } = await supabase.auth.getUser();
+ 
+         if (!user) {
+-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
++          throw new AuthError('Not logged in. Run `purvey auth login` first.');
+         }
+ 
+         const catalogId = parseInt(opts.catalogId as string, 10);
+@@ -254,7 +254,7 @@ export function buildInventoryCommand(): Command {
+         } = await supabase.auth.getUser();
+ 
+         if (!user) {
+-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
++          throw new AuthError('Not logged in. Run `purvey auth login` first.');
+         }
+ 
+         const itemId = parseInt(id, 10);
+@@ -354,7 +354,7 @@ export function buildInventoryCommand(): Command {
+         } = await supabase.auth.getUser();
+ 
+         if (!user) {
+-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
++          throw new AuthError('Not logged in. Run `purvey auth login` first.');
+         }
+ 
+         const itemId = parseInt(id, 10);
+diff --git a/src/commands/roast.ts b/src/commands/roast.ts
+index f5f92ba..56f55ce 100644
+--- a/src/commands/roast.ts
++++ b/src/commands/roast.ts
+@@ -54,7 +54,7 @@ export interface RoastEventEntry {
+ // ─── Command builder ──────────────────────────────────────────────────────────
+ 
+ /**
+- * `prvrs roast` — Browse and manage your roast profiles.
++ * `purvey roast` — Browse and manage your roast profiles.
+  * Requires authentication.
+  */
+ export function buildRoastCommand(): Command {
+@@ -76,7 +76,7 @@ export function buildRoastCommand(): Command {
+         } = await supabase.auth.getUser();
+ 
+         if (!user) {
+-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
++          throw new AuthError('Not logged in. Run `purvey auth login` first.');
+         }
+ 
+         let query = supabase
+@@ -120,7 +120,7 @@ export function buildRoastCommand(): Command {
+         } = await supabase.auth.getUser();
+ 
+         if (!user) {
+-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
++          throw new AuthError('Not logged in. Run `purvey auth login` first.');
+         }
+ 
+         const roastId = parseInt(id, 10);
+@@ -190,7 +190,7 @@ export function buildRoastCommand(): Command {
+         } = await supabase.auth.getUser();
+ 
+         if (!user) {
+-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
++          throw new AuthError('Not logged in. Run `purvey auth login` first.');
+         }
+ 
+         const coffeeId = parseInt(opts.coffeeId as string, 10);
+@@ -288,7 +288,7 @@ export function buildRoastCommand(): Command {
+         } = await supabase.auth.getUser();
+ 
+         if (!user) {
+-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
++          throw new AuthError('Not logged in. Run `purvey auth login` first.');
+         }
+ 
+         const roastId = parseInt(id, 10);
+diff --git a/src/commands/sales.ts b/src/commands/sales.ts
+index 6f54e68..a71d756 100644
+--- a/src/commands/sales.ts
++++ b/src/commands/sales.ts
+@@ -25,7 +25,7 @@ const SALE_SELECT = 'id, roast_id, oz_sold, sale_price, buyer, sell_date, user,
+ // ─── Command builder ──────────────────────────────────────────────────────────
+ 
+ /**
+- * `prvrs sales` — Record and manage coffee sales.
++ * `purvey sales` — Record and manage coffee sales.
+  * Requires authentication.
+  */
+ export function buildSalesCommand(): Command {
+@@ -46,7 +46,7 @@ export function buildSalesCommand(): Command {
+         } = await supabase.auth.getUser();
+ 
+         if (!user) {
+-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
++          throw new AuthError('Not logged in. Run `purvey auth login` first.');
+         }
+ 
+         const limit = Math.max(1, parseInt(opts.limit as string, 10));
+@@ -89,7 +89,7 @@ export function buildSalesCommand(): Command {
+         } = await supabase.auth.getUser();
+ 
+         if (!user) {
+-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
++          throw new AuthError('Not logged in. Run `purvey auth login` first.');
+         }
+ 
+         const roastId = parseInt(opts.roastId as string, 10);
+@@ -177,7 +177,7 @@ export function buildSalesCommand(): Command {
+         } = await supabase.auth.getUser();
+ 
+         if (!user) {
+-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
++          throw new AuthError('Not logged in. Run `purvey auth login` first.');
+         }
+ 
+         const saleId = parseInt(id, 10);
+@@ -266,7 +266,7 @@ export function buildSalesCommand(): Command {
+         } = await supabase.auth.getUser();
+ 
+         if (!user) {
+-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
++          throw new AuthError('Not logged in. Run `purvey auth login` first.');
+         }
+ 
+         const saleId = parseInt(id, 10);
+diff --git a/src/commands/tasting.ts b/src/commands/tasting.ts
+index 46f9e05..c60997e 100644
+--- a/src/commands/tasting.ts
++++ b/src/commands/tasting.ts
+@@ -67,7 +67,7 @@ export function parseCuppingScore(raw: string, flag: string): number {
+ // ─── Command builder ──────────────────────────────────────────────────────────
+ 
+ /**
+- * `prvrs tasting` — View and record tasting notes for a bean.
++ * `purvey tasting` — View and record tasting notes for a bean.
+  * Combines supplier notes from coffee_catalog with user notes from green_coffee_inv.
+  * Requires authentication.
+  */
+@@ -111,7 +111,7 @@ export function buildTastingCommand(): Command {
+         } = await supabase.auth.getUser();
+ 
+         if (!user) {
+-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
++          throw new AuthError('Not logged in. Run `purvey auth login` first.');
+         }
+ 
+         const result: TastingResult = {
+@@ -232,7 +232,7 @@ export function buildTastingCommand(): Command {
+         } = await supabase.auth.getUser();
+ 
+         if (!user) {
+-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
++          throw new AuthError('Not logged in. Run `purvey auth login` first.');
+         }
+ 
+         // Verify ownership of the inventory item
+diff --git a/src/index.ts b/src/index.ts
+index 93eee83..9b30e7e 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -25,7 +25,7 @@ try {
+ const program = new Command();
+ 
+ program
+-  .name('prvrs')
++  .name('purvey')
+   .description('The official CLI for purveyors.io — coffee intelligence from your terminal')
+   .version(version, '-v, --version', 'Print version')
+   .option('--pretty', 'Pretty-print JSON output with colors')
+@@ -34,29 +34,29 @@ program
+     'after',
+     `
+ Examples:
+-  $ prvrs auth login                      # Authenticate via Google
+-  $ prvrs auth status                     # Check login state
+-  $ prvrs catalog search --origin Ethiopia --stocked
+-  $ prvrs catalog get 42
+-  $ prvrs catalog stats
+-  $ prvrs inventory list --stocked
+-  $ prvrs inventory get 7
+-  $ prvrs inventory add --catalog-id 42 --qty 5 --cost 28.50
+-  $ prvrs inventory update 7 --stocked true
+-  $ prvrs inventory delete 7
+-  $ prvrs roast list --limit 5
+-  $ prvrs roast get 123 --include-temps
+-  $ prvrs roast create --coffee-id 7 --batch-name "Ethiopia Guji" --oz-in 16
+-  $ prvrs roast delete 123
+-  $ prvrs sales list
+-  $ prvrs sales record --roast-id 123 --oz 12 --price 22.00
+-  $ prvrs sales update 5 --price 24.00
+-  $ prvrs sales delete 5
+-  $ prvrs tasting get 42 --filter both
+-  $ prvrs tasting rate 7 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
+-  $ prvrs --help                          # Show this help
++  $ purvey auth login                      # Authenticate via Google
++  $ purvey auth status                     # Check login state
++  $ purvey catalog search --origin Ethiopia --stocked
++  $ purvey catalog get 42
++  $ purvey catalog stats
++  $ purvey inventory list --stocked
++  $ purvey inventory get 7
++  $ purvey inventory add --catalog-id 42 --qty 5 --cost 28.50
++  $ purvey inventory update 7 --stocked true
++  $ purvey inventory delete 7
++  $ purvey roast list --limit 5
++  $ purvey roast get 123 --include-temps
++  $ purvey roast create --coffee-id 7 --batch-name "Ethiopia Guji" --oz-in 16
++  $ purvey roast delete 123
++  $ purvey sales list
++  $ purvey sales record --roast-id 123 --oz 12 --price 22.00
++  $ purvey sales update 5 --price 24.00
++  $ purvey sales delete 5
++  $ purvey tasting get 42 --filter both
++  $ purvey tasting rate 7 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
++  $ purvey --help                          # Show this help
+ 
+-Docs: https://purveyors.io/docs/cli
++Docs: https://github.com/reedwhetstone/purveyors-cli
+ `
+   );
+ 
+diff --git a/src/lib/config.ts b/src/lib/config.ts
+index 3c1885e..e13603a 100644
+--- a/src/lib/config.ts
++++ b/src/lib/config.ts
+@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile, unlink, access } from 'fs/promises';
+ import { constants } from 'fs';
+ import type { StoredCredentials } from '../types/index.js';
+ 
+-const CONFIG_DIR = join(homedir(), '.config', 'prvrs');
++const CONFIG_DIR = join(homedir(), '.config', 'purvey');
+ const CREDENTIALS_FILE = join(CONFIG_DIR, 'credentials.json');
+ 
+ /**
+diff --git a/src/lib/supabase.ts b/src/lib/supabase.ts
+index 4e5a581..ad245e4 100644
+--- a/src/lib/supabase.ts
++++ b/src/lib/supabase.ts
+@@ -34,7 +34,7 @@ export async function createAuthenticatedClient(): Promise<SupabaseClient> {
+   const creds = await readCredentials();
+ 
+   if (!creds) {
+-    throw new AuthError('Not logged in. Run `prvrs auth login` first.');
++    throw new AuthError('Not logged in. Run `purvey auth login` first.');
+   }
+ 
+   const client = createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
+@@ -62,7 +62,7 @@ export async function createAuthenticatedClient(): Promise<SupabaseClient> {
+   if (error) {
+     // Refresh failed — credentials are expired
+     await deleteCredentials();
+-    throw new AuthError('Session expired. Run `prvrs auth login` to re-authenticate.');
++    throw new AuthError('Session expired. Run `purvey auth login` to re-authenticate.');
+   }
+ 
+   return client;
