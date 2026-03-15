@@ -56,7 +56,7 @@ Examples:
   $ prvrs tasting rate 7 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
   $ prvrs --help                          # Show this help
 
-Docs: https://purveyors.io/docs/cli
+Docs: https://github.com/reedwhetstone/purveyors-cli
 `
   );
 
