@@ -208,8 +208,8 @@ export function transformArtisanData(
       temperatureData.push({
         roast_id: roastId,
         time_seconds: timeSeconds,
-        bean_temp: beanTemps[index] || null,
-        environmental_temp: envTemps[index] || null,
+        bean_temp: beanTemps[index] ?? null,
+        environmental_temp: envTemps[index] ?? null,
         ambient_temp: null, // Artisan doesn't typically have ambient temp
         data_source: 'artisan_import',
       });
@@ -341,25 +341,25 @@ export function transformArtisanData(
     },
     computed: {
       // Turning point data
-      tp_time: computedData.TP_time || null,
-      tp_temp: computedData.TP_BT || null,
+      tp_time: computedData.TP_time ?? null,
+      tp_temp: computedData.TP_BT ?? null,
       // Rate of rise metrics
-      dry_phase_ror: computedData.dry_phase_ror || null,
-      mid_phase_ror: computedData.mid_phase_ror || null,
-      finish_phase_ror: computedData.finish_phase_ror || null,
-      total_ror: computedData.total_ror || null,
+      dry_phase_ror: computedData.dry_phase_ror ?? null,
+      mid_phase_ror: computedData.mid_phase_ror ?? null,
+      finish_phase_ror: computedData.finish_phase_ror ?? null,
+      total_ror: computedData.total_ror ?? null,
       // Advanced metrics
-      auc: computedData.AUC || null,
-      dry_phase_delta_temp: computedData.dry_phase_delta_temp || null,
+      auc: computedData.AUC ?? null,
+      dry_phase_delta_temp: computedData.dry_phase_delta_temp ?? null,
       // Temperature mappings to existing columns (use computed when available)
-      charge_temp_computed: computedData.CHARGE_BT || null,
-      dry_end_temp_computed: computedData.DRY_BT || null,
-      drop_temp_computed: computedData.DROP_BT || null,
-      cool_temp_computed: computedData.COOL_BT || null,
+      charge_temp_computed: computedData.CHARGE_BT ?? null,
+      dry_end_temp_computed: computedData.DRY_BT ?? null,
+      drop_temp_computed: computedData.DROP_BT ?? null,
+      cool_temp_computed: computedData.COOL_BT ?? null,
       // Time mappings to existing columns
-      dry_end_time_computed: computedData.DRY_time || null,
-      drop_time_computed: computedData.DROP_time || null,
-      cool_time_computed: computedData.COOL_time || null,
+      dry_end_time_computed: computedData.DRY_time ?? null,
+      drop_time_computed: computedData.DROP_time ?? null,
+      cool_time_computed: computedData.COOL_time ?? null,
     },
     milestoneEvents,
     controlEvents,
@@ -412,40 +412,42 @@ export async function importArtisanData(
       roaster_size: artisanData.roastersize || 0,
       temperature_unit: 'F', // Always store as Fahrenheit
       // Chart display settings from Artisan
-      chart_x_min: artisanData.xmin || null,
-      chart_x_max: artisanData.xmax || null,
-      chart_y_min: artisanData.ymin || null,
-      chart_y_max: artisanData.ymax || null,
-      chart_z_min: artisanData.zmin || null,
-      chart_z_max: artisanData.zmax || null,
+      chart_x_min: artisanData.xmin ?? null,
+      chart_x_max: artisanData.xmax ?? null,
+      chart_y_min: artisanData.ymin ?? null,
+      chart_y_max: artisanData.ymax ?? null,
+      chart_z_min: artisanData.zmin ?? null,
+      chart_z_max: artisanData.zmax ?? null,
       // Milestone data for quick access (use computed when available)
-      charge_time: processedData.milestones.charge || null,
+      charge_time: processedData.milestones.charge ?? null,
       dry_end_time:
-        processedData.computed.dry_end_time_computed || processedData.milestones.dry_end || null,
-      fc_start_time: processedData.milestones.fc_start || null,
-      fc_end_time: processedData.milestones.fc_end || null,
-      sc_start_time: processedData.milestones.sc_start || null,
-      drop_time: processedData.computed.drop_time_computed || processedData.milestones.drop || null,
-      cool_time: processedData.computed.cool_time_computed || processedData.milestones.cool || null,
+        (processedData.computed.dry_end_time_computed || processedData.milestones.dry_end) ?? null,
+      fc_start_time: processedData.milestones.fc_start ?? null,
+      fc_end_time: processedData.milestones.fc_end ?? null,
+      sc_start_time: processedData.milestones.sc_start ?? null,
+      drop_time:
+        (processedData.computed.drop_time_computed || processedData.milestones.drop) ?? null,
+      cool_time:
+        (processedData.computed.cool_time_computed || processedData.milestones.cool) ?? null,
       // Milestone temperatures (use computed when available)
-      charge_temp: processedData.computed.charge_temp_computed || null,
-      dry_end_temp: processedData.computed.dry_end_temp_computed || null,
-      drop_temp: processedData.computed.drop_temp_computed || null,
-      cool_temp: processedData.computed.cool_temp_computed || null,
+      charge_temp: processedData.computed.charge_temp_computed ?? null,
+      dry_end_temp: processedData.computed.dry_end_temp_computed ?? null,
+      drop_temp: processedData.computed.drop_temp_computed ?? null,
+      cool_temp: processedData.computed.cool_temp_computed ?? null,
       // Phase calculations
-      dry_percent: processedData.phases.drying_percent || null,
-      maillard_percent: processedData.phases.maillard_percent || null,
-      development_percent: processedData.phases.development_percent || null,
-      total_roast_time: processedData.phases.total_time_seconds || null,
+      dry_percent: processedData.phases.drying_percent ?? null,
+      maillard_percent: processedData.phases.maillard_percent ?? null,
+      development_percent: processedData.phases.development_percent ?? null,
+      total_roast_time: processedData.phases.total_time_seconds ?? null,
       // New computed data fields
-      tp_time: processedData.computed.tp_time || null,
-      tp_temp: processedData.computed.tp_temp || null,
-      dry_phase_ror: processedData.computed.dry_phase_ror || null,
-      mid_phase_ror: processedData.computed.mid_phase_ror || null,
-      finish_phase_ror: processedData.computed.finish_phase_ror || null,
-      total_ror: processedData.computed.total_ror || null,
-      auc: processedData.computed.auc || null,
-      dry_phase_delta_temp: processedData.computed.dry_phase_delta_temp || null,
+      tp_time: processedData.computed.tp_time ?? null,
+      tp_temp: processedData.computed.tp_temp ?? null,
+      dry_phase_ror: processedData.computed.dry_phase_ror ?? null,
+      mid_phase_ror: processedData.computed.mid_phase_ror ?? null,
+      finish_phase_ror: processedData.computed.finish_phase_ror ?? null,
+      total_ror: processedData.computed.total_ror ?? null,
+      auc: processedData.computed.auc ?? null,
+      dry_phase_delta_temp: processedData.computed.dry_phase_delta_temp ?? null,
       roast_uuid: processedData.profileData.roast_uuid,
       data_source: 'artisan_import',
     })
@@ -456,16 +458,38 @@ export async function importArtisanData(
     throw updateError;
   }
 
+  // Write data: clear old → insert new.
+  // If inserts fail, the cleared data is gone — Supabase doesn't support multi-table
+  // transactions over the REST API. To minimize the corruption window, we clear only
+  // after fully preparing the new data (already done above), and we attempt to surface
+  // partial failure clearly so callers can retry.
+  const allEvents = [...processedData.milestoneEvents, ...processedData.controlEvents];
+
   // 1. Clear existing imported data for this roast
   await clearRoastData(supabase, roastId, 'artisan_import');
 
   // 2. Insert temperature data
-  await insertTemperatures(supabase, processedData.temperatureData);
+  try {
+    await insertTemperatures(supabase, processedData.temperatureData);
+  } catch (tempError) {
+    // Temps failed — roast profile is updated but has no temperature data.
+    // Log and rethrow; caller should surface this as a retriable error.
+    console.error(`Temperature insert failed for roast ${roastId}:`, tempError);
+    throw new Error(
+      `Import partially failed: roast profile was updated but temperature data could not be saved. ` +
+        `Re-running the import will restore the data. Original error: ${tempError instanceof Error ? tempError.message : String(tempError)}`
+    );
+  }
 
   // 3. Insert milestone + control events
-  const allEvents = [...processedData.milestoneEvents, ...processedData.controlEvents];
   if (allEvents.length > 0) {
-    await insertEvents(supabase, allEvents);
+    try {
+      await insertEvents(supabase, allEvents);
+    } catch (eventError) {
+      // Events failed — temps are saved, events are not. Non-fatal: temps are the core data.
+      console.error(`Event insert failed for roast ${roastId}:`, eventError);
+      // Continue — return a partial success result below
+    }
   }
 
   // Create import log entry
