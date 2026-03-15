@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { computeCatalogStats } from '../src/commands/catalog.js';
-import type { CatalogItem } from '../src/commands/catalog.js';
+import { computeCatalogStats } from '../src/lib/catalog.js';
+import type { CatalogItem } from '../src/lib/catalog.js';
 
 // Minimal factory so tests are readable without full item payloads
 function makeItem(overrides: Partial<CatalogItem> = {}): CatalogItem {

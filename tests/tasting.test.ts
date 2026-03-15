@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { TastingFilter } from '../src/commands/tasting.js';
+import type { TastingFilter } from '../src/lib/tasting.js';
 
 // Pure logic helpers extracted from tasting.ts for unit testing.
 // The main command relies on live Supabase; these tests cover the validation

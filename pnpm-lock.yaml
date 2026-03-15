@@ -19,6 +19,9 @@ importers:
       ora:
         specifier: ^8.2.0
         version: 8.2.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@eslint/eslintrc':
         specifier: ^3.3.0
@@ -1865,6 +1868,12 @@ packages:
       }
     engines: { node: '>=10' }
 
+  zod@4.3.6:
+    resolution:
+      {
+        integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==,
+      }
+
 snapshots:
   '@esbuild/aix-ppc64@0.27.4':
     optional: true
@@ -2860,3 +2869,5 @@ snapshots:
   ws@8.19.0: {}
 
   yocto-queue@0.1.0: {}
+
+  zod@4.3.6: {}
