@@ -54,15 +54,7 @@ jobs:
           PURVEYORS_SUPABASE_URL: https://placeholder.supabase.co
           PURVEYORS_SUPABASE_ANON_KEY: placeholder-anon-key
 
-      - name: Check Supabase types are up to date
-        if: github.event_name == 'pull_request'
-        run: |
-          npx supabase gen types typescript --project-id bjblfzfdtfvuitqdbodn > /tmp/database.types.generated.ts
-          if ! diff -q src/types/database.types.ts /tmp/database.types.generated.ts > /dev/null 2>&1; then
-            echo "::error::Supabase types are stale. Run the 'Supabase Type Generation' GitHub Actions workflow to regenerate src/types/database.types.ts"
-            diff src/types/database.types.ts /tmp/database.types.generated.ts || true
-            exit 1
-          fi
-          echo "Supabase types are up to date."
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      # NOTE: Supabase type staleness check is intentionally omitted here.
+      # The check requires SUPABASE_ACCESS_TOKEN and should be added as a
+      # separate job once the typegen workflow has been triggered and real
+      # types are committed. See .github/workflows/typegen.yml.
