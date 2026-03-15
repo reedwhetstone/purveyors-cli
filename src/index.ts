@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { buildAuthCommand } from './commands/auth.js';
+import { buildCatalogCommand } from './commands/catalog.js';
+import { buildInventoryCommand } from './commands/inventory.js';
+import { buildRoastCommand } from './commands/roast.js';
+import { buildTastingCommand } from './commands/tasting.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -27,10 +31,17 @@ program
     'after',
     `
 Examples:
-  $ prvrs auth login          # Authenticate via Google
-  $ prvrs auth status         # Check login state
-  $ prvrs auth logout         # Clear credentials
-  $ prvrs --help              # Show this help
+  $ prvrs auth login                      # Authenticate via Google
+  $ prvrs auth status                     # Check login state
+  $ prvrs catalog search --origin Ethiopia --stocked
+  $ prvrs catalog get 42
+  $ prvrs catalog stats
+  $ prvrs inventory list --stocked
+  $ prvrs inventory get 7
+  $ prvrs roast list --limit 5
+  $ prvrs roast get 123 --include-temps
+  $ prvrs tasting get 42 --filter both
+  $ prvrs --help                          # Show this help
 
 Docs: https://purveyors.io/docs/cli
 `
@@ -38,6 +49,10 @@ Docs: https://purveyors.io/docs/cli
 
 // Register subcommands
 program.addCommand(buildAuthCommand());
+program.addCommand(buildCatalogCommand());
+program.addCommand(buildInventoryCommand());
+program.addCommand(buildRoastCommand());
+program.addCommand(buildTastingCommand());
 
 // Parse and dispatch
 program.parseAsync(process.argv).catch((err: unknown) => {
