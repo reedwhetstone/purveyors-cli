@@ -3,18 +3,15 @@ import { readCredentials, writeCredentials, deleteCredentials } from './config.j
 import { AuthError } from './errors.js';
 
 /**
- * Public Supabase values — safe to ship in any client bundle.
+ * Public Supabase values — identical to what ships in every purveyors.io client bundle.
+ * These are NOT secrets. The anon key only grants access through RLS policies.
  * Override via environment variables for dev/staging.
  */
-const SUPABASE_URL = process.env.PURVEYORS_SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.PURVEYORS_SUPABASE_ANON_KEY;
-
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  throw new Error(
-    'Missing required environment variables: PURVEYORS_SUPABASE_URL and PURVEYORS_SUPABASE_ANON_KEY. ' +
-      'Set them or create a .env file.'
-  );
-}
+const SUPABASE_URL =
+  process.env.PURVEYORS_SUPABASE_URL || 'https://bjblfzfdtfvuitqdbodn.supabase.co';
+const SUPABASE_ANON_KEY =
+  process.env.PURVEYORS_SUPABASE_ANON_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJqYmxmemZkdGZ2dWl0cWRib2RuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzgwMTQ2OTAsImV4cCI6MjA1MzU5MDY5MH0.v1YcBAxFSvEthKPp4PkV3BCAsXYJn9Z2nuJBcEfnJFo';
 
 /**
  * Create a Supabase client with no session (anonymous/unauthenticated).
