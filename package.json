@@ -13,7 +13,8 @@
     "./roast": "./dist/lib/roast.js",
     "./sales": "./dist/lib/sales.js",
     "./tasting": "./dist/lib/tasting.js",
-    "./lib": "./dist/lib/index.js"
+    "./lib": "./dist/lib/index.js",
+    "./artisan": "./dist/lib/artisan/index.js"
   },
   "files": [
     "dist",
