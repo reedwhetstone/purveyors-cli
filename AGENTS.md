@@ -66,7 +66,7 @@ All lint and type checks must pass before merging.
 | ----------------------------- | -------- | -------------------------------------------------- |
 | `PURVEYORS_SUPABASE_URL`      | Yes      | Supabase project URL (get from Supabase dashboard) |
 | `PURVEYORS_SUPABASE_ANON_KEY` | Yes      | Supabase anon/publishable key                      |
-| `PRVRS_DEBUG`                 | No       | Set to any value to enable verbose error output    |
+| `PURVEY_DEBUG`                | No       | Set to any value to enable verbose error output    |
 
 Create a `.env` file in the repo root for local development:
 

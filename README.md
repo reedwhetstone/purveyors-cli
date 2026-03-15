@@ -104,7 +104,7 @@ purvey auth status --pretty
 ### CSV (`--csv`)
 
 ```bash
-purvey coffee list --csv > coffees.csv
+purvey catalog search --csv > coffees.csv
 ```
 
 ### Piping with jq
@@ -124,7 +124,7 @@ User feedback messages (spinners, success/error) go to **stderr**, so they never
 | ----------------------------- | ---------------------------------------------------------- |
 | `PURVEYORS_SUPABASE_URL`      | Override the Supabase project URL (useful for dev/staging) |
 | `PURVEYORS_SUPABASE_ANON_KEY` | Override the Supabase anon key                             |
-| `PRVRS_DEBUG`                 | Set to any value to enable verbose error output            |
+| `PURVEY_DEBUG`                | Set to any value to enable verbose error output            |
 
 ---
 
