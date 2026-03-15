@@ -1,11 +1,31 @@
 {
   "name": "@purveyors/cli",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "The official CLI for purveyors.io — coffee intelligence from your terminal",
   "type": "module",
   "bin": {
     "prvrs": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/reedwhetstone/purveyors-cli.git"
+  },
+  "homepage": "https://purveyors.io",
+  "keywords": [
+    "coffee",
+    "cli",
+    "purveyors",
+    "green-coffee",
+    "roasting",
+    "supabase"
+  ],
+  "author": "Reed Whetstone",
+  "license": "SEE LICENSE IN LICENSE.md",
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
