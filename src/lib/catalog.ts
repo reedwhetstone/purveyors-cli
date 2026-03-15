@@ -76,7 +76,7 @@ export type GetCatalogStatsInput = z.input<typeof getCatalogStatsSchema>;
  * Removes: ( ) , . * % that have meaning in PostgREST filter syntax.
  */
 export function sanitizeFilterValue(value: string): string {
-  return value.replace(/[(),.*]/g, '');
+  return value.replace(/[(),.*%]/g, '');
 }
 
 /**
@@ -124,7 +124,8 @@ export async function searchCatalog(
   }
 
   if (parsed.process) {
-    query = query.ilike('processing', `%${parsed.process}%`);
+    const p = sanitizeFilterValue(parsed.process);
+    query = query.ilike('processing', `%${p}%`);
   }
 
   if (parsed.priceMin !== undefined) {

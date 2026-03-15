@@ -47,8 +47,8 @@ export interface ArtisanRoastData {
 
   // Time series data (required arrays)
   timex: number[]; // Time in seconds from start
-  temp1: number[]; // Bean temperature (BT)
-  temp2: number[]; // Environmental temperature (ET)
+  temp1: number[]; // Environmental temperature (ET) — Artisan channel 1
+  temp2: number[]; // Bean temperature (BT) — Artisan channel 2
 
   // Milestone events - indices into timex array
   // [CHARGE, DRY_END, FC_START, FC_END, SC_START, SC_END, DROP, COOL]
