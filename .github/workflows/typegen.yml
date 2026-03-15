@@ -1,0 +1,39 @@
+name: Supabase Type Generation
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Commit updated types'
+        required: false
+        default: 'true'
+        type: boolean
+
+jobs:
+  generate-types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Generate Supabase types
+        run: npx supabase gen types typescript --project-id bjblfzfdtfvuitqdbodn > src/types/database.types.ts
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Check for changes
+        id: diff
+        run: |
+          git diff --exit-code src/types/database.types.ts || echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Commit and push
+        if: steps.diff.outputs.changed == 'true' && inputs.commit == 'true'
+        run: |
+          git config user.name "OpenClaw Bot"
+          git config user.email "greenaziod@gmail.com"
+          git add src/types/database.types.ts
+          git commit -m "chore: regenerate Supabase types from live schema"
+          git push
