@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile, unlink, access } from 'fs/promises';
 import { constants } from 'fs';
 import type { StoredCredentials } from '../types/index.js';
 
-const CONFIG_DIR = join(homedir(), '.config', 'prvrs');
+const CONFIG_DIR = join(homedir(), '.config', 'purvey');
 const CREDENTIALS_FILE = join(CONFIG_DIR, 'credentials.json');
 
 /**

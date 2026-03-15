@@ -1,8 +1,8 @@
-# prvrs — The Purveyors CLI
+# purvey — The Purveyors CLI
 
 > Coffee intelligence from your terminal.
 
-`prvrs` is the official command-line interface for [purveyors.io](https://purveyors.io). It gives coffee professionals direct terminal access to the Purveyors platform: search green coffee availability, track pricing tiers, monitor inventory, and pipe data into spreadsheets, scripts, or dashboards.
+`purvey` is the official command-line interface for [purveyors.io](https://purveyors.io). It gives coffee professionals direct terminal access to the Purveyors platform: search green coffee availability, track pricing tiers, monitor inventory, and pipe data into spreadsheets, scripts, or dashboards.
 
 ---
 
@@ -17,7 +17,7 @@ Requires **Node.js >= 20**.
 Verify:
 
 ```bash
-prvrs --version
+purvey --version
 ```
 
 ---
@@ -26,33 +26,33 @@ prvrs --version
 
 ```bash
 # 1. Authenticate
-prvrs auth login
+purvey auth login
 
 # 2. Confirm your session
-prvrs auth status
+purvey auth status
 
 # 3. Explore commands
-prvrs --help
+purvey --help
 ```
 
 ---
 
 ## Authentication
 
-`prvrs` authenticates via Google OAuth, using the same account as your purveyors.io web session.
+`purvey` authenticates via Google OAuth, using the same account as your purveyors.io web session.
 
 ### Login
 
 ```bash
-prvrs auth login
+purvey auth login
 ```
 
-Opens your browser. Complete Google sign-in, then return to the terminal. Credentials are stored at `~/.config/prvrs/credentials.json` (owner-readable only, mode 0600).
+Opens your browser. Complete Google sign-in, then return to the terminal. Credentials are stored at `~/.config/purvey/credentials.json` (owner-readable only, mode 0600).
 
 ### Status
 
 ```bash
-prvrs auth status
+purvey auth status
 ```
 
 ```
@@ -64,7 +64,7 @@ prvrs auth status
 ### Logout
 
 ```bash
-prvrs auth logout
+purvey auth logout
 ```
 
 Clears stored credentials from disk.
@@ -73,44 +73,44 @@ Clears stored credentials from disk.
 
 ## Commands
 
-### `prvrs auth`
+### `purvey auth`
 
-| Command             | Description                             |
-| ------------------- | --------------------------------------- |
-| `prvrs auth login`  | Log in via Google OAuth (opens browser) |
-| `prvrs auth status` | Show current authentication state       |
-| `prvrs auth logout` | Clear stored credentials                |
+| Command              | Description                             |
+| -------------------- | --------------------------------------- |
+| `purvey auth login`  | Log in via Google OAuth (opens browser) |
+| `purvey auth status` | Show current authentication state       |
+| `purvey auth logout` | Clear stored credentials                |
 
 ---
 
 ## Output Formats
 
-All `prvrs` commands default to **compact JSON** — one line, no colors, machine-readable. This makes `prvrs` pipeable into `jq`, `csvkit`, or any script.
+All `purvey` commands default to **compact JSON** — one line, no colors, machine-readable. This makes `purvey` pipeable into `jq`, `csvkit`, or any script.
 
 ### Default (compact JSON)
 
 ```bash
-prvrs auth status
+purvey auth status
 # → {"authenticated":true,"email":"you@example.com","role":"authenticated","tokenExpires":"2026-03-16T08:00:00.000Z"}
 ```
 
 ### Pretty JSON (`--pretty`)
 
 ```bash
-prvrs auth status --pretty
+purvey auth status --pretty
 # → indented, colorized JSON
 ```
 
 ### CSV (`--csv`)
 
 ```bash
-prvrs coffee list --csv > coffees.csv
+purvey coffee list --csv > coffees.csv
 ```
 
 ### Piping with jq
 
 ```bash
-prvrs auth status | jq .email
+purvey auth status | jq .email
 # → "you@example.com"
 ```
 

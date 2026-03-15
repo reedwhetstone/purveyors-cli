@@ -67,7 +67,7 @@ export function parseCuppingScore(raw: string, flag: string): number {
 // ─── Command builder ──────────────────────────────────────────────────────────
 
 /**
- * `prvrs tasting` — View and record tasting notes for a bean.
+ * `purvey tasting` — View and record tasting notes for a bean.
  * Combines supplier notes from coffee_catalog with user notes from green_coffee_inv.
  * Requires authentication.
  */
@@ -111,7 +111,7 @@ export function buildTastingCommand(): Command {
         } = await supabase.auth.getUser();
 
         if (!user) {
-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+          throw new AuthError('Not logged in. Run `purvey auth login` first.');
         }
 
         const result: TastingResult = {
@@ -232,7 +232,7 @@ export function buildTastingCommand(): Command {
         } = await supabase.auth.getUser();
 
         if (!user) {
-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+          throw new AuthError('Not logged in. Run `purvey auth login` first.');
         }
 
         // Verify ownership of the inventory item

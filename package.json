@@ -1,10 +1,10 @@
 {
   "name": "@purveyors/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The official CLI for purveyors.io — coffee intelligence from your terminal",
   "type": "module",
   "bin": {
-    "prvrs": "./dist/index.js"
+    "purvey": "./dist/index.js"
   },
   "files": [
     "dist",

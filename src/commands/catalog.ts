@@ -89,7 +89,7 @@ export function computeCatalogStats(items: CatalogItem[]): CatalogStats {
 // ─── Command builder ──────────────────────────────────────────────────────────
 
 /**
- * `prvrs catalog` — Browse the public coffee catalog.
+ * `purvey catalog` — Browse the public coffee catalog.
  * The coffee_catalog table is publicly readable; no auth required.
  */
 export function buildCatalogCommand(): Command {

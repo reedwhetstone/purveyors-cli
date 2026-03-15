@@ -1,12 +1,12 @@
 # AGENTS.md — Contributor Guide for @purveyors/cli
 
-This is the single source of truth for anyone (human or AI agent) contributing to `prvrs`. Read it before opening a PR.
+This is the single source of truth for anyone (human or AI agent) contributing to `purvey`. Read it before opening a PR.
 
 ---
 
 ## Project Overview
 
-`prvrs` is the official command-line interface for [purveyors.io](https://purveyors.io). It gives coffee professionals terminal access to the Purveyors platform: search the catalog, track inventory, monitor pricing, and pipe data into spreadsheets or scripts.
+`purvey` is the official command-line interface for [purveyors.io](https://purveyors.io). It gives coffee professionals terminal access to the Purveyors platform: search the catalog, track inventory, monitor pricing, and pipe data into spreadsheets or scripts.
 
 **Stack:** TypeScript (strict) + Commander.js + Supabase JS SDK + Vitest
 
@@ -89,7 +89,7 @@ src/
   commands/
     auth.ts         # auth subcommands (login, status, logout)
   lib/
-    config.ts       # ~/.config/prvrs/ directory management
+    config.ts       # ~/.config/purvey/ directory management
     supabase.ts     # Supabase client factory
     output.ts       # JSON/CSV/pretty output utilities
     errors.ts       # PrvrsError hierarchy + fatal() + withErrorHandling()
@@ -121,7 +121,7 @@ All commands must support:
 - `--pretty`: indented, colorized JSON for human reading
 - `--csv`: CSV for spreadsheet import (only works with arrays/collections)
 
-User feedback messages (login success, error messages, spinners) go to **stderr**. Data output goes to **stdout**. This ensures `prvrs coffee list | jq` works correctly.
+User feedback messages (login success, error messages, spinners) go to **stderr**. Data output goes to **stdout**. This ensures `purvey coffee list | jq` works correctly.
 
 ### Supabase client pattern
 
@@ -139,7 +139,7 @@ const client = await createAuthenticatedClient();
 Use `PrvrsError` subclasses for domain errors:
 
 ```typescript
-throw new AuthError('Session expired. Run `prvrs auth login`.');
+throw new AuthError('Session expired. Run `purvey auth login`.');
 ```
 
 Wrap all async action handlers with `withErrorHandling()`:
@@ -154,7 +154,7 @@ const myAction = withErrorHandling(async (arg, cmd) => {
 
 ## Credentials Storage
 
-Stored at `~/.config/prvrs/credentials.json` (mode 0600, owner-readable only). Contains: `accessToken`, `refreshToken`, `expiresAt` (ms), and basic user info. Never logged or transmitted anywhere beyond Supabase.
+Stored at `~/.config/purvey/credentials.json` (mode 0600, owner-readable only). Contains: `accessToken`, `refreshToken`, `expiresAt` (ms), and basic user info. Never logged or transmitted anywhere beyond Supabase.
 
 ---
 

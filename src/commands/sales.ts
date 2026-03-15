@@ -25,7 +25,7 @@ const SALE_SELECT = 'id, roast_id, oz_sold, sale_price, buyer, sell_date, user, 
 // ─── Command builder ──────────────────────────────────────────────────────────
 
 /**
- * `prvrs sales` — Record and manage coffee sales.
+ * `purvey sales` — Record and manage coffee sales.
  * Requires authentication.
  */
 export function buildSalesCommand(): Command {
@@ -46,7 +46,7 @@ export function buildSalesCommand(): Command {
         } = await supabase.auth.getUser();
 
         if (!user) {
-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+          throw new AuthError('Not logged in. Run `purvey auth login` first.');
         }
 
         const limit = Math.max(1, parseInt(opts.limit as string, 10));
@@ -89,7 +89,7 @@ export function buildSalesCommand(): Command {
         } = await supabase.auth.getUser();
 
         if (!user) {
-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+          throw new AuthError('Not logged in. Run `purvey auth login` first.');
         }
 
         const roastId = parseInt(opts.roastId as string, 10);
@@ -177,7 +177,7 @@ export function buildSalesCommand(): Command {
         } = await supabase.auth.getUser();
 
         if (!user) {
-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+          throw new AuthError('Not logged in. Run `purvey auth login` first.');
         }
 
         const saleId = parseInt(id, 10);
@@ -266,7 +266,7 @@ export function buildSalesCommand(): Command {
         } = await supabase.auth.getUser();
 
         if (!user) {
-          throw new AuthError('Not logged in. Run `prvrs auth login` first.');
+          throw new AuthError('Not logged in. Run `purvey auth login` first.');
         }
 
         const saleId = parseInt(id, 10);
