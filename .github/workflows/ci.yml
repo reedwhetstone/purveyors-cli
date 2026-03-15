@@ -10,6 +10,8 @@ jobs:
   ci:
     name: Lint, Type Check, Test
     runs-on: ubuntu-latest
+    env:
+      DISCORD_CODEBASE_WEBHOOK_URL: ${{ secrets.DISCORD_CODEBASE_WEBHOOK_URL }}
 
     steps:
       - name: Checkout
@@ -58,3 +60,44 @@ jobs:
       # The check requires SUPABASE_ACCESS_TOKEN and should be added as a
       # separate job once the typegen workflow has been triggered and real
       # types are committed. See .github/workflows/typegen.yml.
+
+      - name: Notify Discord on CI failure
+        if: ${{ failure() && env.DISCORD_CODEBASE_WEBHOOK_URL != '' }}
+        env:
+          DISCORD_WEBHOOK_URL: ${{ env.DISCORD_CODEBASE_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          node <<'NODE'
+          const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+          const runUrl = process.env.RUN_URL;
+          const repo = process.env.REPO;
+          const branch = process.env.BRANCH;
+          const sha = (process.env.SHA || '').slice(0, 7);
+          const actor = process.env.ACTOR;
+          const eventName = process.env.EVENT_NAME;
+
+          const embed = {
+            title: `❌ CI Failed — ${repo}`,
+            color: 0xff0000,
+            fields: [
+              { name: 'Branch', value: branch, inline: true },
+              { name: 'Commit', value: sha, inline: true },
+              { name: 'Triggered by', value: `${actor} (${eventName})`, inline: true },
+              { name: 'Run', value: `[View logs](${runUrl})` },
+            ],
+            timestamp: new Date().toISOString(),
+          };
+
+          fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ embeds: [embed] }),
+          })
+            .then(r => { if (!r.ok) console.error('Discord webhook failed:', r.status); })
+            .catch(e => console.error('Discord webhook error:', e));
+          NODE
