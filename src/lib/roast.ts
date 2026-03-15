@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AuthError, PrvrsError } from './errors.js';
+import { importArtisanData } from './artisan/import.js';
+import type { ArtisanImportResult } from './artisan/import.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -271,4 +273,164 @@ export async function deleteRoast(
     .eq('user', userId);
 
   if (deleteError) throw deleteError;
+}
+
+// ─── Roast import from .alog file ─────────────────────────────────────────────
+
+export const importRoastSchema = z.object({
+  fileContent: z.string().min(1),
+  fileName: z.string().min(1),
+  coffeeId: z.number().int().positive(),
+  batchName: z.string().optional(),
+  ozIn: z.number().positive().optional(),
+  roastNotes: z.string().optional(),
+});
+
+export type ImportRoastInput = z.input<typeof importRoastSchema>;
+
+export interface ImportRoastResult extends ArtisanImportResult {
+  roast_id: number;
+  batch_name: string;
+  coffee_name: string;
+  coffee_id: number;
+}
+
+/**
+ * Extract the input weight in ounces from an Artisan .alog weight array.
+ * Falls back to undefined if weight data is absent or unparseable.
+ *
+ * @param weight - The `weight` field from ArtisanRoastData: [input, output, unit]
+ */
+export function extractOzFromAlog(
+  weight: [number, number, string] | undefined
+): number | undefined {
+  if (!weight || !Array.isArray(weight) || weight.length < 3) return undefined;
+  const [inputWeight, , unit] = weight;
+  if (typeof inputWeight !== 'number' || inputWeight <= 0) return undefined;
+  if (typeof unit !== 'string') return undefined;
+
+  const unitLower = unit.toLowerCase();
+  if (unitLower === 'g' || unitLower === 'gr' || unitLower === 'gram' || unitLower === 'grams') {
+    return inputWeight / 28.3495;
+  }
+  if (unitLower === 'oz' || unitLower === 'ounce' || unitLower === 'ounces') {
+    return inputWeight;
+  }
+  if (unitLower === 'kg' || unitLower === 'kilogram' || unitLower === 'kilograms') {
+    return inputWeight * 35.274;
+  }
+  if (
+    unitLower === 'lb' ||
+    unitLower === 'lbs' ||
+    unitLower === 'pound' ||
+    unitLower === 'pounds'
+  ) {
+    return inputWeight * 16;
+  }
+  // Unknown unit — return undefined rather than a wrong number
+  return undefined;
+}
+
+/**
+ * Generate a default batch name: "{coffee_name} {YYYY-MM-DD}".
+ */
+export function defaultBatchName(coffeeName: string, dateIso: string): string {
+  return `${coffeeName} ${dateIso}`;
+}
+
+/**
+ * Import a roast from an Artisan .alog file in one step:
+ *   1. Verify inventory ownership + get coffee name
+ *   2. Create a new roast_profile row
+ *   3. Run the full Artisan import (temperatures, events, profile metadata)
+ *   4. Return the combined result
+ *
+ * The supabase client must already be authenticated as userId.
+ */
+export async function importRoastFromFile(
+  supabase: SupabaseClient,
+  userId: string,
+  input: ImportRoastInput
+): Promise<ImportRoastResult> {
+  const parsed = importRoastSchema.parse(input);
+
+  // 1. Verify ownership and get coffee name
+  const { data: invItem, error: invError } = await supabase
+    .from('green_coffee_inv')
+    .select('id, coffee_catalog!catalog_id (name)')
+    .eq('id', parsed.coffeeId)
+    .eq('user', userId)
+    .single();
+
+  if (invError || !invItem) {
+    throw new AuthError(`Inventory item ${parsed.coffeeId} not found or does not belong to you.`);
+  }
+
+  const catalogRaw = invItem.coffee_catalog as
+    | { name: string | null }
+    | { name: string | null }[]
+    | null;
+  const catalog = Array.isArray(catalogRaw) ? (catalogRaw[0] ?? null) : catalogRaw;
+  const coffeeName = catalog?.name ?? `Coffee #${parsed.coffeeId}`;
+
+  // 2. Extract roast date + weight from the .alog if not provided by caller
+  let artisanRaw: Record<string, unknown> | undefined;
+  try {
+    // Light pre-parse to grab roastdate and weight without a full import cycle.
+    // We import parseArtisanFile lazily here to keep imports tidy.
+    const { parseArtisanFile } = await import('./artisan/import.js');
+    const artisan = await parseArtisanFile(parsed.fileContent, parsed.fileName);
+    artisanRaw = artisan as unknown as Record<string, unknown>;
+  } catch {
+    // Pre-parse failure is non-fatal here; the real import will surface the error
+  }
+
+  const roastDate: string =
+    (artisanRaw?.roastdate as string | undefined) ?? new Date().toISOString().slice(0, 10);
+
+  let ozIn = parsed.ozIn;
+  if (ozIn === undefined && artisanRaw?.weight) {
+    ozIn = extractOzFromAlog(artisanRaw.weight as [number, number, string]);
+  }
+
+  const batchName = parsed.batchName ?? defaultBatchName(coffeeName, roastDate);
+
+  // 3. Create roast_profile row
+  const insertPayload: Record<string, unknown> = {
+    user: userId,
+    coffee_id: parsed.coffeeId,
+    coffee_name: coffeeName,
+    batch_name: batchName,
+    roast_date: roastDate,
+    data_source: 'artisan_import',
+  };
+  if (ozIn !== undefined) insertPayload.oz_in = ozIn;
+  if (parsed.roastNotes !== undefined) insertPayload.roast_notes = parsed.roastNotes;
+
+  const { data: inserted, error: insertError } = await supabase
+    .from('roast_profiles')
+    .insert(insertPayload)
+    .select('roast_id')
+    .single();
+
+  if (insertError) throw insertError;
+
+  const roastId: number = (inserted as { roast_id: number }).roast_id;
+
+  // 4. Run the full Artisan import (updates profile metadata + writes temps/events)
+  const importResult = await importArtisanData(
+    supabase,
+    roastId,
+    userId,
+    parsed.fileContent,
+    parsed.fileName
+  );
+
+  return {
+    ...importResult,
+    roast_id: roastId,
+    batch_name: batchName,
+    coffee_name: coffeeName,
+    coffee_id: parsed.coffeeId,
+  };
 }
