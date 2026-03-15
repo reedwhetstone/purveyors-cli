@@ -28,6 +28,8 @@ program
   .name('prvrs')
   .description('The official CLI for purveyors.io — coffee intelligence from your terminal')
   .version(version, '-v, --version', 'Print version')
+  .option('--pretty', 'Pretty-print JSON output with colors')
+  .option('--csv', 'Output results as CSV (useful for piping to spreadsheets)')
   .addHelpText(
     'after',
     `

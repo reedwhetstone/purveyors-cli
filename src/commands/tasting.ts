@@ -250,7 +250,8 @@ export function buildTastingCommand(): Command {
         // Update the cupping_notes JSONB field
         const { error: updateError } = await supabase
           .from('green_coffee_inv')
-          .update({ cupping_notes: JSON.stringify(cupping) })
+          // Pass object directly — Supabase JS serializes JSONB columns correctly
+          .update({ cupping_notes: cupping as unknown as string })
           .eq('id', inventoryId)
           .eq('user', user.id);
 
