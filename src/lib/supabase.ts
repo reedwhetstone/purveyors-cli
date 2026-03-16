@@ -95,10 +95,25 @@ export async function validateSession(): Promise<{
 
     if (error || !user) return null;
 
+    // Fetch app-level role from user_roles table
+    let appRoles: string[] = [];
+    try {
+      const { data: roleData } = await client
+        .from('user_roles')
+        .select('user_role')
+        .eq('id', user.id)
+        .single();
+      if (roleData?.user_role && Array.isArray(roleData.user_role)) {
+        appRoles = roleData.user_role as string[];
+      }
+    } catch {
+      // user_roles query failed — fall back to auth role
+    }
+
     return {
       id: user.id,
       email: user.email,
-      role: user.role,
+      role: appRoles.length > 0 ? appRoles.join(', ') : (user.role ?? 'authenticated'),
       expiresAt: creds.expiresAt,
     };
   } catch {
