@@ -14,7 +14,8 @@
     "./sales": "./dist/lib/sales.js",
     "./tasting": "./dist/lib/tasting.js",
     "./lib": "./dist/lib/index.js",
-    "./artisan": "./dist/lib/artisan/index.js"
+    "./artisan": "./dist/lib/artisan/index.js",
+    "./ai": "./dist/lib/ai.js"
   },
   "files": [
     "dist",

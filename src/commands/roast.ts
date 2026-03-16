@@ -461,6 +461,10 @@ export function buildRoastCommand(): Command {
     .option('--coffee-id <id>', 'green_coffee_inv ID for all imports')
     .option('--batch-prefix <name>', 'Batch name prefix (defaults to coffee name)')
     .option('--prompt-each', 'Prompt for bean selection on each new file')
+    .option(
+      '--auto-match',
+      'Use AI to auto-match beans (requires member role; no --coffee-id needed)'
+    )
     .option('--resume', 'Resume a previous watch session')
     .option('--form', 'Interactive form mode')
     .action(
@@ -515,28 +519,58 @@ export function buildRoastCommand(): Command {
             process.exit(1);
           }
 
-          const bean = await pickBean(supabase, user.id);
-
-          const batchPrefixRaw = await p.text({
-            message: 'Batch prefix',
-            placeholder: bean.name,
-            defaultValue: bean.name,
-          });
-          guardCancel(batchPrefixRaw);
-
-          const batchPrefix = String(batchPrefixRaw).trim() || bean.name;
-
-          const promptEachRaw = await p.confirm({
-            message: 'Prompt for bean selection on each new file?',
+          // Ask whether to use AI auto-match
+          const useAutoMatchRaw = await p.confirm({
+            message: 'Use AI to auto-match beans? (requires member role)',
             initialValue: false,
           });
-          guardCancel(promptEachRaw);
+          guardCancel(useAutoMatchRaw);
+          const useAutoMatch = Boolean(useAutoMatchRaw);
+
+          let batchPrefix: string;
+          let watchCoffeeId: number;
+          let watchCoffeeName: string;
+
+          if (useAutoMatch) {
+            // In auto-match mode we don't need a bean upfront; use placeholder values
+            watchCoffeeId = 0;
+            watchCoffeeName = 'auto-match';
+
+            const batchPrefixRaw = await p.text({
+              message: 'Batch prefix',
+              placeholder: 'Roast',
+              defaultValue: 'Roast',
+            });
+            guardCancel(batchPrefixRaw);
+            batchPrefix = String(batchPrefixRaw).trim() || 'Roast';
+          } else {
+            const bean = await pickBean(supabase, user.id);
+            watchCoffeeId = bean.id;
+            watchCoffeeName = bean.name;
+
+            const batchPrefixRaw = await p.text({
+              message: 'Batch prefix',
+              placeholder: bean.name,
+              defaultValue: bean.name,
+            });
+            guardCancel(batchPrefixRaw);
+            batchPrefix = String(batchPrefixRaw).trim() || bean.name;
+          }
+
+          const promptEachRaw = useAutoMatch
+            ? false
+            : await p.confirm({
+                message: 'Prompt for bean selection on each new file?',
+                initialValue: false,
+              });
+          if (typeof promptEachRaw !== 'boolean') guardCancel(promptEachRaw);
 
           await startWatch(supabase, user.id, watchDir, {
-            coffeeId: bean.id,
-            coffeeName: bean.name,
+            coffeeId: watchCoffeeId,
+            coffeeName: watchCoffeeName,
             batchPrefix,
-            promptEach: Boolean(promptEachRaw),
+            promptEach: useAutoMatch ? false : Boolean(promptEachRaw),
+            autoMatch: useAutoMatch,
           });
           return;
         }
@@ -549,36 +583,55 @@ export function buildRoastCommand(): Command {
           );
         }
 
-        if (!opts.coffeeId) {
+        const autoMatch = Boolean(opts.autoMatch);
+
+        // --auto-match and --coffee-id are mutually exclusive (auto-match picks the bean)
+        if (autoMatch && opts.coffeeId) {
           throw new PrvrsError(
             'INVALID_ARGUMENT',
-            'Missing --coffee-id. Use --form for interactive mode.'
+            '--auto-match and --coffee-id are mutually exclusive. Use one or the other.'
           );
         }
 
-        const coffeeId = parseInt(opts.coffeeId as string, 10);
-        if (isNaN(coffeeId) || coffeeId <= 0) {
-          throw new PrvrsError('INVALID_ARGUMENT', `Invalid --coffee-id: "${opts.coffeeId}".`);
+        if (!autoMatch && !opts.coffeeId) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            'Missing --coffee-id. Use --form for interactive mode or --auto-match to let AI pick the bean.'
+          );
         }
 
-        // Look up coffee name from inventory
-        const { data: invItem, error: invError } = await supabase
-          .from('green_coffee_inv')
-          .select('id, coffee_catalog!catalog_id (name)')
-          .eq('id', coffeeId)
-          .eq('user', user.id)
-          .single();
+        let coffeeId: number;
+        let coffeeName: string;
 
-        if (invError || !invItem) {
-          throw new AuthError(`Inventory item ${coffeeId} not found or does not belong to you.`);
+        if (autoMatch) {
+          // Placeholder values — auto-match resolves per-file at runtime
+          coffeeId = 0;
+          coffeeName = 'auto-match';
+        } else {
+          coffeeId = parseInt(opts.coffeeId as string, 10);
+          if (isNaN(coffeeId) || coffeeId <= 0) {
+            throw new PrvrsError('INVALID_ARGUMENT', `Invalid --coffee-id: "${opts.coffeeId}".`);
+          }
+
+          // Look up coffee name from inventory
+          const { data: invItem, error: invError } = await supabase
+            .from('green_coffee_inv')
+            .select('id, coffee_catalog!catalog_id (name)')
+            .eq('id', coffeeId)
+            .eq('user', user.id)
+            .single();
+
+          if (invError || !invItem) {
+            throw new AuthError(`Inventory item ${coffeeId} not found or does not belong to you.`);
+          }
+
+          const catalogRaw = invItem.coffee_catalog as
+            | { name: string | null }
+            | { name: string | null }[]
+            | null;
+          const catalog = Array.isArray(catalogRaw) ? (catalogRaw[0] ?? null) : catalogRaw;
+          coffeeName = catalog?.name ?? `Coffee #${coffeeId}`;
         }
-
-        const catalogRaw = invItem.coffee_catalog as
-          | { name: string | null }
-          | { name: string | null }[]
-          | null;
-        const catalog = Array.isArray(catalogRaw) ? (catalogRaw[0] ?? null) : catalogRaw;
-        const coffeeName = catalog?.name ?? `Coffee #${coffeeId}`;
 
         const batchPrefix = (opts.batchPrefix as string | undefined) ?? coffeeName;
 
@@ -587,6 +640,7 @@ export function buildRoastCommand(): Command {
           coffeeName,
           batchPrefix,
           promptEach: Boolean(opts.promptEach),
+          autoMatch,
         });
       })
     );
