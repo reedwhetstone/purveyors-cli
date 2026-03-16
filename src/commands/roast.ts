@@ -181,6 +181,8 @@ export function buildRoastCommand(): Command {
             [notesStr, targetsStr ? `Targets: ${targetsStr}` : ''].filter(Boolean).join('\n') ||
             undefined;
 
+          const spin = p.spinner();
+          spin.start('Creating roast profile...');
           const data = await createRoast(supabase, user.id, {
             coffeeId: bean.id,
             batchName: String(batchNameRaw).trim() || defaultBatch,
@@ -188,6 +190,7 @@ export function buildRoastCommand(): Command {
             roastDate: today,
             notes: combinedNotes,
           });
+          spin.stop('Done');
 
           p.outro(`Roast profile created! Roast #${data.roast_id}.`);
           outputData(data, globalOpts);
@@ -367,6 +370,8 @@ export function buildRoastCommand(): Command {
             const batchName = String(batchNameRaw).trim() || defaultBatch;
             const notesStr = String(roastNotesRaw).trim();
 
+            const spin = p.spinner();
+            spin.start('Importing roast data...');
             const result = await importRoastFromFile(supabase, user.id, {
               fileContent,
               fileName,
@@ -375,6 +380,7 @@ export function buildRoastCommand(): Command {
               ozIn,
               roastNotes: notesStr !== '' ? notesStr : undefined,
             });
+            spin.stop('Done');
 
             p.outro(`Roast imported! Profile #${result.roast_id} created.`);
             outputData(result, globalOpts);

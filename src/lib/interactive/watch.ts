@@ -620,7 +620,7 @@ async function runAutoMatch(
     const { classifyRoast } = await import('../ai.js');
     const result = await classifyRoast(supabase, { alogMetadata, inventory });
 
-    if (result.match === null) {
+    if (!result.match) {
       return { skip: true, reason: 'AI returned no match' };
     }
 

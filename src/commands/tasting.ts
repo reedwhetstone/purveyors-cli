@@ -156,6 +156,8 @@ export function buildTastingCommand(): Command {
 
             const notesStr = String(notesRaw).trim();
 
+            const spin = p.spinner();
+            spin.start('Saving rating...');
             const data = await rateCoffee(supabase, user.id, bean.id, {
               aroma,
               body,
@@ -164,6 +166,7 @@ export function buildTastingCommand(): Command {
               aftertaste,
               notes: notesStr !== '' ? notesStr : undefined,
             });
+            spin.stop('Done');
 
             p.outro(`Rating saved for "${bean.name}"!`);
             outputData(data, globalOpts);

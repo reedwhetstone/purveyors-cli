@@ -125,6 +125,8 @@ export function buildSalesCommand(): Command {
           // Let user pick the specific roast batch to attribute this sale to.
           const roast = await pickRoast(supabase, user.id);
 
+          const spin = p.spinner();
+          spin.start('Recording sale...');
           const data = await recordSale(supabase, user.id, {
             roastId: roast.id,
             oz: parseFloat(String(ozRaw)),
@@ -132,6 +134,7 @@ export function buildSalesCommand(): Command {
             buyer: buyerStr !== '' ? buyerStr : undefined,
             sellDate: todayIso(),
           });
+          spin.stop('Done');
 
           p.outro(`Sale recorded! Sale #${data.id}.`);
           outputData(data, globalOpts);
