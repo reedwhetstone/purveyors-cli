@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import * as p from '@clack/prompts';
 import { createAuthenticatedClient } from '../lib/supabase.js';
 import { outputData, info, success } from '../lib/output.js';
 import { withErrorHandling, AuthError, PrvrsError } from '../lib/errors.js';
@@ -9,11 +10,30 @@ import {
   parseCuppingScore,
 } from '../lib/tasting.js';
 import type { TastingFilter, TastingData, CuppingNotes } from '../lib/tasting.js';
+import { pickBean, guardCancel } from '../lib/interactive/forms.js';
 import type { OutputOptions } from '../types/index.js';
 
 // Re-export types and helpers for backwards compatibility
 export type { TastingFilter, TastingData, CuppingNotes };
 export { isValidCuppingScore, parseCuppingScore };
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Prompt for a single cupping dimension score. */
+async function promptCuppingScore(dimension: string): Promise<number> {
+  const raw = await p.text({
+    message: `${dimension} (1-5)`,
+    placeholder: '3',
+    validate: (v) => {
+      const n = parseInt(String(v), 10);
+      if (isNaN(n) || n < 1 || n > 5 || !Number.isInteger(n)) {
+        return `Must be an integer between 1 and 5.`;
+      }
+    },
+  });
+  guardCancel(raw);
+  return parseInt(String(raw), 10);
+}
 
 // ─── Command builder ──────────────────────────────────────────────────────────
 
@@ -78,57 +98,122 @@ export function buildTastingCommand(): Command {
 
   // ── tasting rate <bean-id> ────────────────────────────────────────────────
   tasting
-    .command('rate <bean-id>')
+    .command('rate')
     .description('Rate a bean from your inventory using cupping scores (updates green_coffee_inv)')
-    .requiredOption('--aroma <1-5>', 'Aroma score (1-5)')
-    .requiredOption('--body <1-5>', 'Body score (1-5)')
-    .requiredOption('--acidity <1-5>', 'Acidity score (1-5)')
-    .requiredOption('--sweetness <1-5>', 'Sweetness score (1-5)')
-    .requiredOption('--aftertaste <1-5>', 'Aftertaste score (1-5)')
+    .argument('[bean-id]', 'Inventory item ID (green_coffee_inv), or use --form')
+    .option('--aroma <1-5>', 'Aroma score (1-5)')
+    .option('--body <1-5>', 'Body score (1-5)')
+    .option('--acidity <1-5>', 'Acidity score (1-5)')
+    .option('--sweetness <1-5>', 'Sweetness score (1-5)')
+    .option('--aftertaste <1-5>', 'Aftertaste score (1-5)')
     .option('--brew-method <method>', 'Brew method (e.g. pour_over, french_press, espresso)')
     .option('--notes <text>', 'Additional tasting notes')
+    .option('--form', 'Interactive form mode')
     .action(
-      withErrorHandling(async (beanId: string, opts: Record<string, unknown>, cmd: Command) => {
-        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+      withErrorHandling(
+        async (beanId: string | undefined, opts: Record<string, unknown>, cmd: Command) => {
+          const globalOpts = cmd.optsWithGlobals() as OutputOptions;
 
-        const inventoryId = parseInt(beanId, 10);
-        if (isNaN(inventoryId)) {
-          throw new PrvrsError(
-            'INVALID_ARGUMENT',
-            `Invalid bean ID: "${beanId}". Pass a green_coffee_inv ID.`
-          );
+          const supabase = await createAuthenticatedClient();
+
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+
+          if (!user) {
+            throw new AuthError('Not logged in. Run `purvey auth login` first.');
+          }
+
+          // ── Interactive form mode ────────────────────────────────────────
+          if (opts.form) {
+            p.intro('Rate Coffee');
+
+            const bean = await pickBean(supabase, user.id);
+
+            const aroma = await promptCuppingScore('Aroma');
+            const body = await promptCuppingScore('Body');
+            const acidity = await promptCuppingScore('Acidity');
+            const sweetness = await promptCuppingScore('Sweetness');
+            const aftertaste = await promptCuppingScore('Aftertaste');
+
+            const notesRaw = await p.text({
+              message: 'Notes',
+              placeholder: 'optional',
+            });
+            guardCancel(notesRaw);
+
+            const confirmed = await p.confirm({ message: 'Save rating?' });
+            guardCancel(confirmed);
+
+            if (!confirmed) {
+              p.cancel('Aborted.');
+              return;
+            }
+
+            const notesStr = String(notesRaw).trim();
+
+            const data = await rateCoffee(supabase, user.id, bean.id, {
+              aroma,
+              body,
+              acidity,
+              sweetness,
+              aftertaste,
+              notes: notesStr !== '' ? notesStr : undefined,
+            });
+
+            p.outro(`Rating saved for "${bean.name}"!`);
+            outputData(data, globalOpts);
+            return;
+          }
+
+          // ── Flag-based mode ──────────────────────────────────────────────
+          if (!beanId) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              'Missing bean-id argument. Use --form for interactive mode.'
+            );
+          }
+
+          const inventoryId = parseInt(beanId, 10);
+          if (isNaN(inventoryId)) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              `Invalid bean ID: "${beanId}". Pass a green_coffee_inv ID.`
+            );
+          }
+
+          // Require all score flags in flag-based mode
+          const requiredFlags = ['aroma', 'body', 'acidity', 'sweetness', 'aftertaste'];
+          for (const flag of requiredFlags) {
+            if (opts[flag] === undefined) {
+              throw new PrvrsError(
+                'INVALID_ARGUMENT',
+                `Missing --${flag}. Use --form for interactive mode.`
+              );
+            }
+          }
+
+          // Parse and validate all scores (CLI strings → numbers)
+          const aroma = parseCuppingScore(opts.aroma as string, 'aroma');
+          const body = parseCuppingScore(opts.body as string, 'body');
+          const acidity = parseCuppingScore(opts.acidity as string, 'acidity');
+          const sweetness = parseCuppingScore(opts.sweetness as string, 'sweetness');
+          const aftertaste = parseCuppingScore(opts.aftertaste as string, 'aftertaste');
+
+          const data = await rateCoffee(supabase, user.id, inventoryId, {
+            aroma,
+            body,
+            acidity,
+            sweetness,
+            aftertaste,
+            brewMethod: opts.brewMethod as string | undefined,
+            notes: opts.notes as string | undefined,
+          });
+
+          success(`Cupping notes saved for inventory item ${inventoryId}.`);
+          outputData(data, globalOpts);
         }
-
-        // Parse and validate all scores (CLI strings → numbers)
-        const aroma = parseCuppingScore(opts.aroma as string, 'aroma');
-        const body = parseCuppingScore(opts.body as string, 'body');
-        const acidity = parseCuppingScore(opts.acidity as string, 'acidity');
-        const sweetness = parseCuppingScore(opts.sweetness as string, 'sweetness');
-        const aftertaste = parseCuppingScore(opts.aftertaste as string, 'aftertaste');
-
-        const supabase = await createAuthenticatedClient();
-
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          throw new AuthError('Not logged in. Run `purvey auth login` first.');
-        }
-
-        const data = await rateCoffee(supabase, user.id, inventoryId, {
-          aroma,
-          body,
-          acidity,
-          sweetness,
-          aftertaste,
-          brewMethod: opts.brewMethod as string | undefined,
-          notes: opts.notes as string | undefined,
-        });
-
-        success(`Cupping notes saved for inventory item ${inventoryId}.`);
-        outputData(data, globalOpts);
-      })
+      )
     );
 
   return tasting;

@@ -2,6 +2,7 @@
 import { Command } from 'commander';
 import { buildAuthCommand } from './commands/auth.js';
 import { buildCatalogCommand } from './commands/catalog.js';
+import { buildConfigCommand } from './commands/config.js';
 import { buildInventoryCommand } from './commands/inventory.js';
 import { buildRoastCommand } from './commands/roast.js';
 import { buildSalesCommand } from './commands/sales.js';
@@ -54,6 +55,12 @@ Examples:
   $ purvey sales delete 5
   $ purvey tasting get 42 --filter both
   $ purvey tasting rate 7 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
+  $ purvey tasting rate --form             # Interactive rating wizard
+  $ purvey inventory add --form            # Interactive inventory wizard
+  $ purvey roast create --form             # Interactive roast wizard
+  $ purvey sales record --form             # Interactive sales wizard
+  $ purvey config set form-mode true       # Auto-enter form mode when args missing
+  $ purvey config list                     # Show all config
   $ purvey --help                          # Show this help
 
 Docs: https://github.com/reedwhetstone/purveyors-cli
@@ -63,6 +70,7 @@ Docs: https://github.com/reedwhetstone/purveyors-cli
 // Register subcommands
 program.addCommand(buildAuthCommand());
 program.addCommand(buildCatalogCommand());
+program.addCommand(buildConfigCommand());
 program.addCommand(buildInventoryCommand());
 program.addCommand(buildRoastCommand());
 program.addCommand(buildSalesCommand());

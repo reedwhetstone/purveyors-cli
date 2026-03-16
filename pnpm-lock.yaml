@@ -7,6 +7,9 @@ settings:
 importers:
   .:
     dependencies:
+      '@clack/prompts':
+        specifier: ^1.1.0
+        version: 1.1.0
       '@supabase/supabase-js':
         specifier: ^2.49.1
         version: 2.99.1
@@ -52,6 +55,18 @@ importers:
         version: 3.2.4(@types/node@22.19.15)(tsx@4.21.0)
 
 packages:
+  '@clack/core@1.1.0':
+    resolution:
+      {
+        integrity: sha512-SVcm4Dqm2ukn64/8Gub2wnlA5nS2iWJyCkdNHcvNHPIeBTGojpdJ+9cZKwLfmqy7irD4N5qLteSilJlE0WLAtA==,
+      }
+
+  '@clack/prompts@1.1.0':
+    resolution:
+      {
+        integrity: sha512-pkqbPGtohJAvm4Dphs2M8xE29ggupihHdy1x84HNojZuMtFsHiUlRvqD24tM2+XmI+61LlfNceM3Wr7U5QES5g==,
+      }
+
   '@esbuild/aix-ppc64@0.27.4':
     resolution:
       {
@@ -1591,6 +1606,12 @@ packages:
       }
     engines: { node: '>=14' }
 
+  sisteransi@1.0.5:
+    resolution:
+      {
+        integrity: sha512-bLGGlR1QxBcynn2d5YmDX4MGjlZvy2MRBDRNHLJ8VI6l6+9FUiyTFNJ0IveOSP0bcXgVDPRcfGqA0pjaqUpfVg==,
+      }
+
   source-map-js@1.2.1:
     resolution:
       {
@@ -1875,6 +1896,15 @@ packages:
       }
 
 snapshots:
+  '@clack/core@1.1.0':
+    dependencies:
+      sisteransi: 1.0.5
+
+  '@clack/prompts@1.1.0':
+    dependencies:
+      '@clack/core': 1.1.0
+      sisteransi: 1.0.5
+
   '@esbuild/aix-ppc64@0.27.4':
     optional: true
 
@@ -2711,6 +2741,8 @@ snapshots:
   siginfo@2.0.0: {}
 
   signal-exit@4.1.0: {}
+
+  sisteransi@1.0.5: {}
 
   source-map-js@1.2.1: {}
 

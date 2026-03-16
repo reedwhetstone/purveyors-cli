@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import * as p from '@clack/prompts';
 import { createAuthenticatedClient } from '../lib/supabase.js';
 import { outputData, info, success } from '../lib/output.js';
 import { withErrorHandling, AuthError, PrvrsError } from '../lib/errors.js';
@@ -11,6 +12,7 @@ import {
   deleteInventory,
 } from '../lib/inventory.js';
 import type { InventoryItem } from '../lib/inventory.js';
+import { pickCatalogItem, guardCancel } from '../lib/interactive/forms.js';
 import type { OutputOptions } from '../types/index.js';
 
 // Re-export type for backwards compatibility
@@ -84,12 +86,13 @@ export function buildInventoryCommand(): Command {
   inventory
     .command('add')
     .description('Add a new green coffee inventory item')
-    .requiredOption('--catalog-id <id>', 'Coffee catalog entry ID')
-    .requiredOption('--qty <lbs>', 'Quantity purchased in pounds')
+    .option('--catalog-id <id>', 'Coffee catalog entry ID')
+    .option('--qty <lbs>', 'Quantity purchased in pounds')
     .option('--cost <dollars>', 'Bean cost in dollars')
     .option('--tax-ship <dollars>', 'Tax and shipping cost in dollars')
     .option('--notes <text>', 'Notes for this inventory item')
     .option('--purchase-date <YYYY-MM-DD>', 'Purchase date (defaults to today)')
+    .option('--form', 'Interactive form mode')
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
@@ -101,6 +104,75 @@ export function buildInventoryCommand(): Command {
 
         if (!user) {
           throw new AuthError('Not logged in. Run `purvey auth login` first.');
+        }
+
+        // ── Interactive form mode ──────────────────────────────────────────
+        if (opts.form) {
+          p.intro('Add Bean to Inventory');
+
+          const catalogItem = await pickCatalogItem(supabase);
+
+          const qtyRaw = await p.text({
+            message: 'Quantity (lbs)',
+            placeholder: '5',
+            validate: (v) => {
+              const n = parseFloat(String(v));
+              if (isNaN(n) || n <= 0) return 'Must be a positive number.';
+            },
+          });
+          guardCancel(qtyRaw);
+
+          const costRaw = await p.text({
+            message: 'Cost per lb ($)',
+            placeholder: 'optional',
+          });
+          guardCancel(costRaw);
+
+          const notesRaw = await p.text({
+            message: 'Notes',
+            placeholder: 'optional',
+          });
+          guardCancel(notesRaw);
+
+          const confirmed = await p.confirm({ message: 'Add this bean?' });
+          guardCancel(confirmed);
+
+          if (!confirmed) {
+            p.cancel('Aborted.');
+            return;
+          }
+
+          const costStr = String(costRaw).trim();
+          const cost = costStr !== '' ? parseFloat(costStr) : undefined;
+          const notesStr = String(notesRaw).trim();
+          const notes = notesStr !== '' ? notesStr : undefined;
+          const qtyStr = String(qtyRaw);
+
+          const data = await addInventory(supabase, user.id, {
+            catalogId: catalogItem.id,
+            qty: parseFloat(qtyStr),
+            cost,
+            notes,
+            purchaseDate: todayIso(),
+          });
+
+          p.outro(`Bean added! Inventory item #${data.id} created.`);
+          outputData(data, globalOpts);
+          return;
+        }
+
+        // ── Flag-based mode ────────────────────────────────────────────────
+        if (!opts.catalogId) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            'Missing --catalog-id. Use --form for interactive mode.'
+          );
+        }
+        if (!opts.qty) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            'Missing --qty. Use --form for interactive mode.'
+          );
         }
 
         const catalogId = parseInt(opts.catalogId as string, 10);

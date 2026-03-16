@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import * as p from '@clack/prompts';
 import { access, readFile } from 'fs/promises';
 import { basename } from 'path';
 import { createAuthenticatedClient } from '../lib/supabase.js';
@@ -18,6 +19,7 @@ import type {
   RoastEventEntry,
   ImportRoastResult,
 } from '../lib/roast.js';
+import { pickBean, guardCancel } from '../lib/interactive/forms.js';
 import type { OutputOptions } from '../types/index.js';
 
 // Re-export types for backwards compatibility
@@ -97,12 +99,13 @@ export function buildRoastCommand(): Command {
   roast
     .command('create')
     .description('Create a new roast profile')
-    .requiredOption('--coffee-id <id>', 'green_coffee_inv ID for this roast')
+    .option('--coffee-id <id>', 'green_coffee_inv ID for this roast')
     .option('--batch-name <name>', "Batch name (defaults to coffee name + today's date)")
     .option('--oz-in <oz>', 'Green weight in ounces')
     .option('--oz-out <oz>', 'Roasted weight in ounces')
     .option('--roast-date <YYYY-MM-DD>', 'Roast date (defaults to today)')
     .option('--notes <text>', 'Roast notes')
+    .option('--form', 'Interactive form mode')
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
@@ -114,6 +117,83 @@ export function buildRoastCommand(): Command {
 
         if (!user) {
           throw new AuthError('Not logged in. Run `purvey auth login` first.');
+        }
+
+        // ── Interactive form mode ──────────────────────────────────────────
+        if (opts.form) {
+          p.intro('Create Roast Profile');
+
+          const bean = await pickBean(supabase, user.id);
+
+          const today = todayIso();
+          const defaultBatch = `${bean.name} ${today}`;
+
+          const batchNameRaw = await p.text({
+            message: 'Batch name',
+            placeholder: defaultBatch,
+            defaultValue: defaultBatch,
+          });
+          guardCancel(batchNameRaw);
+
+          const ozInRaw = await p.text({
+            message: 'Weight in (oz)',
+            placeholder: 'optional',
+            validate: (v) => {
+              if (!v || v.trim() === '') return;
+              const n = parseFloat(v);
+              if (isNaN(n) || n <= 0) return 'Must be a positive number.';
+            },
+          });
+          guardCancel(ozInRaw);
+
+          const notesRaw = await p.text({
+            message: 'Roast notes',
+            placeholder: 'optional',
+          });
+          guardCancel(notesRaw);
+
+          const targetsRaw = await p.text({
+            message: 'Roast targets',
+            placeholder: 'optional',
+          });
+          guardCancel(targetsRaw);
+
+          const confirmed = await p.confirm({ message: 'Create this roast?' });
+          guardCancel(confirmed);
+
+          if (!confirmed) {
+            p.cancel('Aborted.');
+            return;
+          }
+
+          const ozInStr = String(ozInRaw).trim();
+          const ozIn = ozInStr !== '' ? parseFloat(ozInStr) : undefined;
+
+          const notesStr = String(notesRaw).trim();
+          const targetsStr = String(targetsRaw).trim();
+          const combinedNotes =
+            [notesStr, targetsStr ? `Targets: ${targetsStr}` : ''].filter(Boolean).join('\n') ||
+            undefined;
+
+          const data = await createRoast(supabase, user.id, {
+            coffeeId: bean.id,
+            batchName: String(batchNameRaw).trim() || defaultBatch,
+            ozIn,
+            roastDate: today,
+            notes: combinedNotes,
+          });
+
+          p.outro(`Roast profile created! Roast #${data.roast_id}.`);
+          outputData(data, globalOpts);
+          return;
+        }
+
+        // ── Flag-based mode ────────────────────────────────────────────────
+        if (!opts.coffeeId) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            'Missing --coffee-id. Use --form for interactive mode.'
+          );
         }
 
         const coffeeId = parseInt(opts.coffeeId as string, 10);
@@ -187,70 +267,181 @@ export function buildRoastCommand(): Command {
 
   // ── roast import <file> ───────────────────────────────────────────────────
   roast
-    .command('import <file>')
+    .command('import')
     .description('Import an Artisan .alog file and create a new roast profile')
-    .requiredOption('--coffee-id <id>', 'green_coffee_inv ID for this roast')
+    .argument('[file]', 'Path to .alog file (or use --form for interactive mode)')
+    .option('--coffee-id <id>', 'green_coffee_inv ID for this roast')
     .option('--batch-name <name>', 'Batch name (auto-generated from coffee name + date if omitted)')
     .option('--oz-in <oz>', 'Green weight in ounces (extracted from .alog if omitted)')
     .option('--roast-notes <notes>', 'Additional roast notes')
+    .option('--form', 'Interactive form mode')
     .action(
-      withErrorHandling(async (file: string, opts: Record<string, unknown>, cmd: Command) => {
-        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+      withErrorHandling(
+        async (file: string | undefined, opts: Record<string, unknown>, cmd: Command) => {
+          const globalOpts = cmd.optsWithGlobals() as OutputOptions;
 
-        // 1. Validate file exists and is readable
-        try {
-          await access(file);
-        } catch {
-          throw new PrvrsError('INVALID_ARGUMENT', `File not found or not readable: "${file}"`);
-        }
+          // ── Interactive form mode ────────────────────────────────────────
+          if (opts.form) {
+            p.intro('Import Artisan Roast');
 
-        // 2. Read file content
-        const fileContent = await readFile(file, 'utf-8');
-        const fileName = basename(file);
+            const filePathRaw = await p.text({
+              message: 'Path to .alog file',
+              placeholder: '/path/to/roast.alog',
+              validate: (v) => {
+                if (!v || String(v).trim() === '') return 'Please enter a file path.';
+              },
+            });
+            guardCancel(filePathRaw);
 
-        // 3. Authenticate
-        const supabase = await createAuthenticatedClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
+            const filePath = String(filePathRaw).trim();
 
-        if (!user) {
-          throw new AuthError('Not logged in. Run `purvey auth login` first.');
-        }
+            // Validate file exists (async check after prompt)
+            try {
+              await access(filePath);
+            } catch {
+              p.cancel(`File not found: "${filePath}"`);
+              process.exit(1);
+            }
 
-        // 4. Parse --coffee-id
-        const coffeeId = parseInt(opts.coffeeId as string, 10);
-        if (isNaN(coffeeId) || coffeeId <= 0) {
-          throw new PrvrsError('INVALID_ARGUMENT', `Invalid --coffee-id: "${opts.coffeeId}".`);
-        }
+            // Authenticate
+            const supabase = await createAuthenticatedClient();
+            const {
+              data: { user },
+            } = await supabase.auth.getUser();
 
-        // 5. Parse --oz-in if provided
-        let ozIn: number | undefined;
-        if (opts.ozIn !== undefined) {
-          ozIn = parseFloat(opts.ozIn as string);
-          if (isNaN(ozIn) || ozIn <= 0) {
-            throw new PrvrsError('INVALID_ARGUMENT', `Invalid --oz-in: "${opts.ozIn}".`);
+            if (!user) {
+              throw new AuthError('Not logged in. Run `purvey auth login` first.');
+            }
+
+            const bean = await pickBean(supabase, user.id);
+
+            const today = todayIso();
+            const defaultBatch = `${bean.name} ${today}`;
+
+            const batchNameRaw = await p.text({
+              message: 'Batch name',
+              placeholder: defaultBatch,
+              defaultValue: defaultBatch,
+            });
+            guardCancel(batchNameRaw);
+
+            const ozInRaw = await p.text({
+              message: 'Weight in (oz)',
+              placeholder: 'optional — extracted from .alog if omitted',
+              validate: (v) => {
+                if (!v || v.trim() === '') return;
+                const n = parseFloat(v);
+                if (isNaN(n) || n <= 0) return 'Must be a positive number.';
+              },
+            });
+            guardCancel(ozInRaw);
+
+            const roastNotesRaw = await p.text({
+              message: 'Roast notes',
+              placeholder: 'optional',
+            });
+            guardCancel(roastNotesRaw);
+
+            const confirmed = await p.confirm({ message: 'Import this roast?' });
+            guardCancel(confirmed);
+
+            if (!confirmed) {
+              p.cancel('Aborted.');
+              return;
+            }
+
+            const fileContent = await readFile(filePath, 'utf-8');
+            const fileName = basename(filePath);
+
+            const ozInStr = String(ozInRaw).trim();
+            const ozIn = ozInStr !== '' ? parseFloat(ozInStr) : undefined;
+            const batchName = String(batchNameRaw).trim() || defaultBatch;
+            const notesStr = String(roastNotesRaw).trim();
+
+            const result = await importRoastFromFile(supabase, user.id, {
+              fileContent,
+              fileName,
+              coffeeId: bean.id,
+              batchName,
+              ozIn,
+              roastNotes: notesStr !== '' ? notesStr : undefined,
+            });
+
+            p.outro(`Roast imported! Profile #${result.roast_id} created.`);
+            outputData(result, globalOpts);
+            return;
+          }
+
+          // ── Flag-based mode ──────────────────────────────────────────────
+          if (!file) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              'Missing file argument. Use --form for interactive mode.'
+            );
+          }
+
+          // 1. Validate file exists and is readable
+          try {
+            await access(file);
+          } catch {
+            throw new PrvrsError('INVALID_ARGUMENT', `File not found or not readable: "${file}"`);
+          }
+
+          // 2. Read file content
+          const fileContent = await readFile(file, 'utf-8');
+          const fileName = basename(file);
+
+          // 3. Authenticate
+          const supabase = await createAuthenticatedClient();
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+
+          if (!user) {
+            throw new AuthError('Not logged in. Run `purvey auth login` first.');
+          }
+
+          // 4. Parse --coffee-id
+          if (!opts.coffeeId) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              'Missing --coffee-id. Use --form for interactive mode.'
+            );
+          }
+
+          const coffeeId = parseInt(opts.coffeeId as string, 10);
+          if (isNaN(coffeeId) || coffeeId <= 0) {
+            throw new PrvrsError('INVALID_ARGUMENT', `Invalid --coffee-id: "${opts.coffeeId}".`);
+          }
+
+          // 5. Parse --oz-in if provided
+          let ozIn: number | undefined;
+          if (opts.ozIn !== undefined) {
+            ozIn = parseFloat(opts.ozIn as string);
+            if (isNaN(ozIn) || ozIn <= 0) {
+              throw new PrvrsError('INVALID_ARGUMENT', `Invalid --oz-in: "${opts.ozIn}".`);
+            }
+          }
+
+          // 6. Run the import
+          const result = await importRoastFromFile(supabase, user.id, {
+            fileContent,
+            fileName,
+            coffeeId,
+            batchName: opts.batchName as string | undefined,
+            ozIn,
+            roastNotes: opts.roastNotes as string | undefined,
+          });
+
+          // 7. Output
+          if (globalOpts.pretty) {
+            printImportPretty(result, coffeeId);
+          } else {
+            success(`Roast profile ${result.roast_id} imported from ${fileName}.`);
+            outputData(result, globalOpts);
           }
         }
-
-        // 6. Run the import
-        const result = await importRoastFromFile(supabase, user.id, {
-          fileContent,
-          fileName,
-          coffeeId,
-          batchName: opts.batchName as string | undefined,
-          ozIn,
-          roastNotes: opts.roastNotes as string | undefined,
-        });
-
-        // 7. Output
-        if (globalOpts.pretty) {
-          printImportPretty(result, coffeeId);
-        } else {
-          success(`Roast profile ${result.roast_id} imported from ${fileName}.`);
-          outputData(result, globalOpts);
-        }
-      })
+      )
     );
 
   return roast;
