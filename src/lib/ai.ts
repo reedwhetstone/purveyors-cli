@@ -73,5 +73,10 @@ export async function classifyRoast(
     throw new Error(`AI classification failed: ${response.statusText}`);
   }
 
-  return response.json() as Promise<ClassifyRoastResult>;
+  const data = (await response.json()) as Record<string, unknown>;
+
+  // Normalize: server may return { match: undefined } or omit match entirely
+  return {
+    match: data.match ?? null,
+  } as ClassifyRoastResult;
 }

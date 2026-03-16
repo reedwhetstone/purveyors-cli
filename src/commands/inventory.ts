@@ -153,6 +153,8 @@ export function buildInventoryCommand(): Command {
           const notes = notesStr !== '' ? notesStr : undefined;
           const qtyStr = String(qtyRaw);
 
+          const spin = p.spinner();
+          spin.start('Adding bean to inventory...');
           const data = await addInventory(supabase, user.id, {
             catalogId: catalogItem.id,
             qty: parseFloat(qtyStr),
@@ -160,6 +162,7 @@ export function buildInventoryCommand(): Command {
             notes,
             purchaseDate: todayIso(),
           });
+          spin.stop('Done');
 
           p.outro(`Bean added! Inventory item #${data.id} created.`);
           outputData(data, globalOpts);
