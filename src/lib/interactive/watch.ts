@@ -8,9 +8,8 @@
 
 import { watch, type FSWatcher } from 'fs';
 import { readFile, access, writeFile, mkdir } from 'fs/promises';
-import { join, basename, extname } from 'path';
+import { join, extname } from 'path';
 import { constants } from 'fs';
-import * as p from '@clack/prompts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { importRoastFromFile } from '../roast.js';
 import type { MilestoneData, ProcessedRoastData } from '../artisan/types.js';

@@ -5,8 +5,6 @@ import { tmpdir } from 'os';
 import {
   generateBatchName,
   isAlogFile,
-  saveWatchSession,
-  loadWatchSession,
   printVerificationTable,
   type WatchSession,
   type ImportRecord,
