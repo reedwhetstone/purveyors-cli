@@ -1,0 +1,21 @@
+ .../20260315T230548Z-origin-main/changed_files.txt |   0
+ .../20260315T230548Z-origin-main/commits.txt       |   0
+ .../20260315T230548Z-origin-main/diffstat.txt      |   0
+ .verify-pr/20260315T230548Z-origin-main/full.diff  |   0
+ .../20260315T230548Z-origin-main/metadata.txt      |   7 +
+ .verify-pr/20260315T230548Z-origin-main/pr.json    |   0
+ package.json                                       |   1 +
+ pnpm-lock.yaml                                     |  32 +++
+ src/commands/config.ts                             | 118 +++++++++
+ src/commands/inventory.ts                          |  76 +++++-
+ src/commands/roast.ts                              | 291 +++++++++++++++++----
+ src/commands/sales.ts                              | 117 ++++++++-
+ src/commands/tasting.ts                            | 177 +++++++++----
+ src/index.ts                                       |   8 +
+ src/lib/artisan/import.ts                          | 122 +++++----
+ src/lib/artisan/types.ts                           |   4 +-
+ src/lib/catalog.ts                                 |   5 +-
+ src/lib/config.ts                                  |  74 ++++++
+ src/lib/interactive/forms.ts                       | 194 ++++++++++++++
+ tests/forms.test.ts                                | 145 ++++++++++
+ 20 files changed, 1217 insertions(+), 154 deletions(-)

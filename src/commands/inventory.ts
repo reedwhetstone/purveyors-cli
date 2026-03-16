@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import * as p from '@clack/prompts';
 import { createAuthenticatedClient } from '../lib/supabase.js';
+import { getConfigValue } from '../lib/config.js';
 import { outputData, info, success } from '../lib/output.js';
 import { withErrorHandling, AuthError, PrvrsError } from '../lib/errors.js';
 import { confirm, todayIso } from '../lib/prompts.js';
@@ -107,7 +108,11 @@ export function buildInventoryCommand(): Command {
         }
 
         // ── Interactive form mode ──────────────────────────────────────────
-        if (opts.form) {
+        // Auto-enter form mode if config form-mode is true and required args are missing
+        const formMode =
+          opts.form ||
+          (!(opts.catalogId && opts.qty) && (await getConfigValue('form-mode')) === 'true');
+        if (formMode) {
           p.intro('Add Bean to Inventory');
 
           const catalogItem = await pickCatalogItem(supabase);
