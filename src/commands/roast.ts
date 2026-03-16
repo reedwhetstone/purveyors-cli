@@ -20,6 +20,7 @@ import type {
   ImportRoastResult,
 } from '../lib/roast.js';
 import { pickBean, guardCancel } from '../lib/interactive/forms.js';
+import { startWatch, loadWatchSession } from '../lib/interactive/watch.js';
 import type { OutputOptions } from '../types/index.js';
 
 // Re-export types for backwards compatibility
@@ -442,6 +443,144 @@ export function buildRoastCommand(): Command {
           }
         }
       )
+    );
+
+  // ── roast watch <directory> ───────────────────────────────────────────────
+  roast
+    .command('watch')
+    .description('Watch a directory for new .alog files and auto-import them')
+    .argument('[directory]', 'Directory to watch for .alog files')
+    .option('--coffee-id <id>', 'green_coffee_inv ID for all imports')
+    .option('--batch-prefix <name>', 'Batch name prefix (defaults to coffee name)')
+    .option('--prompt-each', 'Prompt for bean selection on each new file')
+    .option('--resume', 'Resume a previous watch session')
+    .option('--form', 'Interactive form mode')
+    .action(
+      withErrorHandling(async (directory: string | undefined, opts: Record<string, unknown>) => {
+        const supabase = await createAuthenticatedClient();
+
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user) {
+          throw new AuthError('Not logged in. Run `purvey auth login` first.');
+        }
+
+        // ── Resume mode ──────────────────────────────────────────────────────
+        if (opts.resume) {
+          const saved = await loadWatchSession();
+          if (!saved) {
+            throw new PrvrsError(
+              'NOT_FOUND',
+              'No watch session to resume. Start a new one with: purvey roast watch <dir> --coffee-id <id>'
+            );
+          }
+          await startWatch(supabase, user.id, saved.directory, {
+            coffeeId: saved.coffeeId,
+            coffeeName: saved.coffeeName,
+            batchPrefix: saved.batchPrefix,
+            startSequence: saved.imports.length,
+          });
+          return;
+        }
+
+        // ── Interactive form mode ────────────────────────────────────────────
+        if (opts.form) {
+          p.intro('Watch for Artisan Roasts');
+
+          const dirRaw = await p.text({
+            message: 'Directory to watch',
+            placeholder: '/path/to/alog/directory',
+            validate: (v) => {
+              if (!v || String(v).trim() === '') return 'Please enter a directory path.';
+            },
+          });
+          guardCancel(dirRaw);
+
+          const watchDir = String(dirRaw).trim();
+
+          try {
+            await access(watchDir);
+          } catch {
+            p.cancel(`Directory not found: "${watchDir}"`);
+            process.exit(1);
+          }
+
+          const bean = await pickBean(supabase, user.id);
+
+          const batchPrefixRaw = await p.text({
+            message: 'Batch prefix',
+            placeholder: bean.name,
+            defaultValue: bean.name,
+          });
+          guardCancel(batchPrefixRaw);
+
+          const batchPrefix = String(batchPrefixRaw).trim() || bean.name;
+
+          const promptEachRaw = await p.confirm({
+            message: 'Prompt for bean selection on each new file?',
+            initialValue: false,
+          });
+          guardCancel(promptEachRaw);
+
+          await startWatch(supabase, user.id, watchDir, {
+            coffeeId: bean.id,
+            coffeeName: bean.name,
+            batchPrefix,
+            promptEach: Boolean(promptEachRaw),
+          });
+          return;
+        }
+
+        // ── Flag-based mode ──────────────────────────────────────────────────
+        if (!directory) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            'Missing directory argument. Use --form for interactive mode or --resume to continue.'
+          );
+        }
+
+        if (!opts.coffeeId) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            'Missing --coffee-id. Use --form for interactive mode.'
+          );
+        }
+
+        const coffeeId = parseInt(opts.coffeeId as string, 10);
+        if (isNaN(coffeeId) || coffeeId <= 0) {
+          throw new PrvrsError('INVALID_ARGUMENT', `Invalid --coffee-id: "${opts.coffeeId}".`);
+        }
+
+        // Look up coffee name from inventory
+        const { data: invItem, error: invError } = await supabase
+          .from('green_coffee_inv')
+          .select('id, coffee_catalog!catalog_id (name)')
+          .eq('id', coffeeId)
+          .eq('user', user.id)
+          .single();
+
+        if (invError || !invItem) {
+          throw new AuthError(`Inventory item ${coffeeId} not found or does not belong to you.`);
+        }
+
+        const catalogRaw = invItem.coffee_catalog as
+          | { name: string | null }
+          | { name: string | null }[]
+          | null;
+        const catalog = Array.isArray(catalogRaw) ? (catalogRaw[0] ?? null) : catalogRaw;
+        const coffeeName = catalog?.name ?? `Coffee #${coffeeId}`;
+
+        const batchPrefix = (opts.batchPrefix as string | undefined) ?? coffeeName;
+
+        await startWatch(supabase, user.id, directory, {
+          coffeeId,
+          coffeeName,
+          batchPrefix,
+          promptEach: Boolean(opts.promptEach),
+        });
+      })
     );
 
   return roast;
