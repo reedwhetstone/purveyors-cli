@@ -11,6 +11,7 @@ import {
 } from '../lib/tasting.js';
 import type { TastingFilter, TastingData, CuppingNotes } from '../lib/tasting.js';
 import { pickBean, guardCancel } from '../lib/interactive/forms.js';
+import { getConfigValue } from '../lib/config.js';
 import type { OutputOptions } from '../types/index.js';
 
 // Re-export types and helpers for backwards compatibility
@@ -125,7 +126,10 @@ export function buildTastingCommand(): Command {
           }
 
           // ── Interactive form mode ────────────────────────────────────────
-          if (opts.form) {
+          // Auto-enter form mode if config form-mode is true and required args are missing
+          const formMode =
+            opts.form || (!opts.id && (await getConfigValue('form-mode')) === 'true');
+          if (formMode) {
             p.intro('Rate Coffee');
 
             const bean = await pickBean(supabase, user.id);

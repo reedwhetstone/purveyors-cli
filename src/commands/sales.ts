@@ -6,7 +6,8 @@ import { withErrorHandling, AuthError, PrvrsError } from '../lib/errors.js';
 import { confirm, todayIso } from '../lib/prompts.js';
 import { listSales, recordSale, updateSale, deleteSale } from '../lib/sales.js';
 import type { Sale } from '../lib/sales.js';
-import { pickBean, guardCancel } from '../lib/interactive/forms.js';
+import { pickRoast, guardCancel } from '../lib/interactive/forms.js';
+import { getConfigValue } from '../lib/config.js';
 import type { OutputOptions } from '../types/index.js';
 
 // Re-export type for backwards compatibility
@@ -60,7 +61,7 @@ export function buildSalesCommand(): Command {
     .option('--oz <amount>', 'Ounces sold')
     .option('--price <dollars>', 'Sale price in dollars')
     .option('--buyer <name>', 'Buyer name or identifier')
-    .option('--notes <text>', 'Notes for this sale')
+    // NOTE: --notes omitted; sales table has no notes column yet. See phase3 plan doc.
     .option('--sell-date <YYYY-MM-DD>', 'Sale date (defaults to today)')
     .option('--form', 'Interactive form mode')
     .action(
@@ -77,10 +78,13 @@ export function buildSalesCommand(): Command {
         }
 
         // ── Interactive form mode ──────────────────────────────────────────
-        if (opts.form) {
+        // Auto-enter form mode if config form-mode is true and required args are missing
+        const formMode =
+          opts.form ||
+          (!(opts.roastId && opts.oz && opts.price) &&
+            (await getConfigValue('form-mode')) === 'true');
+        if (formMode) {
           p.intro('Record Sale');
-
-          const bean = await pickBean(supabase, user.id);
 
           const ozRaw = await p.text({
             message: 'Ounces sold',
@@ -108,12 +112,6 @@ export function buildSalesCommand(): Command {
           });
           guardCancel(buyerRaw);
 
-          const notesRaw = await p.text({
-            message: 'Notes',
-            placeholder: 'optional',
-          });
-          guardCancel(notesRaw);
-
           const confirmed = await p.confirm({ message: 'Record this sale?' });
           guardCancel(confirmed);
 
@@ -123,35 +121,12 @@ export function buildSalesCommand(): Command {
           }
 
           const buyerStr = String(buyerRaw).trim();
-          // notesStr captured for future use when sales lib supports notes field
-          void String(notesRaw);
 
-          // sales.record uses roastId — but form uses green_coffee_inv_id (bean.id).
-          // We pass the inventory item id as roastId since in the sales context
-          // we're identifying by inventory bean. Per spec: "use green_coffee_inv_id".
-          // The recordSale lib validates ownership via roast_profiles, so we use
-          // the bean's id to look up the most recent roast or pass it directly.
-          // NOTE: The sales table links to roast_profiles, so we look up the
-          // user's most recent roast for this coffee_id to get a roastId.
-          const { data: roastRows, error: roastErr } = await supabase
-            .from('roast_profiles')
-            .select('roast_id')
-            .eq('user', user.id)
-            .eq('coffee_id', bean.id)
-            .order('roast_date', { ascending: false })
-            .limit(1);
-
-          if (roastErr) throw roastErr;
-
-          if (!roastRows || roastRows.length === 0) {
-            p.cancel(`No roast profiles found for "${bean.name}". Create a roast first.`);
-            return;
-          }
-
-          const roastId = (roastRows[0] as { roast_id: number }).roast_id;
+          // Let user pick the specific roast batch to attribute this sale to.
+          const roast = await pickRoast(supabase, user.id);
 
           const data = await recordSale(supabase, user.id, {
-            roastId,
+            roastId: roast.id,
             oz: parseFloat(String(ozRaw)),
             price: parseFloat(String(priceRaw)),
             buyer: buyerStr !== '' ? buyerStr : undefined,

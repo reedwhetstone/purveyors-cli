@@ -21,6 +21,7 @@ import type {
 } from '../lib/roast.js';
 import { pickBean, guardCancel } from '../lib/interactive/forms.js';
 import { startWatch, loadWatchSession } from '../lib/interactive/watch.js';
+import { getConfigValue } from '../lib/config.js';
 import type { OutputOptions } from '../types/index.js';
 
 // Re-export types for backwards compatibility
@@ -121,7 +122,11 @@ export function buildRoastCommand(): Command {
         }
 
         // ── Interactive form mode ──────────────────────────────────────────
-        if (opts.form) {
+        // Auto-enter form mode if config form-mode is true and required args are missing
+        const formMode =
+          opts.form ||
+          (!(opts.coffeeId && opts.roastDate) && (await getConfigValue('form-mode')) === 'true');
+        if (formMode) {
           p.intro('Create Roast Profile');
 
           const bean = await pickBean(supabase, user.id);
@@ -282,7 +287,10 @@ export function buildRoastCommand(): Command {
           const globalOpts = cmd.optsWithGlobals() as OutputOptions;
 
           // ── Interactive form mode ────────────────────────────────────────
-          if (opts.form) {
+          // Auto-enter form mode if config form-mode is true and required args are missing
+          const importFormMode =
+            opts.form || (!file && (await getConfigValue('form-mode')) === 'true');
+          if (importFormMode) {
             p.intro('Import Artisan Roast');
 
             const filePathRaw = await p.text({
