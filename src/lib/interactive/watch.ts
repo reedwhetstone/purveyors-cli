@@ -357,8 +357,9 @@ export async function startWatch(
     }
 
     // Auto-match mode: use AI to classify the bean
+    let aiResult: Awaited<ReturnType<typeof runAutoMatch>> | undefined;
     if (opts.autoMatch && !opts.promptEach) {
-      const aiResult = await runAutoMatch(supabase, userId, filename, fileContent);
+      aiResult = await runAutoMatch(supabase, userId, filename, fileContent);
       if (aiResult.skip) {
         // AI returned low confidence or failed — mark as needs-review
         const record: ImportRecord = {
@@ -398,15 +399,9 @@ export async function startWatch(
         (v) => v !== undefined && (v as number) > 0
       ).length;
 
-      // Build the aiMatch field if we used auto-match
-      let aiMatchField: ImportRecord['aiMatch'] | undefined;
-      if (opts.autoMatch && !opts.promptEach) {
-        // We only reach here when autoMatch succeeded with high confidence
-        // Retrieve from a local closure via the result of runAutoMatch above
-        // (captured as the last aiResult — re-derive from session context)
-        // We pass it via a closure variable set in the autoMatch branch above
-        aiMatchField = _lastAiMatch ?? undefined;
-      }
+      // Carry aiMatch from the local aiResult (threaded as a local variable, not module state)
+      const aiMatchField: ImportRecord['aiMatch'] | undefined =
+        opts.autoMatch && !opts.promptEach && aiResult?.aiMatch ? aiResult.aiMatch : undefined;
 
       const record: ImportRecord = {
         fileName: filename,
@@ -441,7 +436,6 @@ export async function startWatch(
       await saveWatchSession(session);
       process.stderr.write(`✗ Failed to import ${filename}: ${errMsg}\n`);
     } finally {
-      _lastAiMatch = undefined;
       processing.delete(filename);
     }
   }
@@ -525,9 +519,6 @@ export async function startWatch(
 }
 
 // ─── Auto-match helpers ───────────────────────────────────────────────────────
-
-/** Module-level slot to carry the aiMatch result from auto-match into the success record. */
-let _lastAiMatch: ImportRecord['aiMatch'] | undefined;
 
 interface AutoMatchResult {
   skip: boolean;
@@ -653,9 +644,6 @@ async function runAutoMatch(
         aiMatch,
       };
     }
-
-    // Store for the success record
-    _lastAiMatch = aiMatch;
 
     return {
       skip: false,
