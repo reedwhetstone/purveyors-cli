@@ -1,9 +1,9 @@
 import { Command } from 'commander';
 import * as p from '@clack/prompts';
-import { createAuthenticatedClient } from '../lib/supabase.js';
 import { getConfigValue } from '../lib/config.js';
 import { outputData, info, success } from '../lib/output.js';
-import { withErrorHandling, AuthError, PrvrsError } from '../lib/errors.js';
+import { withErrorHandling, PrvrsError } from '../lib/errors.js';
+import { requireAuth } from '../lib/auth-guard.js';
 import { confirm, todayIso } from '../lib/prompts.js';
 import {
   listInventory,
@@ -23,7 +23,7 @@ export type { InventoryItem };
 
 /**
  * `purvey inventory` — Manage your green coffee inventory.
- * Requires authentication.
+ * Requires member+ authentication.
  */
 export function buildInventoryCommand(): Command {
   const inventory = new Command('inventory').description('Manage your green coffee inventory');
@@ -34,20 +34,28 @@ export function buildInventoryCommand(): Command {
     .description('List your green coffee inventory with catalog details')
     .option('--stocked', 'Only show currently stocked beans')
     .option('--limit <n>', 'Maximum results to return', '20')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey inventory list --pretty
+  purvey inventory list --stocked --pretty
+  purvey inventory list --limit 50 | jq '.[].id'
+  purvey inventory list --csv > inventory.csv
+
+Notes:
+  Returns your green_coffee_inv rows joined with catalog details.
+  The "id" field in each row is your inventory ID (used for roast --coffee-id,
+  tasting rate, etc.) — distinct from catalog_id.
+  Requires authentication (member role).
+`
+    )
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const supabase = await createAuthenticatedClient();
+        const { supabase, userId } = await requireAuth('member');
 
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          throw new AuthError('Not logged in. Run `purvey auth login` first.');
-        }
-
-        const data = await listInventory(supabase, user.id, {
+        const data = await listInventory(supabase, userId, {
           stocked: opts.stocked ? true : undefined,
           limit: Math.max(1, parseInt(opts.limit as string, 10)),
         });
@@ -65,20 +73,25 @@ export function buildInventoryCommand(): Command {
   inventory
     .command('get <id>')
     .description('Fetch a single inventory item by ID (must be yours)')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey inventory get 7 --pretty
+  purvey inventory get 42 | jq '{id, qty, cost, stocked}'
+
+Notes:
+  <id> is green_coffee_inv.id (integer).
+  Row-level security: only returns items belonging to the logged-in user.
+  Requires authentication (member role).
+`
+    )
     .action(
       withErrorHandling(async (id: string, _opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const supabase = await createAuthenticatedClient();
+        const { supabase, userId } = await requireAuth('member');
 
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          throw new AuthError('Not logged in. Run `purvey auth login` first.');
-        }
-
-        const data = await getInventory(supabase, user.id, parseInt(id, 10));
+        const data = await getInventory(supabase, userId, parseInt(id, 10));
         outputData(data, globalOpts);
       })
     );
@@ -87,25 +100,32 @@ export function buildInventoryCommand(): Command {
   inventory
     .command('add')
     .description('Add a new green coffee inventory item')
-    .option('--catalog-id <id>', 'Coffee catalog entry ID')
-    .option('--qty <lbs>', 'Quantity purchased in pounds')
-    .option('--cost <dollars>', 'Bean cost in dollars')
-    .option('--tax-ship <dollars>', 'Tax and shipping cost in dollars')
-    .option('--notes <text>', 'Notes for this inventory item')
+    .option('--catalog-id <id>', '[REQUIRED] Coffee catalog entry ID (coffee_catalog.catalog_id)')
+    .option('--qty <lbs>', '[REQUIRED] Quantity purchased in pounds')
+    .option('--cost <dollars>', 'Bean cost in dollars (optional)')
+    .option('--tax-ship <dollars>', 'Tax and shipping cost in dollars (optional)')
+    .option('--notes <text>', 'Notes for this inventory item (optional)')
     .option('--purchase-date <YYYY-MM-DD>', 'Purchase date (defaults to today)')
-    .option('--form', 'Interactive form mode')
+    .option('--form', 'Interactive form mode (prompts for all fields)')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey inventory add --catalog-id 128 --qty 10 --cost 8.50 --pretty
+  purvey inventory add --catalog-id 42 --qty 5 --cost 6.25 --tax-ship 4.00
+  purvey inventory add --catalog-id 77 --qty 25 --purchase-date 2026-03-01
+  purvey inventory add --form      # interactive wizard
+
+Required flags: --catalog-id, --qty
+  Use 'purvey catalog search' to find a --catalog-id.
+  Use --form if you prefer to browse and select interactively.
+  Requires authentication (member role).
+`
+    )
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const supabase = await createAuthenticatedClient();
-
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          throw new AuthError('Not logged in. Run `purvey auth login` first.');
-        }
+        const { supabase, userId } = await requireAuth('member');
 
         // ── Interactive form mode ──────────────────────────────────────────
         // Auto-enter form mode if config form-mode is true and required args are missing
@@ -155,7 +175,7 @@ export function buildInventoryCommand(): Command {
 
           const spin = p.spinner();
           spin.start('Adding bean to inventory...');
-          const data = await addInventory(supabase, user.id, {
+          const data = await addInventory(supabase, userId, {
             catalogId: catalogItem.id,
             qty: parseFloat(qtyStr),
             cost,
@@ -206,7 +226,7 @@ export function buildInventoryCommand(): Command {
           throw new PrvrsError('INVALID_ARGUMENT', `Invalid --tax-ship: "${opts.taxShip}".`);
         }
 
-        const data = await addInventory(supabase, user.id, {
+        const data = await addInventory(supabase, userId, {
           catalogId,
           qty,
           cost,
@@ -228,19 +248,26 @@ export function buildInventoryCommand(): Command {
     .option('--cost <dollars>', 'Updated bean cost')
     .option('--tax-ship <dollars>', 'Updated tax/shipping cost')
     .option('--notes <text>', 'Updated notes')
-    .option('--stocked <bool>', 'Mark as stocked (true/false)')
+    .option('--stocked <bool>', 'Mark as stocked: true or false')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey inventory update 7 --qty 8.5
+  purvey inventory update 7 --stocked false
+  purvey inventory update 7 --cost 9.00 --notes "bulk discount applied"
+  purvey inventory update 42 --stocked true --qty 15
+
+Notes:
+  At least one flag required. Pass only the fields you want to change.
+  --stocked accepts "true" or "false" (string, not flag).
+  Requires authentication (member role).
+`
+    )
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const supabase = await createAuthenticatedClient();
-
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          throw new AuthError('Not logged in. Run `purvey auth login` first.');
-        }
+        const { supabase, userId } = await requireAuth('member');
 
         const itemId = parseInt(id, 10);
         if (isNaN(itemId)) {
@@ -291,7 +318,7 @@ export function buildInventoryCommand(): Command {
           );
         }
 
-        const data = await updateInventory(supabase, user.id, itemId, {
+        const data = await updateInventory(supabase, userId, itemId, {
           qty,
           cost,
           taxShip,
@@ -309,18 +336,23 @@ export function buildInventoryCommand(): Command {
     .command('delete <id>')
     .description('Delete an inventory item (must be yours)')
     .option('-y, --yes', 'Skip confirmation prompt')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey inventory delete 7           # prompts for confirmation
+  purvey inventory delete 7 --yes     # skip confirmation (use in scripts)
+
+Notes:
+  Permanently deletes the inventory row. Cannot be undone.
+  Row-level security: only items belonging to you can be deleted.
+  Requires authentication (member role).
+`
+    )
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         void cmd;
-        const supabase = await createAuthenticatedClient();
-
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          throw new AuthError('Not logged in. Run `purvey auth login` first.');
-        }
+        const { supabase, userId } = await requireAuth('member');
 
         const itemId = parseInt(id, 10);
         if (isNaN(itemId)) {
@@ -335,7 +367,7 @@ export function buildInventoryCommand(): Command {
           }
         }
 
-        await deleteInventory(supabase, user.id, itemId);
+        await deleteInventory(supabase, userId, itemId);
         success(`Inventory item ${itemId} deleted.`);
       })
     );

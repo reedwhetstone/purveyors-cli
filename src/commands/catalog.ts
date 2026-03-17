@@ -1,7 +1,7 @@
 import { Command } from 'commander';
-import { createAnonClient } from '../lib/supabase.js';
 import { outputData, info } from '../lib/output.js';
 import { withErrorHandling } from '../lib/errors.js';
+import { requireAuth } from '../lib/auth-guard.js';
 import {
   searchCatalog,
   getCatalog,
@@ -20,7 +20,7 @@ export { sanitizeFilterValue, computeCatalogStats };
 
 /**
  * `purvey catalog` — Browse the public coffee catalog.
- * The coffee_catalog table is publicly readable; no auth required.
+ * Requires authentication (viewer+).
  */
 export function buildCatalogCommand(): Command {
   const catalog = new Command('catalog').description('Browse the public coffee catalog');
@@ -36,10 +36,27 @@ export function buildCatalogCommand(): Command {
     .option('--flavor <keywords>', 'Flavor keywords, comma-separated (e.g. "berry,chocolate")')
     .option('--stocked', 'Only show currently stocked coffees')
     .option('--limit <n>', 'Maximum results to return', '10')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey catalog search --origin "Ethiopia" --pretty
+  purvey catalog search --origin "Colombia" --process "honey" --pretty
+  purvey catalog search --process "natural" --flavor "blueberry,citrus" --stocked
+  purvey catalog search --price-min 5 --price-max 12 --stocked --limit 20
+  purvey catalog search --origin "Ethiopia" --csv > ethiopia.csv
+  purvey catalog search --stocked --limit 50 | jq '.[].name'
+
+Notes:
+  All filters are optional. Without flags, returns up to --limit results.
+  --origin accepts partial matches (e.g. "Ethiopia" matches "Ethiopia Guji").
+  No authentication required — catalog is publicly readable.
+`
+    )
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const supabase = createAnonClient();
+        const { supabase } = await requireAuth('viewer');
 
         const data = await searchCatalog(supabase, {
           origin: opts.origin as string | undefined,
@@ -64,10 +81,24 @@ export function buildCatalogCommand(): Command {
   catalog
     .command('get <id>')
     .description('Fetch a single coffee by ID')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey catalog get 128 --pretty
+  purvey catalog get 42 | jq '{name, origin, process, cost_lb}'
+  purvey catalog get 77 --csv
+
+Notes:
+  <id> is the coffee_catalog.catalog_id (integer).
+  Use 'purvey catalog search' to find IDs.
+  No authentication required.
+`
+    )
     .action(
       withErrorHandling(async (id: string, _opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const supabase = createAnonClient();
+        const { supabase } = await requireAuth('viewer');
 
         const data = await getCatalog(supabase, parseInt(id, 10));
         outputData(data, globalOpts);
@@ -78,10 +109,24 @@ export function buildCatalogCommand(): Command {
   catalog
     .command('stats')
     .description('Aggregate statistics for the coffee catalog')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey catalog stats --pretty
+  purvey catalog stats | jq '.totalCoffees'
+  purvey catalog stats --csv
+
+Notes:
+  Returns aggregated data: total count, average price, unique origins,
+  processing method breakdown, and stocked count.
+  No authentication required.
+`
+    )
     .action(
       withErrorHandling(async (_opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const supabase = createAnonClient();
+        const { supabase } = await requireAuth('viewer');
 
         const stats = await getCatalogStats(supabase);
         outputData(stats, globalOpts);
