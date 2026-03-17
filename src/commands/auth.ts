@@ -221,74 +221,83 @@ const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
 });
 
 /**
- * `purvey auth login --email --password`
- * Headless login with email/password (for agents and CI).
+ * `purvey auth login --headless`
+ * Headless login for agents and servers. Generates OAuth URL, user pastes back callback.
  */
-const headlessLoginAction = withErrorHandling(async (opts: { email: string; password: string }) => {
-  if (!opts.email || !opts.password) {
-    throw new AuthError(
-      'Both --email and --password are required for headless login.\n' +
-        '  Usage: purvey auth login --email user@example.com --password yourpassword'
-    );
-  }
-
-  const spinner = ora('Authenticating...').start();
+const headlessLoginAction = withErrorHandling(async () => {
+  // Generate OAuth URL with purveyors.io callback page as redirect
+  const redirectTo = 'https://purveyors.io/auth/cli-callback';
   const supabase = createAnonClient();
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: opts.email,
-    password: opts.password,
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo, skipBrowserRedirect: true },
   });
 
-  if (error || !data.session) {
-    spinner.fail('Authentication failed');
-    throw new AuthError(error?.message ?? 'Invalid credentials. Check your email and password.');
+  if (error || !data.url) {
+    throw new AuthError('Failed to generate OAuth URL.');
   }
 
-  const { session, user } = data;
+  console.log(chalk.bold('\n  Headless Login\n'));
+  console.log('  1. Open this URL in a browser and sign in:\n');
+  console.log(`     ${chalk.cyan(data.url)}\n`);
+  console.log("  2. After login, you'll see a page with a callback URL.");
+  console.log('  3. Copy the full callback URL and paste it below.\n');
 
-  const creds: StoredCredentials = {
-    accessToken: session.access_token,
-    refreshToken: session.refresh_token,
-    expiresAt: Date.now() + session.expires_in * 1000,
-    user: {
-      id: user.id,
-      email: user.email ?? 'unknown',
-      role: user.role,
-    },
-  };
+  // Read the callback URL from stdin
+  const { createInterface } = await import('readline');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
 
-  await writeCredentials(creds);
-  spinner.succeed(`Logged in as ${chalk.bold(creds.user.email)}`);
-});
+  const callbackUrl = await new Promise<string>((resolve) => {
+    rl.question(chalk.bold('  Paste callback URL: '), (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
 
-/**
- * `purvey auth login --token`
- * Direct token login (for environments where OAuth callback isn't possible).
- */
-const tokenLoginAction = withErrorHandling(async (opts: { token: string }) => {
-  if (!opts.token) {
+  if (!callbackUrl) {
+    throw new AuthError('No URL provided.');
+  }
+
+  // Extract tokens from the URL fragment or query params
+  // Supabase puts them in the fragment: #access_token=...&refresh_token=...
+  let tokenStr = '';
+  if (callbackUrl.includes('#')) {
+    tokenStr = callbackUrl.split('#')[1];
+  } else if (callbackUrl.includes('?')) {
+    tokenStr = callbackUrl.split('?').slice(1).join('?');
+  } else {
+    // Maybe they pasted just the fragment part
+    tokenStr = callbackUrl;
+  }
+
+  const params = new URLSearchParams(tokenStr);
+  const accessToken = params.get('access_token');
+  const refreshToken = params.get('refresh_token');
+  const expiresIn = params.get('expires_in');
+
+  if (!accessToken || !refreshToken) {
     throw new AuthError(
-      '--token is required.\n' + '  Usage: purvey auth login --token <access_token>'
+      'Could not extract tokens from the URL.\n' +
+        '  Make sure you copied the full callback URL including the #access_token=... part.'
     );
   }
 
-  const spinner = ora('Validating token...').start();
-  const supabase = createAnonClient();
+  const spinner = ora('Validating session...').start();
+  const client = createAnonClient();
   const {
     data: { user },
-    error,
-  } = await supabase.auth.getUser(opts.token);
+    error: userError,
+  } = await client.auth.getUser(accessToken);
 
-  if (error || !user) {
+  if (userError || !user) {
     spinner.fail('Token validation failed');
-    throw new AuthError('Invalid or expired token.');
+    throw new AuthError('Invalid or expired token. Try the login flow again.');
   }
 
-  // We don't have a refresh token in this mode, so set a shorter expiry
   const creds: StoredCredentials = {
-    accessToken: opts.token,
-    refreshToken: '', // No refresh token — session will expire
-    expiresAt: Date.now() + 3600 * 1000, // 1 hour default
+    accessToken,
+    refreshToken,
+    expiresAt: Date.now() + parseInt(expiresIn ?? '3600', 10) * 1000,
     user: {
       id: user.id,
       email: user.email ?? 'unknown',
@@ -298,7 +307,6 @@ const tokenLoginAction = withErrorHandling(async (opts: { token: string }) => {
 
   await writeCredentials(creds);
   spinner.succeed(`Logged in as ${chalk.bold(creds.user.email)}`);
-  info('Note: Token login has no refresh capability. Re-authenticate when token expires.');
 });
 
 /**
@@ -319,15 +327,10 @@ export function buildAuthCommand(): Command {
   const login = auth
     .command('login')
     .description('Log in to purveyors.io')
-    .option('--email <email>', 'Email address (for headless/agent login)')
-    .option('--password <password>', 'Password (for headless/agent login)')
-    .option('--token <token>', 'Access token (for direct token login)')
+    .option('--headless', 'Headless login (prints URL, you paste back the callback)')
     .action(async (opts) => {
-      if (opts.token) {
-        return tokenLoginAction(opts);
-      }
-      if (opts.email || opts.password) {
-        return headlessLoginAction(opts);
+      if (opts.headless) {
+        return headlessLoginAction();
       }
       // Default: browser OAuth flow
       return loginAction();
@@ -340,14 +343,9 @@ Examples:
   ${chalk.dim('# Browser login (interactive, opens Google OAuth)')}
   purvey auth login
 
-  ${chalk.dim('# Headless login (agents, CI, servers)')}
-  purvey auth login --email user@example.com --password yourpassword
-
-  ${chalk.dim('# Direct token login (from existing session)')}
-  purvey auth login --token eyJhbGciOi...
-
-  ${chalk.dim('# Environment variables (CI/automation)')}
-  PURVEY_EMAIL=user@example.com PURVEY_PASSWORD=pass purvey auth login --email "$PURVEY_EMAIL" --password "$PURVEY_PASSWORD"
+  ${chalk.dim('# Headless login (agents, CI, servers — no browser needed)')}
+  purvey auth login --headless
+  ${chalk.dim('# Prints a URL → user opens it → signs in → pastes callback URL back')}
 `
   );
 
