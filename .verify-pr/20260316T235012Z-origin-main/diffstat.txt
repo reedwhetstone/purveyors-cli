@@ -1,0 +1,8 @@
+ src/commands/inventory.ts    |  3 +++
+ src/commands/roast.ts        |  6 ++++++
+ src/commands/sales.ts        |  3 +++
+ src/commands/tasting.ts      |  3 +++
+ src/lib/ai.ts                |  7 ++++++-
+ src/lib/interactive/watch.ts |  2 +-
+ src/lib/supabase.ts          | 17 ++++++++++++++++-
+ 7 files changed, 38 insertions(+), 3 deletions(-)

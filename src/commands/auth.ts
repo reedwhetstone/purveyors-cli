@@ -140,11 +140,19 @@ const loginAction = withErrorHandling(async () => {
   console.log(chalk.bold('\n  Opening browser for authentication...'));
   console.log(chalk.dim(`  If the browser does not open, visit:\n  ${data.url}\n`));
 
-  // Open browser cross-platform
-  const { spawn } = await import('child_process');
-  const openCmd =
-    process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-  spawn(openCmd, [data.url], { detached: true, stdio: 'ignore' }).unref();
+  // Open browser cross-platform (graceful fallback for headless)
+  try {
+    const { spawn } = await import('child_process');
+    const openCmd =
+      process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+    const child = spawn(openCmd, [data.url], { detached: true, stdio: 'ignore' });
+    child.on('error', () => {
+      // Browser open failed (headless environment) — user can visit URL manually
+    });
+    child.unref();
+  } catch {
+    // Gracefully ignore — URL is already printed above
+  }
 
   const spinner = ora('Waiting for authentication...').start();
   const { accessToken, refreshToken, expiresIn } = await tokenPromise;
@@ -213,6 +221,87 @@ const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
 });
 
 /**
+ * `purvey auth login --email --password`
+ * Headless login with email/password (for agents and CI).
+ */
+const headlessLoginAction = withErrorHandling(async (opts: { email: string; password: string }) => {
+  if (!opts.email || !opts.password) {
+    throw new AuthError(
+      'Both --email and --password are required for headless login.\n' +
+        '  Usage: purvey auth login --email user@example.com --password yourpassword'
+    );
+  }
+
+  const spinner = ora('Authenticating...').start();
+  const supabase = createAnonClient();
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: opts.email,
+    password: opts.password,
+  });
+
+  if (error || !data.session) {
+    spinner.fail('Authentication failed');
+    throw new AuthError(error?.message ?? 'Invalid credentials. Check your email and password.');
+  }
+
+  const { session, user } = data;
+
+  const creds: StoredCredentials = {
+    accessToken: session.access_token,
+    refreshToken: session.refresh_token,
+    expiresAt: Date.now() + session.expires_in * 1000,
+    user: {
+      id: user.id,
+      email: user.email ?? 'unknown',
+      role: user.role,
+    },
+  };
+
+  await writeCredentials(creds);
+  spinner.succeed(`Logged in as ${chalk.bold(creds.user.email)}`);
+});
+
+/**
+ * `purvey auth login --token`
+ * Direct token login (for environments where OAuth callback isn't possible).
+ */
+const tokenLoginAction = withErrorHandling(async (opts: { token: string }) => {
+  if (!opts.token) {
+    throw new AuthError(
+      '--token is required.\n' + '  Usage: purvey auth login --token <access_token>'
+    );
+  }
+
+  const spinner = ora('Validating token...').start();
+  const supabase = createAnonClient();
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser(opts.token);
+
+  if (error || !user) {
+    spinner.fail('Token validation failed');
+    throw new AuthError('Invalid or expired token.');
+  }
+
+  // We don't have a refresh token in this mode, so set a shorter expiry
+  const creds: StoredCredentials = {
+    accessToken: opts.token,
+    refreshToken: '', // No refresh token — session will expire
+    expiresAt: Date.now() + 3600 * 1000, // 1 hour default
+    user: {
+      id: user.id,
+      email: user.email ?? 'unknown',
+      role: user.role,
+    },
+  };
+
+  await writeCredentials(creds);
+  spinner.succeed(`Logged in as ${chalk.bold(creds.user.email)}`);
+  info('Note: Token login has no refresh capability. Re-authenticate when token expires.');
+});
+
+/**
  * `purvey auth logout`
  * Clears stored credentials from disk.
  */
@@ -227,7 +316,40 @@ const logoutAction = withErrorHandling(async () => {
 export function buildAuthCommand(): Command {
   const auth = new Command('auth').description('Manage authentication with purveyors.io');
 
-  auth.command('login').description('Log in via Google OAuth (opens browser)').action(loginAction);
+  const login = auth
+    .command('login')
+    .description('Log in to purveyors.io')
+    .option('--email <email>', 'Email address (for headless/agent login)')
+    .option('--password <password>', 'Password (for headless/agent login)')
+    .option('--token <token>', 'Access token (for direct token login)')
+    .action(async (opts) => {
+      if (opts.token) {
+        return tokenLoginAction(opts);
+      }
+      if (opts.email || opts.password) {
+        return headlessLoginAction(opts);
+      }
+      // Default: browser OAuth flow
+      return loginAction();
+    });
+
+  login.addHelpText(
+    'after',
+    `
+Examples:
+  ${chalk.dim('# Browser login (interactive, opens Google OAuth)')}
+  purvey auth login
+
+  ${chalk.dim('# Headless login (agents, CI, servers)')}
+  purvey auth login --email user@example.com --password yourpassword
+
+  ${chalk.dim('# Direct token login (from existing session)')}
+  purvey auth login --token eyJhbGciOi...
+
+  ${chalk.dim('# Environment variables (CI/automation)')}
+  PURVEY_EMAIL=user@example.com PURVEY_PASSWORD=pass purvey auth login --email "$PURVEY_EMAIL" --password "$PURVEY_PASSWORD"
+`
+  );
 
   auth
     .command('status')

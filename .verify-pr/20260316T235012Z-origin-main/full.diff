@@ -1,0 +1,161 @@
+diff --git a/src/commands/inventory.ts b/src/commands/inventory.ts
+index 2e301bd..971da0f 100644
+--- a/src/commands/inventory.ts
++++ b/src/commands/inventory.ts
+@@ -153,6 +153,8 @@ export function buildInventoryCommand(): Command {
+           const notes = notesStr !== '' ? notesStr : undefined;
+           const qtyStr = String(qtyRaw);
+ 
++          const spin = p.spinner();
++          spin.start('Adding bean to inventory...');
+           const data = await addInventory(supabase, user.id, {
+             catalogId: catalogItem.id,
+             qty: parseFloat(qtyStr),
+@@ -160,6 +162,7 @@ export function buildInventoryCommand(): Command {
+             notes,
+             purchaseDate: todayIso(),
+           });
++          spin.stop('Done');
+ 
+           p.outro(`Bean added! Inventory item #${data.id} created.`);
+           outputData(data, globalOpts);
+diff --git a/src/commands/roast.ts b/src/commands/roast.ts
+index db7d415..3a4fbf8 100644
+--- a/src/commands/roast.ts
++++ b/src/commands/roast.ts
+@@ -181,6 +181,8 @@ export function buildRoastCommand(): Command {
+             [notesStr, targetsStr ? `Targets: ${targetsStr}` : ''].filter(Boolean).join('\n') ||
+             undefined;
+ 
++          const spin = p.spinner();
++          spin.start('Creating roast profile...');
+           const data = await createRoast(supabase, user.id, {
+             coffeeId: bean.id,
+             batchName: String(batchNameRaw).trim() || defaultBatch,
+@@ -188,6 +190,7 @@ export function buildRoastCommand(): Command {
+             roastDate: today,
+             notes: combinedNotes,
+           });
++          spin.stop('Done');
+ 
+           p.outro(`Roast profile created! Roast #${data.roast_id}.`);
+           outputData(data, globalOpts);
+@@ -367,6 +370,8 @@ export function buildRoastCommand(): Command {
+             const batchName = String(batchNameRaw).trim() || defaultBatch;
+             const notesStr = String(roastNotesRaw).trim();
+ 
++            const spin = p.spinner();
++            spin.start('Importing roast data...');
+             const result = await importRoastFromFile(supabase, user.id, {
+               fileContent,
+               fileName,
+@@ -375,6 +380,7 @@ export function buildRoastCommand(): Command {
+               ozIn,
+               roastNotes: notesStr !== '' ? notesStr : undefined,
+             });
++            spin.stop('Done');
+ 
+             p.outro(`Roast imported! Profile #${result.roast_id} created.`);
+             outputData(result, globalOpts);
+diff --git a/src/commands/sales.ts b/src/commands/sales.ts
+index 0bc3126..7fda7a6 100644
+--- a/src/commands/sales.ts
++++ b/src/commands/sales.ts
+@@ -125,6 +125,8 @@ export function buildSalesCommand(): Command {
+           // Let user pick the specific roast batch to attribute this sale to.
+           const roast = await pickRoast(supabase, user.id);
+ 
++          const spin = p.spinner();
++          spin.start('Recording sale...');
+           const data = await recordSale(supabase, user.id, {
+             roastId: roast.id,
+             oz: parseFloat(String(ozRaw)),
+@@ -132,6 +134,7 @@ export function buildSalesCommand(): Command {
+             buyer: buyerStr !== '' ? buyerStr : undefined,
+             sellDate: todayIso(),
+           });
++          spin.stop('Done');
+ 
+           p.outro(`Sale recorded! Sale #${data.id}.`);
+           outputData(data, globalOpts);
+diff --git a/src/commands/tasting.ts b/src/commands/tasting.ts
+index fb3ea7a..7d47d44 100644
+--- a/src/commands/tasting.ts
++++ b/src/commands/tasting.ts
+@@ -156,6 +156,8 @@ export function buildTastingCommand(): Command {
+ 
+             const notesStr = String(notesRaw).trim();
+ 
++            const spin = p.spinner();
++            spin.start('Saving rating...');
+             const data = await rateCoffee(supabase, user.id, bean.id, {
+               aroma,
+               body,
+@@ -164,6 +166,7 @@ export function buildTastingCommand(): Command {
+               aftertaste,
+               notes: notesStr !== '' ? notesStr : undefined,
+             });
++            spin.stop('Done');
+ 
+             p.outro(`Rating saved for "${bean.name}"!`);
+             outputData(data, globalOpts);
+diff --git a/src/lib/ai.ts b/src/lib/ai.ts
+index c8b27dc..9df2c82 100644
+--- a/src/lib/ai.ts
++++ b/src/lib/ai.ts
+@@ -73,5 +73,10 @@ export async function classifyRoast(
+     throw new Error(`AI classification failed: ${response.statusText}`);
+   }
+ 
+-  return response.json() as Promise<ClassifyRoastResult>;
++  const data = (await response.json()) as Record<string, unknown>;
++
++  // Normalize: server may return { match: undefined } or omit match entirely
++  return {
++    match: data.match ?? null,
++  } as ClassifyRoastResult;
+ }
+diff --git a/src/lib/interactive/watch.ts b/src/lib/interactive/watch.ts
+index febba22..933ac79 100644
+--- a/src/lib/interactive/watch.ts
++++ b/src/lib/interactive/watch.ts
+@@ -620,7 +620,7 @@ async function runAutoMatch(
+     const { classifyRoast } = await import('../ai.js');
+     const result = await classifyRoast(supabase, { alogMetadata, inventory });
+ 
+-    if (result.match === null) {
++    if (!result.match) {
+       return { skip: true, reason: 'AI returned no match' };
+     }
+ 
+diff --git a/src/lib/supabase.ts b/src/lib/supabase.ts
+index ad245e4..1af5fab 100644
+--- a/src/lib/supabase.ts
++++ b/src/lib/supabase.ts
+@@ -95,10 +95,25 @@ export async function validateSession(): Promise<{
+ 
+     if (error || !user) return null;
+ 
++    // Fetch app-level role from user_roles table
++    let appRoles: string[] = [];
++    try {
++      const { data: roleData } = await client
++        .from('user_roles')
++        .select('user_role')
++        .eq('id', user.id)
++        .single();
++      if (roleData?.user_role && Array.isArray(roleData.user_role)) {
++        appRoles = roleData.user_role as string[];
++      }
++    } catch {
++      // user_roles query failed — fall back to auth role
++    }
++
+     return {
+       id: user.id,
+       email: user.email,
+-      role: user.role,
++      role: appRoles.length > 0 ? appRoles.join(', ') : (user.role ?? 'authenticated'),
+       expiresAt: creds.expiresAt,
+     };
+   } catch {
