@@ -34,12 +34,12 @@ All lint, type check, and tests must pass before merging.
 
 ## Environment Variables
 
-| Variable                      | Required | Description                                    |
-|-------------------------------|----------|------------------------------------------------|
-| `PURVEYORS_SUPABASE_URL`      | No       | Override Supabase URL (default: prod)          |
-| `PURVEYORS_SUPABASE_ANON_KEY` | No       | Override anon key (default: prod)              |
+| Variable                      | Required | Description                                       |
+| ----------------------------- | -------- | ------------------------------------------------- |
+| `PURVEYORS_SUPABASE_URL`      | No       | Override Supabase URL (default: prod)             |
+| `PURVEYORS_SUPABASE_ANON_KEY` | No       | Override anon key (default: prod)                 |
 | `PURVEYORS_BASE_URL`          | No       | Override AI proxy URL (default: www.purveyors.io) |
-| `PURVEY_DEBUG`                | No       | Enable verbose error output                    |
+| `PURVEY_DEBUG`                | No       | Enable verbose error output                       |
 
 **Never commit secrets.** The CLI authenticates as a user (never service role).
 
@@ -83,6 +83,7 @@ tests/
 ## Authentication
 
 ### Three auth modes
+
 ```bash
 purvey auth login              # Browser Google OAuth (interactive)
 purvey auth login --headless   # Prints OAuth URL, user pastes callback URL back (agents/servers)
@@ -91,9 +92,11 @@ purvey auth logout             # Clears credentials
 ```
 
 ### Auto-refresh
+
 `createAuthenticatedClient()` calls `supabase.auth.setSession()` which automatically uses the refresh token when the access token is expired. New tokens are persisted to `~/.config/purvey/credentials.json`. Login once, use forever.
 
 ### Role hierarchy
+
 ```
 viewer   (0) — any logged-in user
 member   (1) — member, api-member
@@ -135,6 +138,7 @@ Auth commands (`login`, `status`, `logout`), config, `--help`, and `--version` a
 ### Output conventions
 
 All data commands must support:
+
 - Default: compact JSON to **stdout** (machine-readable, pipeable)
 - `--pretty`: indented, colorized JSON for humans
 - `--csv`: CSV for spreadsheet import
@@ -143,7 +147,9 @@ User messages (spinners, confirmations, errors) → **stderr**. Data → **stdou
 This ensures `purvey inventory list | jq '.[0].id'` works correctly.
 
 ### Help text conventions
+
 Every subcommand gets `.addHelpText('after', ...)` with real-world examples:
+
 ```typescript
 .addHelpText('after', `
 Examples:
@@ -208,6 +214,7 @@ The CLI exports functions for use by coffee-app's chat agent:
 ## CI
 
 GitHub Actions on every push and PR to `main`:
+
 1. Lint (prettier + eslint)
 2. Type check (`tsc --noEmit`)
 3. Tests (vitest — 169 tests)
