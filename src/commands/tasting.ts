@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import * as p from '@clack/prompts';
-import { createAuthenticatedClient } from '../lib/supabase.js';
 import { outputData, info, success } from '../lib/output.js';
-import { withErrorHandling, AuthError, PrvrsError } from '../lib/errors.js';
+import { withErrorHandling, PrvrsError } from '../lib/errors.js';
+import { requireAuth } from '../lib/auth-guard.js';
 import {
   getTastingNotes,
   rateCoffee,
@@ -41,7 +41,7 @@ async function promptCuppingScore(dimension: string): Promise<number> {
 /**
  * `purvey tasting` — View and record tasting notes for a bean.
  * Combines supplier notes from coffee_catalog with user notes from green_coffee_inv.
- * Requires authentication.
+ * Requires member+ authentication.
  */
 export function buildTastingCommand(): Command {
   const tasting = new Command('tasting').description(
@@ -58,6 +58,24 @@ export function buildTastingCommand(): Command {
       '--filter <type>',
       'Which notes to show: user, supplier, or both (default: both)',
       'both'
+    )
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey tasting get 128 --pretty
+  purvey tasting get 128 --filter supplier --pretty
+  purvey tasting get 128 --filter user --pretty
+  purvey tasting get 42 | jq '.user.aroma'
+
+Notes:
+  <bean-id> is coffee_catalog.catalog_id (NOT inventory id).
+  --filter both returns: {supplier: {flavor_notes, ...}, user: {aroma, body, ...}}
+  --filter supplier: only the supplier's flavor notes from the catalog.
+  --filter user: only your cupping scores from green_coffee_inv.
+  Returns null fields if no notes exist for that filter.
+  Requires authentication (member role).
+`
     )
     .action(
       withErrorHandling(async (beanId: string, opts: Record<string, unknown>, cmd: Command) => {
@@ -76,17 +94,9 @@ export function buildTastingCommand(): Command {
           throw new PrvrsError('INVALID_ARGUMENT', `Invalid bean ID: "${beanId}".`);
         }
 
-        const supabase = await createAuthenticatedClient();
+        const { supabase, userId } = await requireAuth('member');
 
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          throw new AuthError('Not logged in. Run `purvey auth login` first.');
-        }
-
-        const result = await getTastingNotes(supabase, user.id, catalogId, filter);
+        const result = await getTastingNotes(supabase, userId, catalogId, filter);
 
         if (result.supplier === null && result.user === null) {
           info(`No tasting notes found for bean ID ${catalogId} (filter: ${filter}).`);
@@ -101,29 +111,38 @@ export function buildTastingCommand(): Command {
   tasting
     .command('rate')
     .description('Rate a bean from your inventory using cupping scores (updates green_coffee_inv)')
-    .argument('[bean-id]', 'Inventory item ID (green_coffee_inv), or use --form')
-    .option('--aroma <1-5>', 'Aroma score (1-5)')
-    .option('--body <1-5>', 'Body score (1-5)')
-    .option('--acidity <1-5>', 'Acidity score (1-5)')
-    .option('--sweetness <1-5>', 'Sweetness score (1-5)')
-    .option('--aftertaste <1-5>', 'Aftertaste score (1-5)')
-    .option('--brew-method <method>', 'Brew method (e.g. pour_over, french_press, espresso)')
+    .argument('[bean-id]', 'Inventory item ID (green_coffee_inv.id), or use --form')
+    .option('--aroma <1-5>', '[REQUIRED in flag mode] Aroma score, integer 1-5')
+    .option('--body <1-5>', '[REQUIRED in flag mode] Body score, integer 1-5')
+    .option('--acidity <1-5>', '[REQUIRED in flag mode] Acidity score, integer 1-5')
+    .option('--sweetness <1-5>', '[REQUIRED in flag mode] Sweetness score, integer 1-5')
+    .option('--aftertaste <1-5>', '[REQUIRED in flag mode] Aftertaste score, integer 1-5')
+    .option('--brew-method <method>', 'Brew method used (e.g. pour_over, french_press, espresso)')
     .option('--notes <text>', 'Additional tasting notes')
-    .option('--form', 'Interactive form mode')
+    .option('--form', 'Interactive form mode (browse inventory + guided scoring)')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey tasting rate 7 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
+  purvey tasting rate 7 --aroma 5 --body 4 --acidity 4 --sweetness 5 --aftertaste 4 --brew-method pour_over
+  purvey tasting rate 42 --aroma 3 --body 3 --acidity 3 --sweetness 3 --aftertaste 3 --notes "Underextracted, try finer grind"
+  purvey tasting rate --form     # interactive wizard
+
+Required (flag mode): <bean-id> + all five score flags (--aroma, --body, --acidity, --sweetness, --aftertaste)
+  <bean-id> is green_coffee_inv.id (your inventory ID, NOT catalog_id).
+  Use 'purvey inventory list' to find your bean IDs.
+  Scores: integer 1 (low) to 5 (excellent).
+  Scores are stored on your green_coffee_inv row (overwrite on re-rate).
+  Requires authentication (member role).
+`
+    )
     .action(
       withErrorHandling(
         async (beanId: string | undefined, opts: Record<string, unknown>, cmd: Command) => {
           const globalOpts = cmd.optsWithGlobals() as OutputOptions;
 
-          const supabase = await createAuthenticatedClient();
-
-          const {
-            data: { user },
-          } = await supabase.auth.getUser();
-
-          if (!user) {
-            throw new AuthError('Not logged in. Run `purvey auth login` first.');
-          }
+          const { supabase, userId } = await requireAuth('member');
 
           // ── Interactive form mode ────────────────────────────────────────
           // Auto-enter form mode if config form-mode is true and required args are missing
@@ -132,7 +151,7 @@ export function buildTastingCommand(): Command {
           if (formMode) {
             p.intro('Rate Coffee');
 
-            const bean = await pickBean(supabase, user.id);
+            const bean = await pickBean(supabase, userId);
 
             const aroma = await promptCuppingScore('Aroma');
             const body = await promptCuppingScore('Body');
@@ -158,7 +177,7 @@ export function buildTastingCommand(): Command {
 
             const spin = p.spinner();
             spin.start('Saving rating...');
-            const data = await rateCoffee(supabase, user.id, bean.id, {
+            const data = await rateCoffee(supabase, userId, bean.id, {
               aroma,
               body,
               acidity,
@@ -207,7 +226,7 @@ export function buildTastingCommand(): Command {
           const sweetness = parseCuppingScore(opts.sweetness as string, 'sweetness');
           const aftertaste = parseCuppingScore(opts.aftertaste as string, 'aftertaste');
 
-          const data = await rateCoffee(supabase, user.id, inventoryId, {
+          const data = await rateCoffee(supabase, userId, inventoryId, {
             aroma,
             body,
             acidity,

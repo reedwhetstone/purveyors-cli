@@ -2,9 +2,9 @@ import { Command } from 'commander';
 import * as p from '@clack/prompts';
 import { access, readFile } from 'fs/promises';
 import { basename } from 'path';
-import { createAuthenticatedClient } from '../lib/supabase.js';
 import { outputData, info, success } from '../lib/output.js';
-import { withErrorHandling, AuthError, PrvrsError } from '../lib/errors.js';
+import { withErrorHandling, PrvrsError } from '../lib/errors.js';
+import { requireAuth } from '../lib/auth-guard.js';
 import { confirm, todayIso } from '../lib/prompts.js';
 import {
   listRoasts,
@@ -31,7 +31,7 @@ export type { RoastProfile, TemperatureEntry, RoastEventEntry };
 
 /**
  * `purvey roast` — Browse and manage your roast profiles.
- * Requires authentication.
+ * Requires member+ authentication.
  */
 export function buildRoastCommand(): Command {
   const roast = new Command('roast').description('Browse and manage your roast profiles');
@@ -45,17 +45,9 @@ export function buildRoastCommand(): Command {
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const supabase = await createAuthenticatedClient();
+        const { supabase, userId } = await requireAuth('member');
 
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          throw new AuthError('Not logged in. Run `purvey auth login` first.');
-        }
-
-        const data = await listRoasts(supabase, user.id, {
+        const data = await listRoasts(supabase, userId, {
           coffeeId: opts.coffeeId !== undefined ? parseInt(opts.coffeeId as string, 10) : undefined,
           limit: Math.max(1, parseInt(opts.limit as string, 10)),
         });
@@ -78,17 +70,9 @@ export function buildRoastCommand(): Command {
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const supabase = await createAuthenticatedClient();
+        const { supabase, userId } = await requireAuth('member');
 
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          throw new AuthError('Not logged in. Run `purvey auth login` first.');
-        }
-
-        const data = await getRoast(supabase, user.id, parseInt(id, 10), {
+        const data = await getRoast(supabase, userId, parseInt(id, 10), {
           includeTemps: Boolean(opts.includeTemps),
           includeEvents: Boolean(opts.includeEvents),
         });
@@ -111,15 +95,7 @@ export function buildRoastCommand(): Command {
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const supabase = await createAuthenticatedClient();
-
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          throw new AuthError('Not logged in. Run `purvey auth login` first.');
-        }
+        const { supabase, userId } = await requireAuth('member');
 
         // ── Interactive form mode ──────────────────────────────────────────
         // Auto-enter form mode if config form-mode is true and required args are missing
@@ -129,7 +105,7 @@ export function buildRoastCommand(): Command {
         if (formMode) {
           p.intro('Create Roast Profile');
 
-          const bean = await pickBean(supabase, user.id);
+          const bean = await pickBean(supabase, userId);
 
           const today = todayIso();
           const defaultBatch = `${bean.name} ${today}`;
@@ -183,7 +159,7 @@ export function buildRoastCommand(): Command {
 
           const spin = p.spinner();
           spin.start('Creating roast profile...');
-          const data = await createRoast(supabase, user.id, {
+          const data = await createRoast(supabase, userId, {
             coffeeId: bean.id,
             batchName: String(batchNameRaw).trim() || defaultBatch,
             ozIn,
@@ -224,7 +200,7 @@ export function buildRoastCommand(): Command {
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --oz-out: "${opts.ozOut}".`);
         }
 
-        const data = await createRoast(supabase, user.id, {
+        const data = await createRoast(supabase, userId, {
           coffeeId,
           batchName: opts.batchName as string | undefined,
           ozIn,
@@ -243,18 +219,22 @@ export function buildRoastCommand(): Command {
     .command('delete <id>')
     .description('Delete a roast profile (must be yours)')
     .option('-y, --yes', 'Skip confirmation prompt')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey roast delete 123           # prompts for confirmation
+  purvey roast delete 123 --yes     # skip confirmation (use in scripts)
+
+Notes:
+  Permanently deletes the roast profile and associated temperature/event data.
+  Cannot be undone. Requires authentication (member role).
+`
+    )
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         void cmd;
-        const supabase = await createAuthenticatedClient();
-
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          throw new AuthError('Not logged in. Run `purvey auth login` first.');
-        }
+        const { supabase, userId } = await requireAuth('member');
 
         const roastId = parseInt(id, 10);
         if (isNaN(roastId)) {
@@ -269,7 +249,7 @@ export function buildRoastCommand(): Command {
           }
         }
 
-        await deleteRoast(supabase, user.id, roastId);
+        await deleteRoast(supabase, userId, roastId);
         success(`Roast profile ${roastId} deleted.`);
       })
     );
@@ -279,11 +259,28 @@ export function buildRoastCommand(): Command {
     .command('import')
     .description('Import an Artisan .alog file and create a new roast profile')
     .argument('[file]', 'Path to .alog file (or use --form for interactive mode)')
-    .option('--coffee-id <id>', 'green_coffee_inv ID for this roast')
+    .option('--coffee-id <id>', '[REQUIRED] green_coffee_inv ID for this roast')
     .option('--batch-name <name>', 'Batch name (auto-generated from coffee name + date if omitted)')
     .option('--oz-in <oz>', 'Green weight in ounces (extracted from .alog if omitted)')
     .option('--roast-notes <notes>', 'Additional roast notes')
-    .option('--form', 'Interactive form mode')
+    .option('--form', 'Interactive form mode (browse and select bean)')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey roast import ~/artisan/ethiopia-guji.alog --coffee-id 7 --pretty
+  purvey roast import roast.alog --coffee-id 42 --oz-in 16
+  purvey roast import roast.alog --coffee-id 7 --batch-name "Ethiopia Guji #3" --roast-notes "Faster development"
+  purvey roast import --form     # interactive wizard (browse files + select bean)
+
+Required: <file> path and --coffee-id (unless using --form)
+  .alog files are exported from Artisan roast logging software.
+  Imports temperature curve, roast events, and milestone timing.
+  oz-in is auto-extracted from the .alog file if present; --oz-in overrides it.
+  Use 'purvey inventory list' to find your --coffee-id.
+  Requires authentication (member role).
+`
+    )
     .action(
       withErrorHandling(
         async (file: string | undefined, opts: Record<string, unknown>, cmd: Command) => {
@@ -316,16 +313,9 @@ export function buildRoastCommand(): Command {
             }
 
             // Authenticate
-            const supabase = await createAuthenticatedClient();
-            const {
-              data: { user },
-            } = await supabase.auth.getUser();
+            const { supabase, userId } = await requireAuth('member');
 
-            if (!user) {
-              throw new AuthError('Not logged in. Run `purvey auth login` first.');
-            }
-
-            const bean = await pickBean(supabase, user.id);
+            const bean = await pickBean(supabase, userId);
 
             const today = todayIso();
             const defaultBatch = `${bean.name} ${today}`;
@@ -372,7 +362,7 @@ export function buildRoastCommand(): Command {
 
             const spin = p.spinner();
             spin.start('Importing roast data...');
-            const result = await importRoastFromFile(supabase, user.id, {
+            const result = await importRoastFromFile(supabase, userId, {
               fileContent,
               fileName,
               coffeeId: bean.id,
@@ -407,14 +397,7 @@ export function buildRoastCommand(): Command {
           const fileName = basename(file);
 
           // 3. Authenticate
-          const supabase = await createAuthenticatedClient();
-          const {
-            data: { user },
-          } = await supabase.auth.getUser();
-
-          if (!user) {
-            throw new AuthError('Not logged in. Run `purvey auth login` first.');
-          }
+          const { supabase, userId } = await requireAuth('member');
 
           // 4. Parse --coffee-id
           if (!opts.coffeeId) {
@@ -439,7 +422,7 @@ export function buildRoastCommand(): Command {
           }
 
           // 6. Run the import
-          const result = await importRoastFromFile(supabase, user.id, {
+          const result = await importRoastFromFile(supabase, userId, {
             fileContent,
             fileName,
             coffeeId,
@@ -464,26 +447,46 @@ export function buildRoastCommand(): Command {
     .command('watch')
     .description('Watch a directory for new .alog files and auto-import them')
     .argument('[directory]', 'Directory to watch for .alog files')
-    .option('--coffee-id <id>', 'green_coffee_inv ID for all imports')
-    .option('--batch-prefix <name>', 'Batch name prefix (defaults to coffee name)')
-    .option('--prompt-each', 'Prompt for bean selection on each new file')
+    .option(
+      '--coffee-id <id>',
+      '[REQUIRED unless --auto-match] green_coffee_inv ID for all imports'
+    )
+    .option(
+      '--batch-prefix <name>',
+      'Batch name prefix for auto-named batches (defaults to coffee name)'
+    )
+    .option(
+      '--prompt-each',
+      'Prompt for bean selection on each new file (instead of using --coffee-id)'
+    )
     .option(
       '--auto-match',
-      'Use AI to auto-match beans (requires member role; no --coffee-id needed)'
+      'Use AI to auto-match beans per file (mutually exclusive with --coffee-id)'
     )
-    .option('--resume', 'Resume a previous watch session')
-    .option('--form', 'Interactive form mode')
+    .option('--resume', 'Resume a previous watch session from where it left off')
+    .option('--form', 'Interactive form mode (prompts for directory + bean selection)')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey roast watch ~/artisan/ --coffee-id 7
+  purvey roast watch ~/artisan/ --coffee-id 42 --batch-prefix "Colombia Huila"
+  purvey roast watch ~/artisan/ --auto-match
+  purvey roast watch ~/artisan/ --prompt-each
+  purvey roast watch --resume      # continue a previous session
+  purvey roast watch --form        # interactive setup wizard
+
+Notes:
+  Runs continuously until Ctrl+C. New .alog files detected in the directory
+  are automatically imported as roast profiles.
+  --auto-match and --coffee-id are mutually exclusive.
+  Session state is saved for --resume.
+  Requires authentication (member role).
+`
+    )
     .action(
       withErrorHandling(async (directory: string | undefined, opts: Record<string, unknown>) => {
-        const supabase = await createAuthenticatedClient();
-
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          throw new AuthError('Not logged in. Run `purvey auth login` first.');
-        }
+        const { supabase, userId } = await requireAuth('member');
 
         // ── Resume mode ──────────────────────────────────────────────────────
         if (opts.resume) {
@@ -494,7 +497,7 @@ export function buildRoastCommand(): Command {
               'No watch session to resume. Start a new one with: purvey roast watch <dir> --coffee-id <id>'
             );
           }
-          await startWatch(supabase, user.id, saved.directory, {
+          await startWatch(supabase, userId, saved.directory, {
             coffeeId: saved.coffeeId,
             coffeeName: saved.coffeeName,
             batchPrefix: saved.batchPrefix,
@@ -550,7 +553,7 @@ export function buildRoastCommand(): Command {
             guardCancel(batchPrefixRaw);
             batchPrefix = String(batchPrefixRaw).trim() || 'Roast';
           } else {
-            const bean = await pickBean(supabase, user.id);
+            const bean = await pickBean(supabase, userId);
             watchCoffeeId = bean.id;
             watchCoffeeName = bean.name;
 
@@ -571,7 +574,7 @@ export function buildRoastCommand(): Command {
               });
           if (typeof promptEachRaw !== 'boolean') guardCancel(promptEachRaw);
 
-          await startWatch(supabase, user.id, watchDir, {
+          await startWatch(supabase, userId, watchDir, {
             coffeeId: watchCoffeeId,
             coffeeName: watchCoffeeName,
             batchPrefix,
@@ -624,11 +627,14 @@ export function buildRoastCommand(): Command {
             .from('green_coffee_inv')
             .select('id, coffee_catalog!catalog_id (name)')
             .eq('id', coffeeId)
-            .eq('user', user.id)
+            .eq('user', userId)
             .single();
 
           if (invError || !invItem) {
-            throw new AuthError(`Inventory item ${coffeeId} not found or does not belong to you.`);
+            throw new PrvrsError(
+              'NOT_FOUND',
+              `Inventory item ${coffeeId} not found or does not belong to you.`
+            );
           }
 
           const catalogRaw = invItem.coffee_catalog as
@@ -641,7 +647,7 @@ export function buildRoastCommand(): Command {
 
         const batchPrefix = (opts.batchPrefix as string | undefined) ?? coffeeName;
 
-        await startWatch(supabase, user.id, directory, {
+        await startWatch(supabase, userId, directory, {
           coffeeId,
           coffeeName,
           batchPrefix,

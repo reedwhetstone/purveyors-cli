@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import * as p from '@clack/prompts';
-import { createAuthenticatedClient } from '../lib/supabase.js';
 import { outputData, info, success } from '../lib/output.js';
-import { withErrorHandling, AuthError, PrvrsError } from '../lib/errors.js';
+import { withErrorHandling, PrvrsError } from '../lib/errors.js';
+import { requireAuth } from '../lib/auth-guard.js';
 import { confirm, todayIso } from '../lib/prompts.js';
 import { listSales, recordSale, updateSale, deleteSale } from '../lib/sales.js';
 import type { Sale } from '../lib/sales.js';
@@ -17,7 +17,7 @@ export type { Sale };
 
 /**
  * `purvey sales` — Record and manage coffee sales.
- * Requires authentication.
+ * Requires member+ authentication.
  */
 export function buildSalesCommand(): Command {
   const sales = new Command('sales').description('Record and manage coffee sales');
@@ -27,20 +27,25 @@ export function buildSalesCommand(): Command {
     .command('list')
     .description('List your sales, sorted by sell date (newest first)')
     .option('--limit <n>', 'Maximum results to return', '20')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey sales list --pretty
+  purvey sales list --limit 50 | jq '.[].id'
+  purvey sales list --csv > sales.csv
+
+Notes:
+  Returns all your sale records with roast_id, oz, price, buyer, and sell_date.
+  Requires authentication (member role).
+`
+    )
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const supabase = await createAuthenticatedClient();
+        const { supabase, userId } = await requireAuth('member');
 
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          throw new AuthError('Not logged in. Run `purvey auth login` first.');
-        }
-
-        const data = await listSales(supabase, user.id, {
+        const data = await listSales(supabase, userId, {
           limit: Math.max(1, parseInt(opts.limit as string, 10)),
         });
 
@@ -57,25 +62,32 @@ export function buildSalesCommand(): Command {
   sales
     .command('record')
     .description('Record a new sale')
-    .option('--roast-id <id>', 'Roast profile ID')
-    .option('--oz <amount>', 'Ounces sold')
-    .option('--price <dollars>', 'Sale price in dollars')
-    .option('--buyer <name>', 'Buyer name or identifier')
+    .option('--roast-id <id>', '[REQUIRED] Roast profile ID (roast_data.roast_id)')
+    .option('--oz <amount>', '[REQUIRED] Ounces sold')
+    .option('--price <dollars>', '[REQUIRED] Sale price in dollars')
+    .option('--buyer <name>', 'Buyer name or identifier (optional)')
     // NOTE: --notes omitted; sales table has no notes column yet. See phase3 plan doc.
     .option('--sell-date <YYYY-MM-DD>', 'Sale date (defaults to today)')
-    .option('--form', 'Interactive form mode')
+    .option('--form', 'Interactive form mode (browse and select roast)')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey sales record --roast-id 123 --oz 12 --price 22.00 --pretty
+  purvey sales record --roast-id 123 --oz 8 --price 16.00 --buyer "Jane Smith"
+  purvey sales record --roast-id 45 --oz 16 --price 28.00 --sell-date 2026-03-10
+  purvey sales record --form     # interactive wizard (browse roasts)
+
+Required flags: --roast-id, --oz, --price
+  Use 'purvey roast list' to find your --roast-id.
+  --price is the total sale price (not per-oz).
+  Requires authentication (member role).
+`
+    )
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const supabase = await createAuthenticatedClient();
-
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          throw new AuthError('Not logged in. Run `purvey auth login` first.');
-        }
+        const { supabase, userId } = await requireAuth('member');
 
         // ── Interactive form mode ──────────────────────────────────────────
         // Auto-enter form mode if config form-mode is true and required args are missing
@@ -123,11 +135,11 @@ export function buildSalesCommand(): Command {
           const buyerStr = String(buyerRaw).trim();
 
           // Let user pick the specific roast batch to attribute this sale to.
-          const roast = await pickRoast(supabase, user.id);
+          const roast = await pickRoast(supabase, userId);
 
           const spin = p.spinner();
           spin.start('Recording sale...');
-          const data = await recordSale(supabase, user.id, {
+          const data = await recordSale(supabase, userId, {
             roastId: roast.id,
             oz: parseFloat(String(ozRaw)),
             price: parseFloat(String(priceRaw)),
@@ -182,7 +194,7 @@ export function buildSalesCommand(): Command {
           );
         }
 
-        const data = await recordSale(supabase, user.id, {
+        const data = await recordSale(supabase, userId, {
           roastId,
           oz,
           price,
@@ -203,18 +215,23 @@ export function buildSalesCommand(): Command {
     .option('--price <dollars>', 'Updated sale price')
     .option('--buyer <name>', 'Updated buyer name')
     .option('--sell-date <YYYY-MM-DD>', 'Updated sale date')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey sales update 5 --price 24.00
+  purvey sales update 5 --oz 10 --price 18.00
+  purvey sales update 5 --buyer "Coffee Shop A" --sell-date 2026-03-12
+
+Notes:
+  At least one flag required. Pass only the fields you want to change.
+  Requires authentication (member role).
+`
+    )
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const supabase = await createAuthenticatedClient();
-
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          throw new AuthError('Not logged in. Run `purvey auth login` first.');
-        }
+        const { supabase, userId } = await requireAuth('member');
 
         const saleId = parseInt(id, 10);
         if (isNaN(saleId)) {
@@ -247,7 +264,7 @@ export function buildSalesCommand(): Command {
           );
         }
 
-        const data = await updateSale(supabase, user.id, saleId, {
+        const data = await updateSale(supabase, userId, saleId, {
           oz,
           price,
           buyer: opts.buyer as string | undefined,
@@ -264,18 +281,22 @@ export function buildSalesCommand(): Command {
     .command('delete <id>')
     .description('Delete a sale (must be yours)')
     .option('-y, --yes', 'Skip confirmation prompt')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey sales delete 5           # prompts for confirmation
+  purvey sales delete 5 --yes     # skip confirmation (use in scripts)
+
+Notes:
+  Permanently deletes the sale record. Cannot be undone.
+  Requires authentication (member role).
+`
+    )
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         void cmd;
-        const supabase = await createAuthenticatedClient();
-
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          throw new AuthError('Not logged in. Run `purvey auth login` first.');
-        }
+        const { supabase, userId } = await requireAuth('member');
 
         const saleId = parseInt(id, 10);
         if (isNaN(saleId)) {
@@ -290,7 +311,7 @@ export function buildSalesCommand(): Command {
           }
         }
 
-        await deleteSale(supabase, user.id, saleId);
+        await deleteSale(supabase, userId, saleId);
         success(`Sale ${saleId} deleted.`);
       })
     );
