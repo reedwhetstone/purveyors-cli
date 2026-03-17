@@ -59,10 +59,13 @@ export async function createAuthenticatedClient(): Promise<SupabaseClient> {
     });
   }
 
-  if (error) {
-    // Refresh failed — credentials are expired
+  if (error || !data.session) {
+    // Refresh failed — both access and refresh tokens are expired/revoked
     await deleteCredentials();
-    throw new AuthError('Session expired. Run `purvey auth login` to re-authenticate.');
+    throw new AuthError(
+      'Session expired. Run `purvey auth login` to re-authenticate.\n' +
+        (error ? `  Reason: ${error.message}` : '')
+    );
   }
 
   return client;
@@ -81,11 +84,8 @@ export async function validateSession(): Promise<{
   const creds = await readCredentials();
   if (!creds) return null;
 
-  // Check expiry before hitting the network
-  if (Date.now() > creds.expiresAt) {
-    return null;
-  }
-
+  // Even if access token is expired, try refreshing via createAuthenticatedClient
+  // (it uses setSession which handles refresh automatically)
   try {
     const client = await createAuthenticatedClient();
     const {
@@ -110,11 +110,14 @@ export async function validateSession(): Promise<{
       // user_roles query failed — fall back to auth role
     }
 
+    // Re-read credentials (may have been refreshed by createAuthenticatedClient)
+    const freshCreds = await readCredentials();
+
     return {
       id: user.id,
       email: user.email,
       role: appRoles.length > 0 ? appRoles.join(', ') : (user.role ?? 'authenticated'),
-      expiresAt: creds.expiresAt,
+      expiresAt: freshCreds?.expiresAt ?? creds.expiresAt,
     };
   } catch {
     return null;
