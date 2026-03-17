@@ -1,180 +1,233 @@
 # AGENTS.md — Contributor Guide for @purveyors/cli
 
-This is the single source of truth for anyone (human or AI agent) contributing to `purvey`. Read it before opening a PR.
+Single source of truth for anyone (human or AI agent) contributing to `purvey`. Read before opening a PR.
 
 ---
 
 ## Project Overview
 
-`purvey` is the official command-line interface for [purveyors.io](https://purveyors.io). It gives coffee professionals terminal access to the Purveyors platform: search the catalog, track inventory, monitor pricing, and pipe data into spreadsheets or scripts.
+`purvey` is the official CLI for [purveyors.io](https://purveyors.io). It gives users and AI agents terminal access to the Purveyors platform: catalog search, green coffee inventory, roast profiles, tasting notes, sales, and Artisan .alog import with AI-assisted bean matching.
 
-**Stack:** TypeScript (strict) + Commander.js + Supabase JS SDK + Vitest
+**Stack:** TypeScript (strict) + Commander.js + Supabase JS SDK + Vitest  
+**Current version:** 0.6.0  
+**Binary:** `purvey`
 
 ---
 
 ## Setup
 
-### Prerequisites
-
-- Node.js >= 20
-- pnpm (preferred package manager)
-
-### Install dependencies
-
 ```bash
 pnpm install
+pnpm dev -- auth status    # run locally (-- passes args to the CLI)
+pnpm dev -- catalog search --origin "Ethiopia" --pretty
+pnpm build                 # compile TypeScript → dist/
+pnpm check                 # type-check only
+pnpm lint                  # prettier + eslint (check only)
+pnpm format                # prettier write
+pnpm test                  # vitest run
+pnpm test:watch            # vitest watch mode
 ```
 
-### Run locally
-
-```bash
-pnpm dev -- auth status
-pnpm dev -- auth login
-pnpm dev -- --help
-```
-
-The `--` separator passes arguments to the CLI rather than to pnpm/tsx.
-
-### Build
-
-```bash
-pnpm build      # compiles TypeScript → dist/
-pnpm check      # type-check only (no emit)
-```
-
-### Test
-
-```bash
-pnpm test           # vitest run (one-shot)
-pnpm test:watch     # vitest watch mode
-```
-
-### Lint/format
-
-```bash
-pnpm lint       # prettier + eslint (check only)
-pnpm format     # prettier write
-```
-
-All lint and type checks must pass before merging.
+All lint, type check, and tests must pass before merging.
 
 ---
 
 ## Environment Variables
 
-| Variable                      | Required | Description                                        |
-| ----------------------------- | -------- | -------------------------------------------------- |
-| `PURVEYORS_SUPABASE_URL`      | Yes      | Supabase project URL (get from Supabase dashboard) |
-| `PURVEYORS_SUPABASE_ANON_KEY` | Yes      | Supabase anon/publishable key                      |
-| `PURVEY_DEBUG`                | No       | Set to any value to enable verbose error output    |
+| Variable                      | Required | Description                                       |
+| ----------------------------- | -------- | ------------------------------------------------- |
+| `PURVEYORS_SUPABASE_URL`      | No       | Override Supabase URL (default: prod)             |
+| `PURVEYORS_SUPABASE_ANON_KEY` | No       | Override anon key (default: prod)                 |
+| `PURVEYORS_BASE_URL`          | No       | Override AI proxy URL (default: www.purveyors.io) |
+| `PURVEY_DEBUG`                | No       | Enable verbose error output                       |
 
-Create a `.env` file in the repo root for local development:
-
-```
-PURVEYORS_SUPABASE_URL=https://your-project.supabase.co
-PURVEYORS_SUPABASE_ANON_KEY=your-anon-key
-```
-
-**Never commit the service role key.** The CLI authenticates as a user, not as the service.
+**Never commit secrets.** The CLI authenticates as a user (never service role).
 
 ---
 
 ## Architecture
 
-### Directory structure
-
 ```
 src/
-  index.ts          # CLI entrypoint — registers all commands
+  index.ts                    # CLI entrypoint — registers all commands, grouped help
   commands/
-    auth.ts         # auth subcommands (login, status, logout)
+    auth.ts                   # auth login (browser + --headless), status, logout
+    catalog.ts                # catalog search, info, chunks — viewer role
+    inventory.ts              # inventory list, add, update, delete, history — member
+    roast.ts                  # roast list, create, import, update, delete, watch — member
+    sales.ts                  # sales list, record, update, delete — member
+    tasting.ts                # tasting list, rate — member
+    config.ts                 # config get/set
+    context.ts                # purvey context — agent onboarding reference
   lib/
-    config.ts       # ~/.config/purvey/ directory management
-    supabase.ts     # Supabase client factory
-    output.ts       # JSON/CSV/pretty output utilities
-    errors.ts       # PrvrsError hierarchy + fatal() + withErrorHandling()
+    auth-guard.ts             # requireAuth(role) — single auth/role enforcement point
+    supabase.ts               # createAnonClient(), createAuthenticatedClient() w/ auto-refresh
+    config.ts                 # ~/.config/purvey/ directory + credentials management
+    output.ts                 # JSON/CSV/pretty output utilities
+    errors.ts                 # PrvrsError hierarchy + fatal() + withErrorHandling()
+    ai.ts                     # classifyRoast() — AI bean matching via www.purveyors.io proxy
+    artisan/
+      parse.ts                # .alog XML parser
+      import.ts               # importRoastFromFile() — full import pipeline
+    interactive/
+      watch.ts                # runWatch() — fs.watch + debounce + auto-match
+      form-helpers.ts         # clack prompt helpers shared across form modes
   types/
-    index.ts        # Shared TypeScript types
+    index.ts                  # Shared TypeScript types (StoredCredentials, etc.)
 tests/
-  output.test.ts    # Unit tests for output utilities
+  *.test.ts                   # 169 tests — unit tests for output, artisan parse, AI, etc.
 ```
 
-### Adding a new top-level command
+---
+
+## Authentication
+
+### Three auth modes
+
+```bash
+purvey auth login              # Browser Google OAuth (interactive)
+purvey auth login --headless   # Prints OAuth URL, user pastes callback URL back (agents/servers)
+purvey auth status             # Shows email, app role from user_roles table, token expiry
+purvey auth logout             # Clears credentials
+```
+
+### Auto-refresh
+
+`createAuthenticatedClient()` calls `supabase.auth.setSession()` which automatically uses the refresh token when the access token is expired. New tokens are persisted to `~/.config/purvey/credentials.json`. Login once, use forever.
+
+### Role hierarchy
+
+```
+viewer   (0) — any logged-in user
+member   (1) — member, api-member
+admin    (2) — admin, api-enterprise
+```
+
+Use `requireAuth(role)` from `src/lib/auth-guard.ts` in all command handlers:
+
+```typescript
+// Any logged-in user (catalog reads):
+const { supabase, userId } = await requireAuth('viewer');
+
+// Member+ required (inventory, roast, sales, tasting, watch):
+const { supabase, userId } = await requireAuth('member');
+```
+
+**Never call `createAuthenticatedClient()` directly in command handlers.** Always use `requireAuth()`.
+
+Auth commands (`login`, `status`, `logout`), config, `--help`, and `--version` are unguarded.
+
+---
+
+## Adding a New Command
 
 1. Create `src/commands/your-command.ts`
-2. Export a `buildYourCommand(): Command` function
-3. Import it in `src/index.ts` and call `program.addCommand(buildYourCommand())`
+2. Export `buildYourCommand(): Command`
+3. Register in `src/index.ts`: `program.addCommand(buildYourCommand())`
 4. Add tests in `tests/your-command.test.ts`
+5. Add to `purvey context` output in `src/commands/context.ts`
 
 ### Commander.js conventions
 
-- Every command file exports a single `build*Command(): Command` function
-- Use `.action(withErrorHandling(async (...) => { ... }))` for all handlers — this catches errors and formats them consistently
-- Accept `GlobalOptions` via `cmd.optsWithGlobals()` in action handlers
-- Use `outputData(result, opts)` for data output; `success()`, `info()`, `warn()` for user messages
+- Every handler: `.action(withErrorHandling(async (...) => { ... }))`
+- Use `requireAuth('viewer' | 'member')` at the top of every handler
+- Accept global options via `cmd.optsWithGlobals()` as `OutputOptions`
+- Use `outputData(result, opts)` for data; `success()`, `info()`, `warn()` for messages
+- Spinners via `p.spinner()` (clack) during Supabase writes
 
-### Output format conventions
+### Output conventions
 
-All commands must support:
+All data commands must support:
 
-- Default: compact JSON (`{"key":"value"}` — machine-readable, pipeable)
-- `--pretty`: indented, colorized JSON for human reading
-- `--csv`: CSV for spreadsheet import (only works with arrays/collections)
+- Default: compact JSON to **stdout** (machine-readable, pipeable)
+- `--pretty`: indented, colorized JSON for humans
+- `--csv`: CSV for spreadsheet import
 
-User feedback messages (login success, error messages, spinners) go to **stderr**. Data output goes to **stdout**. This ensures `purvey coffee list | jq` works correctly.
+User messages (spinners, confirmations, errors) → **stderr**. Data → **stdout**.
+This ensures `purvey inventory list | jq '.[0].id'` works correctly.
 
-### Supabase client pattern
+### Help text conventions
 
-```typescript
-// Unauthenticated (for login flow):
-const client = createAnonClient();
-
-// Authenticated (for all other commands):
-const client = await createAuthenticatedClient();
-// Throws AuthError if not logged in
-```
-
-### Error handling
-
-Use `PrvrsError` subclasses for domain errors:
+Every subcommand gets `.addHelpText('after', ...)` with real-world examples:
 
 ```typescript
-throw new AuthError('Session expired. Run `purvey auth login`.');
+.addHelpText('after', `
+Examples:
+  purvey catalog search --origin "Ethiopia" --process "natural" --pretty
+  purvey catalog search --stocked --limit 20 --json
+`)
 ```
 
-Wrap all async action handlers with `withErrorHandling()`:
+---
 
-```typescript
-const myAction = withErrorHandling(async (arg, cmd) => {
-  // ...
-});
+## Subpath Exports
+
+The CLI exports functions for use by coffee-app's chat agent:
+
+```json
+"exports": {
+  "./catalog": "./dist/lib/data/catalog.js",
+  "./inventory": "./dist/lib/data/inventory.js",
+  "./roast": "./dist/lib/data/roast.js",
+  "./tasting": "./dist/lib/data/tasting.js",
+  "./ai": "./dist/lib/ai.js"
+}
 ```
+
+**The flywheel:** `coffee-app`'s `src/lib/services/tools.ts` imports these functions directly. CLI improvements automatically improve the chat agent.
+
+---
+
+## AI Bean Matching
+
+`purvey roast watch --auto-match` uses `classifyRoast()` from `src/lib/ai.ts`:
+
+1. Fetches user's stocked inventory (Supabase)
+2. Parses .alog metadata (title, bean name, roaster, notes)
+3. POSTs to `https://www.purveyors.io/api/ai/classify-roast` with Bearer token
+4. Server checks auth via `requireAuth()` (Bearer header) + admin client role check
+5. Proxies to OpenRouter's `@preset/cli-agent` model
+6. Returns `{ inventoryId, coffeeName, confidence (0-100), reasoning }`
+7. ≥50% confidence → auto-imports; <50% → marks `needs-review`
+
+**Critical:** Always use `www.purveyors.io` — `purveyors.io` 308-redirects and Node fetch drops POST bodies on redirect.
+
+---
+
+## Release Process
+
+1. Merge feature/fix PRs
+2. Open bump PR: update `package.json` version (patch for fixes, minor for features)
+3. Merge bump PR
+4. Tag: `git tag vX.Y.Z && git push origin vX.Y.Z`
+5. GitHub Actions publishes to npm automatically via OIDC
+6. Coffee-app uses `"@purveyors/cli": "^0.X.0"` — only update for minor/major bumps
 
 ---
 
 ## Credentials Storage
 
-Stored at `~/.config/purvey/credentials.json` (mode 0600, owner-readable only). Contains: `accessToken`, `refreshToken`, `expiresAt` (ms), and basic user info. Never logged or transmitted anywhere beyond Supabase.
+`~/.config/purvey/credentials.json` (mode 0600). Contains: `accessToken`, `refreshToken`, `expiresAt` (ms), user info. Never logged or transmitted beyond Supabase.
 
 ---
 
 ## CI
 
-GitHub Actions runs on every push and on PRs to `main`:
+GitHub Actions on every push and PR to `main`:
 
 1. Lint (prettier + eslint)
 2. Type check (`tsc --noEmit`)
-3. Tests (vitest)
+3. Tests (vitest — 169 tests)
 
-All three must pass for PRs to merge.
+All must pass. CI also publishes to npm on semver tags (`v*.*.*`).
 
 ---
 
 ## Code Style
 
 - TypeScript strict mode, no `any` (use `unknown` + type narrowing)
-- Single quotes, 2-space indent, 100-char line limit (configured in `.prettierrc`)
-- Named exports preferred over default exports
+- Single quotes, 2-space indent, 100-char line limit
+- Named exports over default exports
 - Async/await over Promise chains
 - `os.homedir()` for home directory — never hardcode `~`
 
@@ -182,4 +235,4 @@ All three must pass for PRs to merge.
 
 ## Code Owners
 
-Reed Whetstone (`@reedwhetstone`) owns all files. Tag him for review on any non-trivial change.
+Reed Whetstone (`@reedwhetstone`) owns all files.
