@@ -340,12 +340,20 @@ export function buildAuthCommand(): Command {
     'after',
     `
 Examples:
-  ${chalk.dim('# Browser login (interactive, opens Google OAuth)')}
+  ${chalk.dim('# Browser login (interactive, opens Google OAuth in default browser)')}
   purvey auth login
 
-  ${chalk.dim('# Headless login (agents, CI, servers — no browser needed)')}
+  ${chalk.dim('# Headless login (agents, CI, servers — no browser required)')}
   purvey auth login --headless
-  ${chalk.dim('# Prints a URL → user opens it → signs in → pastes callback URL back')}
+  ${chalk.dim('# → prints a Google OAuth URL')}
+  ${chalk.dim('# → open URL, sign in with Google')}
+  ${chalk.dim('# → copy the full callback URL from the browser')}
+  ${chalk.dim('# → paste it back at the prompt')}
+
+Notes:
+  Credentials are stored at ~/.config/purvey/credentials.json (mode 0600).
+  Tokens auto-refresh; no need to re-login between sessions.
+  Uses Google OAuth via Supabase — same account as purveyors.io web app.
 `
   );
 
@@ -354,9 +362,38 @@ Examples:
     .description('Show current authentication status')
     .option('--pretty', 'Pretty-print JSON output')
     .option('--csv', 'Output as CSV')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey auth status
+  purvey auth status --pretty
+  purvey auth status | jq '.email'
+
+Output fields:
+  authenticated  boolean — true if a valid session exists
+  email          your Google account email
+  role           your purveyors.io role (viewer or member)
+  tokenExpires   ISO timestamp when the access token expires
+`
+    )
     .action(statusAction);
 
-  auth.command('logout').description('Clear stored credentials').action(logoutAction);
+  auth
+    .command('logout')
+    .description('Clear stored credentials')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey auth logout
+
+Notes:
+  Deletes ~/.config/purvey/credentials.json.
+  Run 'purvey auth login' to authenticate again.
+`
+    )
+    .action(logoutAction);
 
   return auth;
 }

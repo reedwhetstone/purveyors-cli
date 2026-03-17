@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { buildAuthCommand } from './commands/auth.js';
 import { buildCatalogCommand } from './commands/catalog.js';
 import { buildConfigCommand } from './commands/config.js';
+import { buildContextCommand } from './commands/context.js';
 import { buildInventoryCommand } from './commands/inventory.js';
 import { buildRoastCommand } from './commands/roast.js';
 import { buildSalesCommand } from './commands/sales.js';
@@ -34,36 +35,63 @@ program
   .addHelpText(
     'after',
     `
-Examples:
-  $ purvey auth login                      # Authenticate via Google
-  $ purvey auth status                     # Check login state
-  $ purvey catalog search --origin Ethiopia --stocked
-  $ purvey catalog get 42
-  $ purvey catalog stats
-  $ purvey inventory list --stocked
-  $ purvey inventory get 7
-  $ purvey inventory add --catalog-id 42 --qty 5 --cost 28.50
-  $ purvey inventory update 7 --stocked true
-  $ purvey inventory delete 7
-  $ purvey roast list --limit 5
-  $ purvey roast get 123 --include-temps
-  $ purvey roast create --coffee-id 7 --batch-name "Ethiopia Guji" --oz-in 16
-  $ purvey roast delete 123
-  $ purvey sales list
-  $ purvey sales record --roast-id 123 --oz 12 --price 22.00
-  $ purvey sales update 5 --price 24.00
-  $ purvey sales delete 5
-  $ purvey tasting get 42 --filter both
-  $ purvey tasting rate 7 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
-  $ purvey tasting rate --form             # Interactive rating wizard
-  $ purvey inventory add --form            # Interactive inventory wizard
-  $ purvey roast create --form             # Interactive roast wizard
-  $ purvey sales record --form             # Interactive sales wizard
-  $ purvey config set form-mode true       # Auto-enter form mode when args missing
-  $ purvey config list                     # Show all config
-  $ purvey --help                          # Show this help
+Authentication:
+  auth login        Log in to purveyors.io (--headless for agents)
+  auth status       Show current login status and role
+  auth logout       Clear stored credentials
 
-Docs: https://github.com/reedwhetstone/purveyors-cli
+Coffee Data (viewer+, no login needed):
+  catalog search    Search the coffee catalog with filters
+  catalog get       Get details for a specific coffee by ID
+  catalog stats     Aggregate statistics for the catalog
+
+Personal Data (member role required):
+  inventory list    List your green coffee inventory
+  inventory get     Get a single inventory item
+  inventory add     Add a bean to your inventory
+  inventory update  Update an inventory item
+  inventory delete  Delete an inventory item
+  roast list        List your roast profiles
+  roast get         Get a single roast profile
+  roast create      Create a new roast profile
+  roast delete      Delete a roast profile
+  roast import      Import an Artisan .alog roast file
+  roast watch       Watch a directory for new .alog files
+  sales list        List your sales records
+  sales record      Record a new sale
+  sales update      Update a sale record
+  sales delete      Delete a sale record
+  tasting get       Get tasting notes for a coffee
+  tasting rate      Rate a coffee bean (cupping scores)
+
+Configuration:
+  config list       Show all config values
+  config get        Get a config value
+  config set        Set a config value
+  config reset      Reset config to defaults
+
+Agent Tools:
+  context           Output full CLI reference for AI agent onboarding
+
+Global Options:
+  --json            Output as JSON (default for most commands)
+  --pretty          Pretty-print JSON output
+  --csv             Output as CSV
+  --help            Show help for any command
+  --version         Show version number
+
+Examples:
+  $ purvey auth login --headless
+  $ purvey catalog search --origin "Ethiopia" --process "natural" --pretty
+  $ purvey catalog search --stocked --flavor "blueberry,citrus" --csv
+  $ purvey inventory list --stocked --pretty
+  $ purvey roast import my-roast.alog --coffee-id 128
+  $ purvey roast watch ~/artisan/ --auto-match
+  $ purvey tasting rate 42 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
+  $ purvey context                              # AI agent onboarding reference
+
+Documentation: https://github.com/reedwhetstone/purveyors-cli
+Agent reference: purvey context
 `
   );
 
@@ -71,6 +99,7 @@ Docs: https://github.com/reedwhetstone/purveyors-cli
 program.addCommand(buildAuthCommand());
 program.addCommand(buildCatalogCommand());
 program.addCommand(buildConfigCommand());
+program.addCommand(buildContextCommand());
 program.addCommand(buildInventoryCommand());
 program.addCommand(buildRoastCommand());
 program.addCommand(buildSalesCommand());

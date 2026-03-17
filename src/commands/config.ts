@@ -22,6 +22,17 @@ export function buildConfigCommand(): Command {
   config
     .command('list')
     .description('Show all configuration values')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey config list
+
+Notes:
+  Config is stored at ~/.config/purvey/config.json.
+  Shows all key = value pairs currently set.
+`
+    )
     .action(
       withErrorHandling(async () => {
         const cfg = await readConfig();
@@ -44,6 +55,20 @@ export function buildConfigCommand(): Command {
   config
     .command('get <key>')
     .description('Get a single configuration value')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey config get form-mode
+
+Supported keys:
+  form-mode   true/false — auto-enter interactive wizard when required args are missing
+
+Notes:
+  Prints the raw value to stdout (no decorators), suitable for scripting.
+  Prints "form-mode is not set." if the key has no value.
+`
+    )
     .action(
       withErrorHandling(async (key: string) => {
         if (!isValidConfigKey(key)) {
@@ -107,6 +132,16 @@ Examples:
   config
     .command('reset')
     .description('Reset all configuration to defaults')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey config reset
+
+Notes:
+  Clears all config values. Equivalent to deleting ~/.config/purvey/config.json.
+`
+    )
     .action(
       withErrorHandling(async () => {
         await writeConfig({});

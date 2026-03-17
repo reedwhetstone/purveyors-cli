@@ -42,6 +42,21 @@ export function buildRoastCommand(): Command {
     .description('List your roast profiles, sorted by date (newest first)')
     .option('--coffee-id <id>', 'Filter by green_coffee_inv ID')
     .option('--limit <n>', 'Maximum results to return', '20')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey roast list --pretty
+  purvey roast list --coffee-id 7 --pretty
+  purvey roast list --limit 5 | jq '.[].roast_id'
+  purvey roast list --csv > roasts.csv
+
+Notes:
+  --coffee-id filters by inventory item (green_coffee_inv.id), not catalog_id.
+  Returns roast_id, batch_name, roast_date, oz_in, oz_out, and bean details.
+  Requires authentication (member role).
+`
+    )
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
@@ -67,6 +82,22 @@ export function buildRoastCommand(): Command {
     .description('Fetch a single roast profile by roast_id')
     .option('--include-temps', 'Include temperature curve data (roast_temperatures)')
     .option('--include-events', 'Include roast events (roast_events)')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey roast get 123 --pretty
+  purvey roast get 123 --include-temps --pretty
+  purvey roast get 123 --include-events | jq '.events'
+  purvey roast get 123 --include-temps --include-events --csv
+
+Notes:
+  <id> is roast_data.roast_id (integer).
+  --include-temps adds the full temperature curve array (can be large).
+  --include-events adds roast event markers (FC start, drop, etc.).
+  Requires authentication (member role).
+`
+    )
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
@@ -85,13 +116,29 @@ export function buildRoastCommand(): Command {
   roast
     .command('create')
     .description('Create a new roast profile')
-    .option('--coffee-id <id>', 'green_coffee_inv ID for this roast')
+    .option('--coffee-id <id>', '[REQUIRED] green_coffee_inv ID for this roast')
     .option('--batch-name <name>', "Batch name (defaults to coffee name + today's date)")
     .option('--oz-in <oz>', 'Green weight in ounces')
     .option('--oz-out <oz>', 'Roasted weight in ounces')
     .option('--roast-date <YYYY-MM-DD>', 'Roast date (defaults to today)')
     .option('--notes <text>', 'Roast notes')
-    .option('--form', 'Interactive form mode')
+    .option('--form', 'Interactive form mode (browse and select bean)')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey roast create --coffee-id 7 --pretty
+  purvey roast create --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz-in 16
+  purvey roast create --coffee-id 42 --oz-in 12 --oz-out 9.8 --roast-date 2026-03-15
+  purvey roast create --coffee-id 7 --notes "Extended drying phase, aimed for medium roast"
+  purvey roast create --form     # interactive wizard
+
+Required flags: --coffee-id (green_coffee_inv.id)
+  Use 'purvey inventory list' to find your --coffee-id.
+  Prefer 'purvey roast import' if you have an Artisan .alog file.
+  Requires authentication (member role).
+`
+    )
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
