@@ -52,7 +52,7 @@ export async function classifyRoast(
     throw new Error('Not authenticated. Run `purvey auth login` first.');
   }
 
-  const baseUrl = process.env.PURVEYORS_BASE_URL ?? 'https://purveyors.io';
+  const baseUrl = process.env.PURVEYORS_BASE_URL ?? 'https://www.purveyors.io';
 
   const response = await fetch(`${baseUrl}/api/ai/classify-roast`, {
     method: 'POST',
