@@ -1,0 +1,2 @@
+bcb5c67 (origin/fix/auth-status-role, fix/auth-status-role) fix: auth status shows app role from user_roles table
+a5eac72 fix: auto-match null handling + form spinners

@@ -140,11 +140,19 @@ const loginAction = withErrorHandling(async () => {
   console.log(chalk.bold('\n  Opening browser for authentication...'));
   console.log(chalk.dim(`  If the browser does not open, visit:\n  ${data.url}\n`));
 
-  // Open browser cross-platform
-  const { spawn } = await import('child_process');
-  const openCmd =
-    process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-  spawn(openCmd, [data.url], { detached: true, stdio: 'ignore' }).unref();
+  // Open browser cross-platform (graceful fallback for headless)
+  try {
+    const { spawn } = await import('child_process');
+    const openCmd =
+      process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+    const child = spawn(openCmd, [data.url], { detached: true, stdio: 'ignore' });
+    child.on('error', () => {
+      // Browser open failed (headless environment) — user can visit URL manually
+    });
+    child.unref();
+  } catch {
+    // Gracefully ignore — URL is already printed above
+  }
 
   const spinner = ora('Waiting for authentication...').start();
   const { accessToken, refreshToken, expiresIn } = await tokenPromise;
@@ -213,6 +221,95 @@ const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
 });
 
 /**
+ * `purvey auth login --headless`
+ * Headless login for agents and servers. Generates OAuth URL, user pastes back callback.
+ */
+const headlessLoginAction = withErrorHandling(async () => {
+  // Generate OAuth URL with purveyors.io callback page as redirect
+  const redirectTo = 'https://purveyors.io/auth/cli-callback';
+  const supabase = createAnonClient();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo, skipBrowserRedirect: true },
+  });
+
+  if (error || !data.url) {
+    throw new AuthError('Failed to generate OAuth URL.');
+  }
+
+  console.log(chalk.bold('\n  Headless Login\n'));
+  console.log('  1. Open this URL in a browser and sign in:\n');
+  console.log(`     ${chalk.cyan(data.url)}\n`);
+  console.log("  2. After login, you'll see a page with a callback URL.");
+  console.log('  3. Copy the full callback URL and paste it below.\n');
+
+  // Read the callback URL from stdin
+  const { createInterface } = await import('readline');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+
+  const callbackUrl = await new Promise<string>((resolve) => {
+    rl.question(chalk.bold('  Paste callback URL: '), (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+
+  if (!callbackUrl) {
+    throw new AuthError('No URL provided.');
+  }
+
+  // Extract tokens from the URL fragment or query params
+  // Supabase puts them in the fragment: #access_token=...&refresh_token=...
+  let tokenStr = '';
+  if (callbackUrl.includes('#')) {
+    tokenStr = callbackUrl.split('#')[1];
+  } else if (callbackUrl.includes('?')) {
+    tokenStr = callbackUrl.split('?').slice(1).join('?');
+  } else {
+    // Maybe they pasted just the fragment part
+    tokenStr = callbackUrl;
+  }
+
+  const params = new URLSearchParams(tokenStr);
+  const accessToken = params.get('access_token');
+  const refreshToken = params.get('refresh_token');
+  const expiresIn = params.get('expires_in');
+
+  if (!accessToken || !refreshToken) {
+    throw new AuthError(
+      'Could not extract tokens from the URL.\n' +
+        '  Make sure you copied the full callback URL including the #access_token=... part.'
+    );
+  }
+
+  const spinner = ora('Validating session...').start();
+  const client = createAnonClient();
+  const {
+    data: { user },
+    error: userError,
+  } = await client.auth.getUser(accessToken);
+
+  if (userError || !user) {
+    spinner.fail('Token validation failed');
+    throw new AuthError('Invalid or expired token. Try the login flow again.');
+  }
+
+  const creds: StoredCredentials = {
+    accessToken,
+    refreshToken,
+    expiresAt: Date.now() + parseInt(expiresIn ?? '3600', 10) * 1000,
+    user: {
+      id: user.id,
+      email: user.email ?? 'unknown',
+      role: user.role,
+    },
+  };
+
+  await writeCredentials(creds);
+  spinner.succeed(`Logged in as ${chalk.bold(creds.user.email)}`);
+});
+
+/**
  * `purvey auth logout`
  * Clears stored credentials from disk.
  */
@@ -227,7 +324,30 @@ const logoutAction = withErrorHandling(async () => {
 export function buildAuthCommand(): Command {
   const auth = new Command('auth').description('Manage authentication with purveyors.io');
 
-  auth.command('login').description('Log in via Google OAuth (opens browser)').action(loginAction);
+  const login = auth
+    .command('login')
+    .description('Log in to purveyors.io')
+    .option('--headless', 'Headless login (prints URL, you paste back the callback)')
+    .action(async (opts) => {
+      if (opts.headless) {
+        return headlessLoginAction();
+      }
+      // Default: browser OAuth flow
+      return loginAction();
+    });
+
+  login.addHelpText(
+    'after',
+    `
+Examples:
+  ${chalk.dim('# Browser login (interactive, opens Google OAuth)')}
+  purvey auth login
+
+  ${chalk.dim('# Headless login (agents, CI, servers — no browser needed)')}
+  purvey auth login --headless
+  ${chalk.dim('# Prints a URL → user opens it → signs in → pastes callback URL back')}
+`
+  );
 
   auth
     .command('status')
