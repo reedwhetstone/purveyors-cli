@@ -67,15 +67,15 @@ src/
     errors.ts                 # PrvrsError hierarchy + fatal() + withErrorHandling()
     ai.ts                     # classifyRoast() — AI bean matching via www.purveyors.io proxy
     artisan/
-      parse.ts                # .alog XML parser
+      parser.ts               # .alog XML parser
       import.ts               # importRoastFromFile() — full import pipeline
     interactive/
       watch.ts                # runWatch() — fs.watch + debounce + auto-match
-      form-helpers.ts         # clack prompt helpers shared across form modes
+      forms.ts                # clack prompt helpers shared across form modes
   types/
     index.ts                  # Shared TypeScript types (StoredCredentials, etc.)
 tests/
-  *.test.ts                   # 169 tests — unit tests for output, artisan parse, AI, etc.
+  *.test.ts                   # 11 test files — unit tests for output, artisan parse, AI, etc.
 ```
 
 ---
@@ -166,10 +166,14 @@ The CLI exports functions for use by coffee-app's chat agent:
 
 ```json
 "exports": {
-  "./catalog": "./dist/lib/data/catalog.js",
-  "./inventory": "./dist/lib/data/inventory.js",
-  "./roast": "./dist/lib/data/roast.js",
-  "./tasting": "./dist/lib/data/tasting.js",
+  ".": "./dist/index.js",
+  "./catalog": "./dist/lib/catalog.js",
+  "./inventory": "./dist/lib/inventory.js",
+  "./roast": "./dist/lib/roast.js",
+  "./sales": "./dist/lib/sales.js",
+  "./tasting": "./dist/lib/tasting.js",
+  "./lib": "./dist/lib/index.js",
+  "./artisan": "./dist/lib/artisan/index.js",
   "./ai": "./dist/lib/ai.js"
 }
 ```
@@ -217,7 +221,7 @@ GitHub Actions on every push and PR to `main`:
 
 1. Lint (prettier + eslint)
 2. Type check (`tsc --noEmit`)
-3. Tests (vitest — 169 tests)
+3. Tests (vitest — 11 test files)
 
 All must pass. CI also publishes to npm on semver tags (`v*.*.*`).
 
