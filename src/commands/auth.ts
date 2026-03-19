@@ -154,7 +154,7 @@ const loginAction = withErrorHandling(async () => {
     // Gracefully ignore — URL is already printed above
   }
 
-  const spinner = ora('Waiting for authentication...').start();
+  const spinner = ora({ text: 'Waiting for authentication...', stream: process.stderr }).start();
   const { accessToken, refreshToken, expiresIn } = await tokenPromise;
   spinner.succeed('Authentication received');
 
@@ -187,7 +187,10 @@ const loginAction = withErrorHandling(async () => {
 const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
   const opts = cmd.optsWithGlobals() as { pretty?: boolean; csv?: boolean };
   const isInteractive = process.stdout.isTTY && !opts.pretty && !opts.csv;
-  const spinner = ora('Checking authentication status...').start();
+  const spinner = ora({
+    text: 'Checking authentication status...',
+    stream: process.stderr,
+  }).start();
   const session = await validateSession();
   spinner.stop();
 
@@ -283,7 +286,7 @@ const headlessLoginAction = withErrorHandling(async () => {
     );
   }
 
-  const spinner = ora('Validating session...').start();
+  const spinner = ora({ text: 'Validating session...', stream: process.stderr }).start();
   const client = createAnonClient();
   const {
     data: { user },
