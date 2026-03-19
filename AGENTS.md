@@ -60,19 +60,32 @@ src/
     config.ts                 # config get/set
     context.ts                # purvey context — agent onboarding reference
   lib/
+    index.ts                  # Barrel export — re-exports all lib modules for subpath consumers
     auth-guard.ts             # requireAuth(role) — single auth/role enforcement point
     supabase.ts               # createAnonClient(), createAuthenticatedClient() w/ auto-refresh
     config.ts                 # ~/.config/purvey/ directory + credentials management
     output.ts                 # JSON/CSV/pretty output utilities
     errors.ts                 # PrvrsError hierarchy + fatal() + withErrorHandling()
+    prompts.ts                # readline-based interactive prompt helpers
     ai.ts                     # classifyRoast() — AI bean matching via www.purveyors.io proxy
+    catalog.ts                # searchCatalog(), getCatalogItem() — subpath export functions
+    inventory.ts              # listInventory(), addInventory(), etc. — subpath export functions
+    roast.ts                  # listRoasts(), createRoast(), etc. — subpath export functions
+    sales.ts                  # listSales(), recordSale(), etc. — subpath export functions
+    tasting.ts                # listTasting(), rateTasting() — subpath export functions
     artisan/
-      parser.ts               # .alog XML parser
+      db.ts                   # Database interaction utilities for Artisan data
       import.ts               # importRoastFromFile() — full import pipeline
+      index.ts                # Artisan module barrel export
+      parser.ts               # .alog XML parser
+      temperature.ts          # Temperature conversion utilities
+      types.ts                # TypeScript types for Artisan data
+      validator.ts            # Data validation for Artisan imports
     interactive/
       watch.ts                # runWatch() — fs.watch + debounce + auto-match
       forms.ts                # clack prompt helpers shared across form modes
   types/
+    database.types.ts         # Supabase-generated database types
     index.ts                  # Shared TypeScript types (StoredCredentials, etc.)
 tests/
   *.test.ts                   # 11 test files — unit tests for output, artisan parse, AI, etc.
