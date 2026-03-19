@@ -6,7 +6,7 @@ import { Command } from 'commander';
 // An agent reading this once should be able to use every CLI command correctly.
 
 const CONTEXT_TEXT = `
-PURVEY CLI — Agent Reference v0.5
+PURVEY CLI — Agent Reference v0.6
 ==================================
 CLI for purveyors.io coffee marketplace. Node >=20 required.
 Credentials: ~/.config/purvey/credentials.json (auto-refreshed, do not edit)
@@ -29,8 +29,9 @@ Headless login (agents/CI — no browser):
   Token auto-refreshes; no action needed between sessions.
 
 Check status:
-  purvey auth status --pretty
-  purvey auth status           # compact JSON: {"authenticated":true,"email":"...","role":"..."}
+  purvey auth status           # human-readable in terminal; compact JSON when piped
+  purvey auth status --pretty  # indented/colorized JSON (human reading)
+  purvey auth status | jq '.email'  # compact JSON on stdout
 
 Logout:
   purvey auth logout
