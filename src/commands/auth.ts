@@ -154,7 +154,7 @@ const loginAction = withErrorHandling(async () => {
     // Gracefully ignore — URL is already printed above
   }
 
-  const spinner = ora('Waiting for authentication...').start();
+  const spinner = ora({ text: 'Waiting for authentication...', stream: process.stderr }).start();
   const { accessToken, refreshToken, expiresIn } = await tokenPromise;
   spinner.succeed('Authentication received');
 
@@ -186,7 +186,11 @@ const loginAction = withErrorHandling(async () => {
  */
 const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
   const opts = cmd.optsWithGlobals() as { pretty?: boolean; csv?: boolean };
-  const spinner = ora('Checking authentication status...').start();
+  const isInteractive = process.stdout.isTTY && !opts.pretty && !opts.csv;
+  const spinner = ora({
+    text: 'Checking authentication status...',
+    stream: process.stderr,
+  }).start();
   const session = await validateSession();
   spinner.stop();
 
@@ -195,7 +199,7 @@ const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
       authenticated: false,
       message: 'Not logged in. Run `purvey auth login` to authenticate.',
     };
-    if (!opts.pretty && !opts.csv) {
+    if (isInteractive) {
       warn(result.message);
       process.exit(1);
     }
@@ -210,7 +214,7 @@ const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
     tokenExpires: new Date(session.expiresAt).toISOString(),
   };
 
-  if (!opts.pretty && !opts.csv) {
+  if (isInteractive) {
     success(`Logged in as ${chalk.bold(session.email)}`);
     info(`Role: ${result.role}`);
     info(`Token expires: ${result.tokenExpires}`);
@@ -282,7 +286,7 @@ const headlessLoginAction = withErrorHandling(async () => {
     );
   }
 
-  const spinner = ora('Validating session...').start();
+  const spinner = ora({ text: 'Validating session...', stream: process.stderr }).start();
   const client = createAnonClient();
   const {
     data: { user },
@@ -366,15 +370,20 @@ Notes:
       'after',
       `
 Examples:
-  purvey auth status
-  purvey auth status --pretty
-  purvey auth status | jq '.email'
+  purvey auth status                     # human-readable in terminal, JSON when piped
+  purvey auth status --pretty            # indented colorized JSON
+  purvey auth status | jq '.email'       # compact JSON on stdout
+  purvey auth status 2>/dev/null | jq .  # suppress spinner, get clean JSON
 
 Output fields:
   authenticated  boolean — true if a valid session exists
   email          your Google account email
   role           your purveyors.io role (viewer or member)
   tokenExpires   ISO timestamp when the access token expires
+
+Notes:
+  When stdout is a TTY (interactive terminal), output is human-readable.
+  When piped or redirected, output is compact JSON (same as all other commands).
 `
     )
     .action(statusAction);
