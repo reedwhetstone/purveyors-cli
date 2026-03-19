@@ -10,6 +10,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 export interface ClassifyRoastInput {
   alogMetadata: {
     title: string;
+    filename?: string;
     roastertype?: string;
     beans?: string;
     roastingnotes?: string;
