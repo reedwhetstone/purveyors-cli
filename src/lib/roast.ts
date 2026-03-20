@@ -94,6 +94,18 @@ export const deleteRoastSchema = z.object({
 
 export type DeleteRoastInput = z.input<typeof deleteRoastSchema>;
 
+export const updateRoastSchema = z
+  .object({
+    notes: z.string().optional(),
+    ozOut: z.number().positive().optional(),
+    batchName: z.string().optional(),
+  })
+  .refine((v) => Object.keys(v).some((k) => v[k as keyof typeof v] !== undefined), {
+    message: 'No update fields provided. Pass at least one of: notes, ozOut, batchName.',
+  });
+
+export type UpdateRoastInput = z.input<typeof updateRoastSchema>;
+
 // ─── Pure lib functions ───────────────────────────────────────────────────────
 
 /**
@@ -273,6 +285,70 @@ export async function deleteRoast(
     .eq('user', userId);
 
   if (deleteError) throw deleteError;
+}
+
+/**
+ * Update an existing roast profile (must belong to userId).
+ * If ozOut is provided and the roast has oz_in, weight_loss_percent is recalculated.
+ */
+export async function updateRoast(
+  supabase: SupabaseClient,
+  userId: string,
+  id: number,
+  input: UpdateRoastInput
+): Promise<RoastProfile> {
+  deleteRoastSchema.parse({ id });
+  const parsed = updateRoastSchema.parse(input);
+
+  // Verify ownership and get current profile (need oz_in for weight loss calc)
+  const { data: existing, error: fetchError } = await supabase
+    .from('roast_profiles')
+    .select('roast_id, oz_in')
+    .eq('roast_id', id)
+    .eq('user', userId)
+    .single();
+
+  if (fetchError || !existing) {
+    throw new AuthError(`Roast profile ${id} not found or does not belong to you.`);
+  }
+
+  const updates: Record<string, unknown> = {};
+  if (parsed.notes !== undefined) updates.roast_notes = parsed.notes;
+  if (parsed.batchName !== undefined) updates.batch_name = parsed.batchName;
+  if (parsed.ozOut !== undefined) {
+    updates.oz_out = parsed.ozOut;
+    // Recalculate weight_loss_percent if oz_in exists
+    const ozIn = existing.oz_in as number | null;
+    if (ozIn != null && ozIn > 0) {
+      updates.weight_loss_percent = Math.round(((ozIn - parsed.ozOut) / ozIn) * 10000) / 100;
+    }
+  }
+
+  if (Object.keys(updates).length === 0) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      'No update fields provided. Pass at least one of: --notes, --oz-out, --batch-name.'
+    );
+  }
+
+  const { error: updateError } = await supabase
+    .from('roast_profiles')
+    .update(updates)
+    .eq('roast_id', id)
+    .eq('user', userId);
+
+  if (updateError) throw updateError;
+
+  // Re-fetch the updated row
+  const { data, error } = await supabase
+    .from('roast_profiles')
+    .select(ROAST_DETAIL_SELECT)
+    .eq('roast_id', id)
+    .single();
+
+  if (error) throw error;
+
+  return data as RoastProfile;
 }
 
 // ─── Roast import from .alog file ─────────────────────────────────────────────
