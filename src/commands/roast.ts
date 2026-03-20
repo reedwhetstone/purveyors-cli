@@ -11,6 +11,7 @@ import {
   getRoast,
   createRoast,
   deleteRoast,
+  updateRoast,
   importRoastFromFile,
 } from '../lib/roast.js';
 import type {
@@ -257,6 +258,63 @@ Required flags: --coffee-id (green_coffee_inv.id)
         });
 
         success(`Roast profile ${data.roast_id} created.`);
+        outputData(data, globalOpts);
+      })
+    );
+
+  // ── roast update <id> ─────────────────────────────────────────────────────
+  roast
+    .command('update <id>')
+    .description('Update an existing roast profile (must be yours)')
+    .option('--notes <text>', 'Updated roast notes')
+    .option('--oz-out <oz>', 'Updated roasted weight (oz) — triggers weight loss recalculation')
+    .option('--batch-name <name>', 'Updated batch name')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey roast update 123 --notes "Extended drying phase"
+  purvey roast update 123 --oz-out 12.5
+  purvey roast update 123 --batch-name "Ethiopia Guji Light #3"
+  purvey roast update 123 --notes "Great roast" --oz-out 10.2
+
+Notes:
+  At least one flag required. Pass only the fields you want to change.
+  --oz-out triggers automatic weight_loss_percent recalculation if oz_in exists.
+  Requires authentication (member role).
+`
+    )
+    .action(
+      withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        const { supabase, userId } = await requireAuth('member');
+
+        const roastId = parseInt(id, 10);
+        if (isNaN(roastId)) {
+          throw new PrvrsError('INVALID_ARGUMENT', `Invalid roast ID: "${id}".`);
+        }
+
+        let ozOut: number | undefined;
+        if (opts.ozOut !== undefined) {
+          ozOut = parseFloat(opts.ozOut as string);
+          if (isNaN(ozOut) || ozOut <= 0)
+            throw new PrvrsError('INVALID_ARGUMENT', `Invalid --oz-out: "${opts.ozOut}".`);
+        }
+
+        if (opts.notes === undefined && ozOut === undefined && opts.batchName === undefined) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            'No update fields provided. Pass at least one of: --notes, --oz-out, --batch-name.'
+          );
+        }
+
+        const data = await updateRoast(supabase, userId, roastId, {
+          notes: opts.notes as string | undefined,
+          ozOut,
+          batchName: opts.batchName as string | undefined,
+        });
+
+        success(`Roast profile ${roastId} updated.`);
         outputData(data, globalOpts);
       })
     );

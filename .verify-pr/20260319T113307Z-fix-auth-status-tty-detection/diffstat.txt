@@ -1,0 +1,4 @@
+ package.json            |  2 +-
+ src/commands/auth.ts    | 16 +++++++++++-----
+ src/commands/context.ts |  7 ++++---
+ 3 files changed, 16 insertions(+), 9 deletions(-)

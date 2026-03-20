@@ -1,0 +1,1 @@
+432b70d (HEAD -> fix/auth-status-tty-detection, origin/fix/auth-status-tty-detection) fix: auth status outputs JSON when piped (TTY detection)

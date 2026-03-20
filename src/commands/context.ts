@@ -145,6 +145,14 @@ Create roast profile (REQUIRED: --coffee-id):
 Delete roast profile:
   purvey roast delete <roast_id> [-y]
 
+Update roast profile:
+  purvey roast update <roast_id> [options]
+  Options:
+    --notes <text>         updated roast notes
+    --oz-out <oz>          updated roasted weight (recalculates weight_loss_percent)
+    --batch-name <name>    updated batch name
+  At least one flag required.
+
 Import Artisan .alog file (REQUIRED: <file>, --coffee-id):
   purvey roast import <file.alog> --coffee-id <id> [options]
   Options:

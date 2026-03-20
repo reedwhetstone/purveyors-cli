@@ -1,0 +1,91 @@
+diff --git a/package.json b/package.json
+index 1c4f9b9..863ab09 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@purveyors/cli",
+-  "version": "0.6.1",
++  "version": "0.6.2",
+   "description": "The official CLI for purveyors.io — coffee intelligence from your terminal",
+   "type": "module",
+   "bin": {
+diff --git a/src/commands/auth.ts b/src/commands/auth.ts
+index c02888f..a5b7f48 100644
+--- a/src/commands/auth.ts
++++ b/src/commands/auth.ts
+@@ -186,6 +186,7 @@ const loginAction = withErrorHandling(async () => {
+  */
+ const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
+   const opts = cmd.optsWithGlobals() as { pretty?: boolean; csv?: boolean };
++  const isInteractive = process.stdout.isTTY && !opts.pretty && !opts.csv;
+   const spinner = ora('Checking authentication status...').start();
+   const session = await validateSession();
+   spinner.stop();
+@@ -195,7 +196,7 @@ const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
+       authenticated: false,
+       message: 'Not logged in. Run `purvey auth login` to authenticate.',
+     };
+-    if (!opts.pretty && !opts.csv) {
++    if (isInteractive) {
+       warn(result.message);
+       process.exit(1);
+     }
+@@ -210,7 +211,7 @@ const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
+     tokenExpires: new Date(session.expiresAt).toISOString(),
+   };
+ 
+-  if (!opts.pretty && !opts.csv) {
++  if (isInteractive) {
+     success(`Logged in as ${chalk.bold(session.email)}`);
+     info(`Role: ${result.role}`);
+     info(`Token expires: ${result.tokenExpires}`);
+@@ -366,15 +367,20 @@ Notes:
+       'after',
+       `
+ Examples:
+-  purvey auth status
+-  purvey auth status --pretty
+-  purvey auth status | jq '.email'
++  purvey auth status                     # human-readable in terminal, JSON when piped
++  purvey auth status --pretty            # indented colorized JSON
++  purvey auth status | jq '.email'       # compact JSON on stdout
++  purvey auth status 2>/dev/null | jq .  # suppress spinner, get clean JSON
+ 
+ Output fields:
+   authenticated  boolean — true if a valid session exists
+   email          your Google account email
+   role           your purveyors.io role (viewer or member)
+   tokenExpires   ISO timestamp when the access token expires
++
++Notes:
++  When stdout is a TTY (interactive terminal), output is human-readable.
++  When piped or redirected, output is compact JSON (same as all other commands).
+ `
+     )
+     .action(statusAction);
+diff --git a/src/commands/context.ts b/src/commands/context.ts
+index 6f6d53e..101a4db 100644
+--- a/src/commands/context.ts
++++ b/src/commands/context.ts
+@@ -6,7 +6,7 @@ import { Command } from 'commander';
+ // An agent reading this once should be able to use every CLI command correctly.
+ 
+ const CONTEXT_TEXT = `
+-PURVEY CLI — Agent Reference v0.5
++PURVEY CLI — Agent Reference v0.6
+ ==================================
+ CLI for purveyors.io coffee marketplace. Node >=20 required.
+ Credentials: ~/.config/purvey/credentials.json (auto-refreshed, do not edit)
+@@ -29,8 +29,9 @@ Headless login (agents/CI — no browser):
+   Token auto-refreshes; no action needed between sessions.
+ 
+ Check status:
+-  purvey auth status --pretty
+-  purvey auth status           # compact JSON: {"authenticated":true,"email":"...","role":"..."}
++  purvey auth status           # human-readable in terminal; compact JSON when piped
++  purvey auth status --pretty  # indented/colorized JSON (human reading)
++  purvey auth status | jq '.email'  # compact JSON on stdout
+ 
+ Logout:
+   purvey auth logout
