@@ -1,7 +1,0 @@
-repo_root: /root/.openclaw/workspace/repos/purveyors-cli
-base_ref: f952fcc4067f8caede8a824fc1e6a3820f22ce7a
-head_ref: origin/main
-merge_base: f952fcc4067f8caede8a824fc1e6a3820f22ce7a
-branch_name: origin/main
-generated_at_utc: 2026-03-15T23:05:49Z
-pr_number: 11+12

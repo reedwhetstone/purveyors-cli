@@ -1,7 +1,0 @@
-repo_root: /root/.openclaw/workspace/repos/purveyors-cli
-base_ref: origin/main
-head_ref: origin/feat/write-commands
-merge_base: e34b40ac689da74898d524c8eee5b04c39b2b4c9
-branch_name: origin/feat/write-commands
-generated_at_utc: 2026-03-15T08:56:01Z
-pr_number: 2
