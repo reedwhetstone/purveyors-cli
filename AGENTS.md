@@ -9,7 +9,7 @@ Single source of truth for anyone (human or AI agent) contributing to `purvey`. 
 `purvey` is the official CLI for [purveyors.io](https://purveyors.io). It gives users and AI agents terminal access to the Purveyors platform: catalog search, green coffee inventory, roast profiles, tasting notes, sales, and Artisan .alog import with AI-assisted bean matching.
 
 **Stack:** TypeScript (strict) + Commander.js + Supabase JS SDK + Vitest  
-**Current version:** 0.6.0  
+**Current version:** 0.6.2  
 **Binary:** `purvey`
 
 ---
