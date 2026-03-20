@@ -203,7 +203,7 @@ The CLI exports functions for use by coffee-app's chat agent:
 2. Parses .alog metadata (title, bean name, roaster, notes)
 3. POSTs to `https://www.purveyors.io/api/ai/classify-roast` with Bearer token
 4. Server checks auth via `requireAuth()` (Bearer header) + admin client role check
-5. Proxies to OpenRouter's `@preset/cli-agent` model
+5. Proxies to OpenRouter's `@preset/data-processing-agent` model
 6. Returns `{ inventoryId, coffeeName, confidence (0-100), reasoning }`
 7. ≥50% confidence → auto-imports; <50% → marks `needs-review`
 
