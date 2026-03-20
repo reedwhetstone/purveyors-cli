@@ -1,9 +1,0 @@
-src/commands/inventory.ts
-src/commands/roast.ts
-src/commands/sales.ts
-src/commands/tasting.ts
-src/index.ts
-src/lib/prompts.ts
-tests/prompts.test.ts
-tests/write-commands.test.ts
-vitest.config.ts

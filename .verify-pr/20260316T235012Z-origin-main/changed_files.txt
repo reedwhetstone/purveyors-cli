@@ -1,7 +1,0 @@
-src/commands/inventory.ts
-src/commands/roast.ts
-src/commands/sales.ts
-src/commands/tasting.ts
-src/lib/ai.ts
-src/lib/interactive/watch.ts
-src/lib/supabase.ts

@@ -1,1 +1,0 @@
-e748d65 (HEAD -> chore/rename-cli-purvey, origin/chore/rename-cli-purvey) feat: rename CLI command from prvrs to purvey
