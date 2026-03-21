@@ -6,7 +6,7 @@ import { Command } from 'commander';
 // An agent reading this once should be able to use every CLI command correctly.
 
 const CONTEXT_TEXT = `
-PURVEY CLI — Agent Reference v0.6
+PURVEY CLI — Agent Reference v0.7
 ==================================
 CLI for purveyors.io coffee marketplace. Node >=20 required.
 Credentials: ~/.config/purvey/credentials.json (auto-refreshed, do not edit)
@@ -151,6 +151,7 @@ Update roast profile:
     --notes <text>         updated roast notes
     --oz-out <oz>          updated roasted weight (recalculates weight_loss_percent)
     --batch-name <name>    updated batch name
+    --targets <text>       updated roast targets (planning/goals)
   At least one flag required.
 
 Import Artisan .alog file (REQUIRED: <file>, --coffee-id):

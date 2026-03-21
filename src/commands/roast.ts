@@ -270,6 +270,7 @@ Required flags: --coffee-id (green_coffee_inv.id)
     .option('--notes <text>', 'Updated roast notes')
     .option('--oz-out <oz>', 'Updated roasted weight (oz) — triggers weight loss recalculation')
     .option('--batch-name <name>', 'Updated batch name')
+    .option('--targets <text>', 'Updated roast targets')
     .addHelpText(
       'after',
       `
@@ -277,11 +278,13 @@ Examples:
   purvey roast update 123 --notes "Extended drying phase"
   purvey roast update 123 --oz-out 12.5
   purvey roast update 123 --batch-name "Ethiopia Guji Light #3"
+  purvey roast update 123 --targets "Aim for FC at 390F, 18% dev"
   purvey roast update 123 --notes "Great roast" --oz-out 10.2
 
 Notes:
   At least one flag required. Pass only the fields you want to change.
   --oz-out triggers automatic weight_loss_percent recalculation if oz_in exists.
+  --targets updates the roast_targets column (planning/goals for the roast).
   Requires authentication (member role).
 `
     )
@@ -302,10 +305,15 @@ Notes:
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --oz-out: "${opts.ozOut}".`);
         }
 
-        if (opts.notes === undefined && ozOut === undefined && opts.batchName === undefined) {
+        if (
+          opts.notes === undefined &&
+          ozOut === undefined &&
+          opts.batchName === undefined &&
+          opts.targets === undefined
+        ) {
           throw new PrvrsError(
             'INVALID_ARGUMENT',
-            'No update fields provided. Pass at least one of: --notes, --oz-out, --batch-name.'
+            'No update fields provided. Pass at least one of: --notes, --oz-out, --batch-name, --targets.'
           );
         }
 
@@ -313,6 +321,7 @@ Notes:
           notes: opts.notes as string | undefined,
           ozOut,
           batchName: opts.batchName as string | undefined,
+          targets: opts.targets as string | undefined,
         });
 
         success(`Roast profile ${roastId} updated.`);

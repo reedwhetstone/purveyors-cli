@@ -99,9 +99,10 @@ export const updateRoastSchema = z
     notes: z.string().optional(),
     ozOut: z.number().positive().optional(),
     batchName: z.string().optional(),
+    targets: z.string().optional(),
   })
   .refine((v) => Object.keys(v).some((k) => v[k as keyof typeof v] !== undefined), {
-    message: 'No update fields provided. Pass at least one of: notes, ozOut, batchName.',
+    message: 'No update fields provided. Pass at least one of: notes, ozOut, batchName, targets.',
   });
 
 export type UpdateRoastInput = z.input<typeof updateRoastSchema>;
@@ -315,6 +316,7 @@ export async function updateRoast(
   const updates: Record<string, unknown> = {};
   if (parsed.notes !== undefined) updates.roast_notes = parsed.notes;
   if (parsed.batchName !== undefined) updates.batch_name = parsed.batchName;
+  if (parsed.targets !== undefined) updates.roast_targets = parsed.targets;
   if (parsed.ozOut !== undefined) {
     updates.oz_out = parsed.ozOut;
     // Recalculate weight_loss_percent if oz_in exists
@@ -327,7 +329,7 @@ export async function updateRoast(
   if (Object.keys(updates).length === 0) {
     throw new PrvrsError(
       'INVALID_ARGUMENT',
-      'No update fields provided. Pass at least one of: --notes, --oz-out, --batch-name.'
+      'No update fields provided. Pass at least one of: --notes, --oz-out, --batch-name, --targets.'
     );
   }
 
