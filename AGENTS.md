@@ -88,7 +88,7 @@ src/
     database.types.ts         # Supabase-generated database types
     index.ts                  # Shared TypeScript types (StoredCredentials, etc.)
 tests/
-  *.test.ts                   # 11 test files — unit tests for output, artisan parse, AI, etc.
+  *.test.ts                   # 13 test files — unit tests for output, artisan parse, AI, etc.
 ```
 
 ---
@@ -234,7 +234,7 @@ GitHub Actions on every push and PR to `main`:
 
 1. Lint (prettier + eslint)
 2. Type check (`tsc --noEmit`)
-3. Tests (vitest — 11 test files)
+3. Tests (vitest — 13 test files)
 
 All must pass. CI also publishes to npm on semver tags (`v*.*.*`).
 

@@ -184,6 +184,7 @@ purvey inventory add --form    # interactive wizard
 | `purvey roast list`          | List your roast profiles              |
 | `purvey roast get <id>`      | Get a single roast profile            |
 | `purvey roast create`        | Create a new roast profile            |
+| `purvey roast update <id>`   | Update a roast profile                |
 | `purvey roast delete <id>`   | Delete a roast profile                |
 | `purvey roast import [file]` | Import an Artisan .alog roast file    |
 | `purvey roast watch [dir]`   | Watch a directory for new .alog files |
