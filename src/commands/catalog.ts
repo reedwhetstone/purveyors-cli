@@ -184,9 +184,9 @@ Notes:
 
         // Call the lib function
         const results = await findSimilarBeans(supabase, {
-          target_coffee_id: coffeeId,
-          match_threshold: threshold,
-          match_count: limit,
+          coffee_id: coffeeId,
+          threshold: threshold,
+          limit: limit,
         });
 
         if (results.length === 0) {

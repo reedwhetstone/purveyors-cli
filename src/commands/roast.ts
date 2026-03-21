@@ -64,7 +64,8 @@ Notes:
         const { supabase, userId } = await requireAuth('member');
 
         const data = await listRoasts(supabase, userId, {
-          coffeeId: opts.coffeeId !== undefined ? parseInt(opts.coffeeId as string, 10) : undefined,
+          coffee_id:
+            opts.coffeeId !== undefined ? parseInt(opts.coffeeId as string, 10) : undefined,
           limit: Math.max(1, parseInt(opts.limit as string, 10)),
         });
 

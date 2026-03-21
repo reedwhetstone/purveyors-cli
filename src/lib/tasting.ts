@@ -49,7 +49,7 @@ export interface CuppingNotes {
 export const tastingFilterSchema = z.enum(['user', 'supplier', 'both']);
 
 export const getTastingNotesSchema = z.object({
-  id: z.number().int().positive(),
+  bean_id: z.number().int().positive().describe('Required coffee bean ID'),
   filter: tastingFilterSchema.default('both'),
 });
 
@@ -100,7 +100,7 @@ export async function getTastingNotes(
   id: number,
   filter: TastingFilter = 'both'
 ): Promise<TastingData> {
-  getTastingNotesSchema.parse({ id, filter });
+  getTastingNotesSchema.parse({ bean_id: id, filter });
 
   const result: TastingData = {
     beanId: id,
