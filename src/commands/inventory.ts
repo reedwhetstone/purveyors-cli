@@ -56,7 +56,7 @@ Notes:
         const { supabase, userId } = await requireAuth('member');
 
         const data = await listInventory(supabase, userId, {
-          stocked: opts.stocked ? true : undefined,
+          stocked_only: opts.stocked ? true : undefined,
           limit: Math.max(1, parseInt(opts.limit as string, 10)),
         });
 

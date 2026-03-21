@@ -67,8 +67,8 @@ export const INVENTORY_DETAIL_SELECT = [
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
 export const listInventorySchema = z.object({
-  stocked: z.boolean().optional(),
-  limit: z.number().int().min(1).default(20),
+  stocked_only: z.boolean().optional().describe('Only show currently stocked beans'),
+  limit: z.number().int().min(1).default(20).describe('Maximum results to return'),
 });
 
 export type ListInventoryInput = z.input<typeof listInventorySchema>;
@@ -124,7 +124,7 @@ export async function listInventory(
 
   let query = supabase.from('green_coffee_inv').select(INVENTORY_LIST_SELECT).eq('user', userId);
 
-  if (parsed.stocked) {
+  if (parsed.stocked_only) {
     query = query.eq('stocked', true);
   }
 

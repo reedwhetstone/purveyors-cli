@@ -63,8 +63,8 @@ const ROAST_DETAIL_SELECT =
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
 export const listRoastsSchema = z.object({
-  coffeeId: z.number().int().positive().optional(),
-  limit: z.number().int().min(1).default(20),
+  coffee_id: z.number().int().positive().optional().describe('Filter by green coffee inventory ID'),
+  limit: z.number().int().min(1).default(20).describe('Maximum results to return'),
 });
 
 export type ListRoastsInput = z.input<typeof listRoastsSchema>;
@@ -120,8 +120,8 @@ export async function listRoasts(
 
   let query = supabase.from('roast_profiles').select(ROAST_LIST_SELECT).eq('user', userId);
 
-  if (parsed.coffeeId !== undefined) {
-    query = query.eq('coffee_id', parsed.coffeeId);
+  if (parsed.coffee_id !== undefined) {
+    query = query.eq('coffee_id', parsed.coffee_id);
   }
 
   const { data, error } = await query.order('roast_date', { ascending: false }).limit(parsed.limit);

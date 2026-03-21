@@ -81,9 +81,26 @@ export const getCatalogStatsSchema = z.object({});
 export type GetCatalogStatsInput = z.input<typeof getCatalogStatsSchema>;
 
 export const findSimilarBeansSchema = z.object({
-  target_coffee_id: z.number().int(),
-  match_threshold: z.number().min(0).max(1).default(0.7),
-  match_count: z.number().int().min(1).default(10),
+  coffee_id: z
+    .number()
+    .int()
+    .positive()
+    .describe('The coffee_catalog ID to find similar beans for'),
+  threshold: z
+    .number()
+    .min(0)
+    .max(1)
+    .default(0.7)
+    .optional()
+    .describe('Minimum similarity score (0-1)'),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .default(10)
+    .optional()
+    .describe('Maximum results to return'),
 });
 
 export type FindSimilarBeansInput = z.input<typeof findSimilarBeansSchema>;
@@ -218,9 +235,9 @@ export async function findSimilarBeans(
   const parsed = findSimilarBeansSchema.parse(input);
 
   const { data, error } = await supabase.rpc('find_similar_beans_aggregated', {
-    target_coffee_id: parsed.target_coffee_id,
-    match_threshold: parsed.match_threshold,
-    match_count: parsed.match_count,
+    target_coffee_id: parsed.coffee_id,
+    match_threshold: parsed.threshold ?? 0.7,
+    match_count: parsed.limit ?? 10,
   });
 
   if (error) throw new Error(`RPC error: ${error.message}`);
