@@ -6,10 +6,11 @@ import {
   searchCatalog,
   getCatalog,
   getCatalogStats,
+  findSimilarBeans,
   computeCatalogStats,
   sanitizeFilterValue,
 } from '../lib/catalog.js';
-import type { CatalogItem, CatalogStats } from '../lib/catalog.js';
+import type { CatalogItem, CatalogStats, SimilarBean } from '../lib/catalog.js';
 import type { OutputOptions } from '../types/index.js';
 
 // Re-export types and helpers for backwards compatibility
@@ -181,27 +182,20 @@ Notes:
           process.exit(1);
         }
 
-        // Call the RPC function
-        const { data: results, error: rpcError } = await supabase.rpc(
-          'find_similar_beans_aggregated',
-          {
-            target_coffee_id: coffeeId,
-            match_threshold: threshold,
-            match_count: limit,
-          }
-        );
+        // Call the lib function
+        const results = await findSimilarBeans(supabase, {
+          target_coffee_id: coffeeId,
+          match_threshold: threshold,
+          match_count: limit,
+        });
 
-        if (rpcError) {
-          throw new Error(`RPC error: ${rpcError.message}`);
-        }
-
-        if (!results || results.length === 0) {
+        if (results.length === 0) {
           info(`No embeddings found for coffee ID ${coffeeId}.`);
           return;
         }
 
         // Filter stocked-only client-side
-        let filtered = results as SimilarBean[];
+        let filtered: SimilarBean[] = results;
         if (stockedOnly) {
           filtered = filtered.filter((r) => r.stocked);
           if (filtered.length === 0) {
@@ -244,18 +238,4 @@ Notes:
     );
 
   return catalog;
-}
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface SimilarBean {
-  coffee_id: number;
-  coffee_name: string;
-  source: string;
-  origin: string | null;
-  processing: string | null;
-  cost_lb: number | null;
-  stocked: boolean;
-  avg_similarity: number;
-  chunk_matches: number;
 }

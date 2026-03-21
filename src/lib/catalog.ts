@@ -36,6 +36,18 @@ export interface CatalogItem {
   price_tiers: Array<{ min_lbs: number; price: number }> | null;
 }
 
+export interface SimilarBean {
+  coffee_id: number;
+  coffee_name: string;
+  source: string;
+  origin: string | null;
+  processing: string | null;
+  cost_lb: number | null;
+  stocked: boolean;
+  avg_similarity: number;
+  chunk_matches: number;
+}
+
 export interface CatalogStats {
   total: number;
   stocked: number;
@@ -67,6 +79,14 @@ export type GetCatalogInput = z.input<typeof getCatalogSchema>;
 export const getCatalogStatsSchema = z.object({});
 
 export type GetCatalogStatsInput = z.input<typeof getCatalogStatsSchema>;
+
+export const findSimilarBeansSchema = z.object({
+  target_coffee_id: z.number().int(),
+  match_threshold: z.number().min(0).max(1).default(0.7),
+  match_count: z.number().int().min(1).default(10),
+});
+
+export type FindSimilarBeansInput = z.input<typeof findSimilarBeansSchema>;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -185,4 +205,25 @@ export async function getCatalogStats(supabase: SupabaseClient): Promise<Catalog
   if (error) throw error;
 
   return computeCatalogStats((data ?? []) as CatalogItem[]);
+}
+
+/**
+ * Find beans similar to a target coffee using pgvector embedding similarity.
+ * Calls the `find_similar_beans_aggregated` RPC and returns ranked matches.
+ */
+export async function findSimilarBeans(
+  supabase: SupabaseClient,
+  input: FindSimilarBeansInput
+): Promise<SimilarBean[]> {
+  const parsed = findSimilarBeansSchema.parse(input);
+
+  const { data, error } = await supabase.rpc('find_similar_beans_aggregated', {
+    target_coffee_id: parsed.target_coffee_id,
+    match_threshold: parsed.match_threshold,
+    match_count: parsed.match_count,
+  });
+
+  if (error) throw new Error(`RPC error: ${error.message}`);
+
+  return (data ?? []) as SimilarBean[];
 }
