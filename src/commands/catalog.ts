@@ -251,7 +251,8 @@ Notes:
         filtered.forEach((bean, i) => {
           const pct = (bean.avg_similarity * 100).toFixed(1);
           const stockedLabel = bean.stocked ? 'Stocked ✓' : 'Unstocked';
-          const price = bean.cost_lb != null ? `$${bean.cost_lb.toFixed(2)}/lb` : 'price N/A';
+          const perLb = bean.price_per_lb ?? bean.cost_lb;
+          const price = perLb != null ? `$${perLb.toFixed(2)}/lb` : 'price N/A';
           const origin = bean.origin || 'Unknown';
           const processing = bean.processing || 'Unknown';
           const chunkWord = bean.chunk_matches === 1 ? 'chunk' : 'chunks';

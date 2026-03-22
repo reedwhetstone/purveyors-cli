@@ -24,6 +24,8 @@ function makeItem(overrides: Partial<CatalogItem> = {}): CatalogItem {
     ai_description: null,
     roast_recs: null,
     cost_lb: 12.0,
+    price_per_lb: 12.0,
+    price_tiers: [{ min_lbs: 1, price: 12.0 }],
     lot_size: null,
     bag_size: null,
     score_value: null,
@@ -34,7 +36,6 @@ function makeItem(overrides: Partial<CatalogItem> = {}): CatalogItem {
     last_updated: null,
     public_coffee: true,
     wholesale: false,
-    price_tiers: null,
     ...overrides,
   };
 }
@@ -91,16 +92,44 @@ describe('computeCatalogStats', () => {
   });
 
   it('computes average price per lb', () => {
-    const items = [makeItem({ id: 1, cost_lb: 10.0 }), makeItem({ id: 2, cost_lb: 20.0 })];
+    const items = [
+      makeItem({
+        id: 1,
+        cost_lb: 10.0,
+        price_per_lb: 10.0,
+        price_tiers: [{ min_lbs: 1, price: 10.0 }],
+      }),
+      makeItem({
+        id: 2,
+        cost_lb: 20.0,
+        price_per_lb: 20.0,
+        price_tiers: [{ min_lbs: 1, price: 20.0 }],
+      }),
+    ];
     const stats = computeCatalogStats(items);
     expect(stats.avgPricePerLb).toBe(15.0);
   });
 
   it('rounds average price to 2 decimal places', () => {
     const items = [
-      makeItem({ id: 1, cost_lb: 10.0 }),
-      makeItem({ id: 2, cost_lb: 11.0 }),
-      makeItem({ id: 3, cost_lb: 12.0 }),
+      makeItem({
+        id: 1,
+        cost_lb: 10.0,
+        price_per_lb: 10.0,
+        price_tiers: [{ min_lbs: 1, price: 10.0 }],
+      }),
+      makeItem({
+        id: 2,
+        cost_lb: 11.0,
+        price_per_lb: 11.0,
+        price_tiers: [{ min_lbs: 1, price: 11.0 }],
+      }),
+      makeItem({
+        id: 3,
+        cost_lb: 12.0,
+        price_per_lb: 12.0,
+        price_tiers: [{ min_lbs: 1, price: 12.0 }],
+      }),
     ];
     const stats = computeCatalogStats(items);
     // (10 + 11 + 12) / 3 = 11.0
@@ -109,25 +138,53 @@ describe('computeCatalogStats', () => {
 
   it('skips null prices when computing average', () => {
     const items = [
-      makeItem({ id: 1, cost_lb: 10.0 }),
-      makeItem({ id: 2, cost_lb: null }),
-      makeItem({ id: 3, cost_lb: 20.0 }),
+      makeItem({
+        id: 1,
+        cost_lb: 10.0,
+        price_per_lb: 10.0,
+        price_tiers: [{ min_lbs: 1, price: 10.0 }],
+      }),
+      makeItem({ id: 2, cost_lb: null, price_per_lb: null, price_tiers: null }),
+      makeItem({
+        id: 3,
+        cost_lb: 20.0,
+        price_per_lb: 20.0,
+        price_tiers: [{ min_lbs: 1, price: 20.0 }],
+      }),
     ];
     const stats = computeCatalogStats(items);
     expect(stats.avgPricePerLb).toBe(15.0);
   });
 
   it('returns null average when all prices are null', () => {
-    const items = [makeItem({ id: 1, cost_lb: null }), makeItem({ id: 2, cost_lb: null })];
+    const items = [
+      makeItem({ id: 1, cost_lb: null, price_per_lb: null, price_tiers: null }),
+      makeItem({ id: 2, cost_lb: null, price_per_lb: null, price_tiers: null }),
+    ];
     const stats = computeCatalogStats(items);
     expect(stats.avgPricePerLb).toBeNull();
   });
 
   it('computes price range correctly', () => {
     const items = [
-      makeItem({ id: 1, cost_lb: 8.5 }),
-      makeItem({ id: 2, cost_lb: 25.0 }),
-      makeItem({ id: 3, cost_lb: 15.0 }),
+      makeItem({
+        id: 1,
+        cost_lb: 8.5,
+        price_per_lb: 8.5,
+        price_tiers: [{ min_lbs: 1, price: 8.5 }],
+      }),
+      makeItem({
+        id: 2,
+        cost_lb: 25.0,
+        price_per_lb: 25.0,
+        price_tiers: [{ min_lbs: 1, price: 25.0 }],
+      }),
+      makeItem({
+        id: 3,
+        cost_lb: 15.0,
+        price_per_lb: 15.0,
+        price_tiers: [{ min_lbs: 1, price: 15.0 }],
+      }),
     ];
     const stats = computeCatalogStats(items);
     expect(stats.priceRange.min).toBe(8.5);
@@ -135,9 +192,34 @@ describe('computeCatalogStats', () => {
   });
 
   it('returns null price range when no items have prices', () => {
-    const items = [makeItem({ id: 1, cost_lb: null })];
+    const items = [makeItem({ id: 1, cost_lb: null, price_per_lb: null, price_tiers: null })];
     const stats = computeCatalogStats(items);
     expect(stats.priceRange.min).toBeNull();
     expect(stats.priceRange.max).toBeNull();
+  });
+
+  it('prefers price_tiers[0].price over price_per_lb and cost_lb', () => {
+    const items = [
+      makeItem({
+        id: 1,
+        cost_lb: 10.0,
+        price_per_lb: 12.0,
+        price_tiers: [{ min_lbs: 1, price: 15.0 }],
+      }),
+    ];
+    const stats = computeCatalogStats(items);
+    expect(stats.avgPricePerLb).toBe(15.0);
+  });
+
+  it('falls back to price_per_lb when price_tiers is null', () => {
+    const items = [makeItem({ id: 1, cost_lb: 10.0, price_per_lb: 12.0, price_tiers: null })];
+    const stats = computeCatalogStats(items);
+    expect(stats.avgPricePerLb).toBe(12.0);
+  });
+
+  it('falls back to cost_lb when price_tiers and price_per_lb are null', () => {
+    const items = [makeItem({ id: 1, cost_lb: 10.0, price_per_lb: null, price_tiers: null })];
+    const stats = computeCatalogStats(items);
+    expect(stats.avgPricePerLb).toBe(10.0);
   });
 });

@@ -142,7 +142,7 @@ export async function pickCatalogItem(
 
   const { data, error } = await supabase
     .from('coffee_catalog')
-    .select('id, name, country, processing, cost_lb')
+    .select('id, name, country, processing, price_per_lb, cost_lb')
     .or(
       [
         `name.ilike.%${safe}%`,
@@ -162,6 +162,7 @@ export async function pickCatalogItem(
     name: string | null;
     country: string | null;
     processing: string | null;
+    price_per_lb: number | null;
     cost_lb: number | null;
   }>;
 
@@ -172,9 +173,11 @@ export async function pickCatalogItem(
 
   const options = rows.map((row) => {
     const label = row.name ?? `Catalog #${row.id}`;
-    const parts = [row.country, row.processing, row.cost_lb ? `$${row.cost_lb}/lb` : null].filter(
-      Boolean
-    );
+    const parts = [
+      row.country,
+      row.processing,
+      (row.price_per_lb ?? row.cost_lb) ? `$${row.price_per_lb ?? row.cost_lb}/lb` : null,
+    ].filter(Boolean);
     const hint = parts.join(' · ') || undefined;
     return { value: String(row.id), label, hint };
   });
