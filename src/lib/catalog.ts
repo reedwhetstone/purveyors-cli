@@ -23,6 +23,7 @@ export interface CatalogItem {
   ai_description: string | null;
   roast_recs: string | null;
   cost_lb: number | null;
+  price_per_lb: number | null;
   lot_size: string | null;
   bag_size: string | null;
   score_value: number | null;
@@ -43,6 +44,7 @@ export interface SimilarBean {
   origin: string | null;
   processing: string | null;
   cost_lb: number | null;
+  price_per_lb: number | null;
   stocked: boolean;
   avg_similarity: number;
   chunk_matches: number;
@@ -121,6 +123,15 @@ export function sanitizeFilterValue(value: string): string {
   return value.replace(/[(),.*%]/g, '');
 }
 
+/** Get per-lb price, preferring price_tiers then generated column then legacy cost_lb */
+function getPerLbPrice(item: {
+  price_tiers?: Array<{ price: number }> | null;
+  price_per_lb?: number | null;
+  cost_lb?: number | null;
+}): number | null {
+  return item.price_tiers?.[0]?.price ?? item.price_per_lb ?? item.cost_lb ?? null;
+}
+
 /**
  * Aggregate stats from an array of catalog items.
  * Pure function — no I/O, safe to unit test.
@@ -134,7 +145,7 @@ export function computeCatalogStats(items: CatalogItem[]): CatalogStats {
     byOrigin[key] = (byOrigin[key] ?? 0) + 1;
   }
 
-  const prices = items.map((i) => i.cost_lb).filter((p): p is number => p !== null);
+  const prices = items.map((i) => getPerLbPrice(i)).filter((p): p is number => p !== null);
   const avgPricePerLb =
     prices.length > 0
       ? Math.round((prices.reduce((a, b) => a + b, 0) / prices.length) * 100) / 100
@@ -171,11 +182,11 @@ export async function searchCatalog(
   }
 
   if (parsed.priceMin !== undefined) {
-    query = query.gte('cost_lb', parsed.priceMin);
+    query = query.gte('price_per_lb', parsed.priceMin);
   }
 
   if (parsed.priceMax !== undefined) {
-    query = query.lte('cost_lb', parsed.priceMax);
+    query = query.lte('price_per_lb', parsed.priceMax);
   }
 
   if (parsed.flavor) {
@@ -202,10 +213,10 @@ export async function searchCatalog(
   if (parsed.sort) {
     switch (parsed.sort) {
       case 'price':
-        query = query.order('cost_lb', { ascending: true, nullsFirst: false });
+        query = query.order('price_per_lb', { ascending: true, nullsFirst: false });
         break;
       case 'price-desc':
-        query = query.order('cost_lb', { ascending: false, nullsFirst: false });
+        query = query.order('price_per_lb', { ascending: false, nullsFirst: false });
         break;
       case 'name':
         query = query.order('name', { ascending: true, nullsFirst: false });
@@ -250,7 +261,7 @@ export async function getCatalog(supabase: SupabaseClient, id: number): Promise<
 export async function getCatalogStats(supabase: SupabaseClient): Promise<CatalogStats> {
   const { data, error } = await supabase
     .from('coffee_catalog')
-    .select('id, country, continent, cost_lb, stocked');
+    .select('id, country, continent, price_per_lb, price_tiers, cost_lb, stocked');
 
   if (error) throw error;
 

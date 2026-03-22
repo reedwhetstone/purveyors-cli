@@ -25,6 +25,8 @@ export interface InventoryItem {
     region: string | null;
     processing: string | null;
     cost_lb: number | null;
+    price_per_lb: number | null;
+    price_tiers: Array<{ min_lbs: number; price: number }> | null;
     description_short: string | null;
     stocked: boolean | null;
   } | null;
@@ -45,7 +47,7 @@ export const INVENTORY_LIST_SELECT = [
   'user',
   'catalog_id',
   'stocked',
-  'coffee_catalog!catalog_id (id, name, source, country, region, processing, cost_lb, description_short, stocked)',
+  'coffee_catalog!catalog_id (id, name, source, country, region, processing, cost_lb, price_per_lb, price_tiers, description_short, stocked)',
 ].join(', ');
 
 export const INVENTORY_DETAIL_SELECT = [
@@ -61,7 +63,7 @@ export const INVENTORY_DETAIL_SELECT = [
   'user',
   'catalog_id',
   'stocked',
-  'coffee_catalog!catalog_id (id, name, source, country, region, processing, cost_lb, description_short, description_long, farm_notes, cupping_notes, stocked)',
+  'coffee_catalog!catalog_id (id, name, source, country, region, processing, cost_lb, price_per_lb, price_tiers, description_short, description_long, farm_notes, cupping_notes, stocked)',
 ].join(', ');
 
 // ─── Zod schemas ──────────────────────────────────────────────────────────────

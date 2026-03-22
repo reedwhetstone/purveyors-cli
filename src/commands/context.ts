@@ -60,14 +60,14 @@ Search the public catalog:
   Options (all optional):
     --origin <text>      country/region (e.g. "Ethiopia", "Colombia")
     --process <method>   natural|washed|honey
-    --price-min <n>      min USD/lb
-    --price-max <n>      max USD/lb
+    --price-min <n>      min USD/lb (filters on price_per_lb)
+    --price-max <n>      max USD/lb (filters on price_per_lb)
     --flavor <keywords>  comma-separated (e.g. "blueberry,citrus")
     --stocked            only currently stocked
     --sort <field>       price|price-desc|name|origin|newest
     --offset <n>         skip N results for pagination (default: 0)
     --limit <n>          max results (default: 10)
-  Returns: array of catalog items with id, name, origin, process, flavor_notes, cost_lb, stocked
+  Returns: array of catalog items with id, name, origin, process, flavor_notes, price_per_lb, cost_lb, stocked
 
 Get one catalog item by ID:
   purvey catalog get <catalog_id>
