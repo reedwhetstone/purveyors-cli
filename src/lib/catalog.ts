@@ -58,6 +58,9 @@ export interface CatalogStats {
 
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
+export const catalogSortFields = ['price', 'price-desc', 'name', 'origin', 'newest'] as const;
+export type CatalogSortField = (typeof catalogSortFields)[number];
+
 export const searchCatalogSchema = z.object({
   origin: z.string().optional(),
   process: z.string().optional(),
@@ -65,6 +68,8 @@ export const searchCatalogSchema = z.object({
   priceMax: z.number().optional(),
   flavor: z.string().optional(),
   stocked: z.boolean().optional(),
+  sort: z.enum(catalogSortFields).optional(),
+  offset: z.number().int().min(0).optional(),
   limit: z.number().int().min(1).default(10),
 });
 
@@ -193,7 +198,35 @@ export async function searchCatalog(
     query = query.eq('stocked', true);
   }
 
-  const { data, error } = await query.limit(parsed.limit);
+  // Apply sort order
+  if (parsed.sort) {
+    switch (parsed.sort) {
+      case 'price':
+        query = query.order('cost_lb', { ascending: true, nullsFirst: false });
+        break;
+      case 'price-desc':
+        query = query.order('cost_lb', { ascending: false, nullsFirst: false });
+        break;
+      case 'name':
+        query = query.order('name', { ascending: true, nullsFirst: false });
+        break;
+      case 'origin':
+        query = query.order('country', { ascending: true, nullsFirst: false });
+        break;
+      case 'newest':
+        query = query.order('last_updated', { ascending: false, nullsFirst: false });
+        break;
+    }
+  }
+
+  // Apply offset for pagination
+  if (parsed.offset !== undefined && parsed.offset > 0) {
+    query = query.range(parsed.offset, parsed.offset + parsed.limit - 1);
+  } else {
+    query = query.limit(parsed.limit);
+  }
+
+  const { data, error } = await query;
   if (error) throw error;
 
   return (data ?? []) as CatalogItem[];

@@ -64,6 +64,8 @@ Search the public catalog:
     --price-max <n>      max USD/lb
     --flavor <keywords>  comma-separated (e.g. "blueberry,citrus")
     --stocked            only currently stocked
+    --sort <field>       price|price-desc|name|origin|newest
+    --offset <n>         skip N results for pagination (default: 0)
     --limit <n>          max results (default: 10)
   Returns: array of catalog items with id, name, origin, process, flavor_notes, cost_lb, stocked
 
