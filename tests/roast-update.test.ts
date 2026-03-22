@@ -17,11 +17,25 @@ describe('updateRoastSchema', () => {
     expect(result.success).toBe(true);
   });
 
+  it('accepts targets only', () => {
+    const result = updateRoastSchema.safeParse({ targets: 'Aim for FC at 390F' });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts notes + targets together', () => {
+    const result = updateRoastSchema.safeParse({
+      notes: 'Extended drying phase',
+      targets: 'FC at 390F, 18% development',
+    });
+    expect(result.success).toBe(true);
+  });
+
   it('accepts all fields together', () => {
     const result = updateRoastSchema.safeParse({
       notes: 'Updated notes',
       ozOut: 10.2,
       batchName: 'Updated Batch',
+      targets: 'Medium roast target',
     });
     expect(result.success).toBe(true);
   });
