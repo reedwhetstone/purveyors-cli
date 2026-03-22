@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeFilterValue, searchCatalogSchema } from '../src/lib/catalog.js';
+import { sanitizeFilterValue, searchCatalogSchema, catalogSortFields } from '../src/lib/catalog.js';
 import { isValidCuppingScore, rateCoffeeSchema } from '../src/lib/tasting.js';
 
 // ─── sanitizeFilterValue ──────────────────────────────────────────────────────
@@ -66,6 +66,54 @@ describe('searchCatalogSchema', () => {
     const parsed = searchCatalogSchema.parse({ origin: 'Colombia' });
     expect(parsed.origin).toBe('Colombia');
     expect(parsed.limit).toBe(10);
+  });
+
+  it('accepts valid sort fields', () => {
+    for (const sort of catalogSortFields) {
+      const parsed = searchCatalogSchema.parse({ sort });
+      expect(parsed.sort).toBe(sort);
+    }
+  });
+
+  it('rejects invalid sort field', () => {
+    expect(() => searchCatalogSchema.parse({ sort: 'invalid' })).toThrow();
+  });
+
+  it('defaults offset to undefined when omitted', () => {
+    const parsed = searchCatalogSchema.parse({});
+    expect(parsed.offset).toBeUndefined();
+  });
+
+  it('accepts offset of 0', () => {
+    const parsed = searchCatalogSchema.parse({ offset: 0 });
+    expect(parsed.offset).toBe(0);
+  });
+
+  it('accepts positive offset', () => {
+    const parsed = searchCatalogSchema.parse({ offset: 20 });
+    expect(parsed.offset).toBe(20);
+  });
+
+  it('rejects negative offset', () => {
+    expect(() => searchCatalogSchema.parse({ offset: -1 })).toThrow();
+  });
+
+  it('rejects non-integer offset', () => {
+    expect(() => searchCatalogSchema.parse({ offset: 5.5 })).toThrow();
+  });
+
+  it('accepts sort and offset together with other options', () => {
+    const parsed = searchCatalogSchema.parse({
+      origin: 'Ethiopia',
+      stocked: true,
+      sort: 'price',
+      offset: 10,
+      limit: 20,
+    });
+    expect(parsed.sort).toBe('price');
+    expect(parsed.offset).toBe(10);
+    expect(parsed.limit).toBe(20);
+    expect(parsed.origin).toBe('Ethiopia');
   });
 });
 

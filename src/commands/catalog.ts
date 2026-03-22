@@ -9,8 +9,9 @@ import {
   findSimilarBeans,
   computeCatalogStats,
   sanitizeFilterValue,
+  catalogSortFields,
 } from '../lib/catalog.js';
-import type { CatalogItem, CatalogStats, SimilarBean } from '../lib/catalog.js';
+import type { CatalogItem, CatalogStats, CatalogSortField, SimilarBean } from '../lib/catalog.js';
 import type { OutputOptions } from '../types/index.js';
 
 // Re-export types and helpers for backwards compatibility
@@ -36,6 +37,8 @@ export function buildCatalogCommand(): Command {
     .option('--price-max <n>', 'Maximum price per lb (USD)')
     .option('--flavor <keywords>', 'Flavor keywords, comma-separated (e.g. "berry,chocolate")')
     .option('--stocked', 'Only show currently stocked coffees')
+    .option('--sort <field>', `Sort results by: ${catalogSortFields.join(', ')}`)
+    .option('--offset <n>', 'Skip N results (for pagination)', '0')
     .option('--limit <n>', 'Maximum results to return', '10')
     .addHelpText(
       'after',
@@ -45,12 +48,23 @@ Examples:
   purvey catalog search --origin "Colombia" --process "honey" --pretty
   purvey catalog search --process "natural" --flavor "blueberry,citrus" --stocked
   purvey catalog search --price-min 5 --price-max 12 --stocked --limit 20
+  purvey catalog search --stocked --sort price --pretty
+  purvey catalog search --sort newest --limit 20
+  purvey catalog search --stocked --limit 10 --offset 10   # page 2
   purvey catalog search --origin "Ethiopia" --csv > ethiopia.csv
   purvey catalog search --stocked --limit 50 | jq '.[].name'
+
+Sort fields:
+  price       cheapest first
+  price-desc  most expensive first
+  name        alphabetical by name
+  origin      alphabetical by country
+  newest      most recently updated first
 
 Notes:
   All filters are optional. Without flags, returns up to --limit results.
   --origin accepts partial matches (e.g. "Ethiopia" matches "Ethiopia Guji").
+  --offset + --limit enables pagination through large result sets.
   No authentication required — catalog is publicly readable.
 `
     )
@@ -59,6 +73,15 @@ Notes:
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
         const { supabase } = await requireAuth('viewer');
 
+        // Validate --sort if provided
+        const sortValue = opts.sort as string | undefined;
+        if (sortValue && !catalogSortFields.includes(sortValue as CatalogSortField)) {
+          warn(
+            `Invalid --sort value: "${sortValue}". Must be one of: ${catalogSortFields.join(', ')}`
+          );
+          process.exit(1);
+        }
+
         const data = await searchCatalog(supabase, {
           origin: opts.origin as string | undefined,
           process: opts.process as string | undefined,
@@ -66,6 +89,11 @@ Notes:
           priceMax: opts.priceMax !== undefined ? parseFloat(opts.priceMax as string) : undefined,
           flavor: opts.flavor as string | undefined,
           stocked: opts.stocked ? true : undefined,
+          sort: sortValue as CatalogSortField | undefined,
+          offset:
+            opts.offset !== undefined
+              ? Math.max(0, parseInt(opts.offset as string, 10))
+              : undefined,
           limit: Math.max(1, parseInt(opts.limit as string, 10)),
         });
 
