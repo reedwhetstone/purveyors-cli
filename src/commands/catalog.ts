@@ -36,6 +36,9 @@ export function buildCatalogCommand(): Command {
     .option('--price-min <n>', 'Minimum price per lb (USD)')
     .option('--price-max <n>', 'Maximum price per lb (USD)')
     .option('--flavor <keywords>', 'Flavor keywords, comma-separated (e.g. "berry,chocolate")')
+    .option('--name <text>', 'Filter by coffee name (partial match, case-insensitive)')
+    .option('--supplier <name>', 'Filter by supplier/source name (partial match, case-insensitive)')
+    .option('--ids <n,n,...>', 'Fetch specific catalog IDs (comma-separated, ignores limit)')
     .option('--stocked', 'Only show currently stocked coffees')
     .option('--sort <field>', `Sort results by: ${catalogSortFields.join(', ')}`)
     .option('--offset <n>', 'Skip N results (for pagination)', '0')
@@ -53,6 +56,9 @@ Examples:
   purvey catalog search --stocked --limit 10 --offset 10   # page 2
   purvey catalog search --origin "Ethiopia" --csv > ethiopia.csv
   purvey catalog search --stocked --limit 50 | jq '.[].name'
+  purvey catalog search --name "Guji" --pretty
+  purvey catalog search --supplier "Royal Coffee" --stocked --pretty
+  purvey catalog search --ids "1182,1183,1200"
 
 Sort fields:
   price       cheapest first
@@ -64,6 +70,8 @@ Sort fields:
 Notes:
   All filters are optional. Without flags, returns up to --limit results.
   --origin accepts partial matches (e.g. "Ethiopia" matches "Ethiopia Guji").
+  --name and --supplier accept partial matches (case-insensitive).
+  --ids fetches specific catalog items by ID, ignoring --limit and --offset.
   --offset + --limit enables pagination through large result sets.
   No authentication required — catalog is publicly readable.
 `
@@ -82,12 +90,31 @@ Notes:
           process.exit(1);
         }
 
+        // Parse --ids: comma-separated integers
+        let parsedIds: number[] | undefined;
+        if (opts.ids) {
+          const raw = (opts.ids as string).split(',').map((s) => s.trim());
+          const nums: number[] = [];
+          for (const token of raw) {
+            const n = parseInt(token, 10);
+            if (isNaN(n) || n <= 0) {
+              warn(`Invalid --ids value: "${token}". Each ID must be a positive integer.`);
+              process.exit(1);
+            }
+            nums.push(n);
+          }
+          parsedIds = nums;
+        }
+
         const data = await searchCatalog(supabase, {
           origin: opts.origin as string | undefined,
           process: opts.process as string | undefined,
           priceMin: opts.priceMin !== undefined ? parseFloat(opts.priceMin as string) : undefined,
           priceMax: opts.priceMax !== undefined ? parseFloat(opts.priceMax as string) : undefined,
           flavor: opts.flavor as string | undefined,
+          name: opts.name as string | undefined,
+          supplier: opts.supplier as string | undefined,
+          ids: parsedIds,
           stocked: opts.stocked ? true : undefined,
           sort: sortValue as CatalogSortField | undefined,
           offset:

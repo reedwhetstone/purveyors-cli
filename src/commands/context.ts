@@ -63,6 +63,9 @@ Search the public catalog:
     --price-min <n>      min USD/lb (filters on price_per_lb)
     --price-max <n>      max USD/lb (filters on price_per_lb)
     --flavor <keywords>  comma-separated (e.g. "blueberry,citrus")
+    --name <text>        filter by coffee name (partial match, case-insensitive)
+    --supplier <name>    filter by supplier/source name (partial match, case-insensitive)
+    --ids <n,n,...>      fetch specific catalog IDs (comma-separated, ignores limit)
     --stocked            only currently stocked
     --sort <field>       price|price-desc|name|origin|newest
     --offset <n>         skip N results for pagination (default: 0)
