@@ -1,6 +1,6 @@
 {
   "name": "@purveyors/cli",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "The official CLI for purveyors.io — coffee intelligence from your terminal",
   "type": "module",
   "bin": {

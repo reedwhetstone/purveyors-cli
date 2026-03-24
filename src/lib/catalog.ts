@@ -73,6 +73,9 @@ export const searchCatalogSchema = z.object({
   sort: z.enum(catalogSortFields).optional(),
   offset: z.number().int().min(0).optional(),
   limit: z.number().int().min(1).default(10),
+  name: z.string().optional(),
+  supplier: z.string().optional(),
+  ids: z.array(z.number().int().positive()).optional(),
 });
 
 export type SearchCatalogInput = z.input<typeof searchCatalogSchema>;
@@ -205,6 +208,20 @@ export async function searchCatalog(
     query = query.or(flavorFilters);
   }
 
+  if (parsed.name) {
+    const n = sanitizeFilterValue(parsed.name);
+    query = query.ilike('name', `%${n}%`);
+  }
+
+  if (parsed.supplier) {
+    const s = sanitizeFilterValue(parsed.supplier);
+    query = query.ilike('source', `%${s}%`);
+  }
+
+  if (parsed.ids && parsed.ids.length > 0) {
+    query = query.in('catalog_id', parsed.ids);
+  }
+
   if (parsed.stocked) {
     query = query.eq('stocked', true);
   }
@@ -230,11 +247,13 @@ export async function searchCatalog(
     }
   }
 
-  // Apply offset for pagination
-  if (parsed.offset !== undefined && parsed.offset > 0) {
-    query = query.range(parsed.offset, parsed.offset + parsed.limit - 1);
-  } else {
-    query = query.limit(parsed.limit);
+  // Apply offset/limit for pagination (skip when fetching specific IDs)
+  if (!parsed.ids || parsed.ids.length === 0) {
+    if (parsed.offset !== undefined && parsed.offset > 0) {
+      query = query.range(parsed.offset, parsed.offset + parsed.limit - 1);
+    } else {
+      query = query.limit(parsed.limit);
+    }
   }
 
   const { data, error } = await query;

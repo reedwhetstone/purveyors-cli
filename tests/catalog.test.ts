@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { computeCatalogStats } from '../src/lib/catalog.js';
+import {
+  computeCatalogStats,
+  searchCatalogSchema,
+  sanitizeFilterValue,
+} from '../src/lib/catalog.js';
 import type { CatalogItem } from '../src/lib/catalog.js';
 
 // Minimal factory so tests are readable without full item payloads
@@ -221,5 +225,69 @@ describe('computeCatalogStats', () => {
     const items = [makeItem({ id: 1, cost_lb: 10.0, price_per_lb: null, price_tiers: null })];
     const stats = computeCatalogStats(items);
     expect(stats.avgPricePerLb).toBe(10.0);
+  });
+});
+
+describe('searchCatalogSchema', () => {
+  it('accepts name as optional string', () => {
+    const result = searchCatalogSchema.parse({ name: 'Guji' });
+    expect(result.name).toBe('Guji');
+  });
+
+  it('accepts supplier as optional string', () => {
+    const result = searchCatalogSchema.parse({ supplier: 'Royal Coffee' });
+    expect(result.supplier).toBe('Royal Coffee');
+  });
+
+  it('accepts ids as array of positive integers', () => {
+    const result = searchCatalogSchema.parse({ ids: [1, 2, 100] });
+    expect(result.ids).toEqual([1, 2, 100]);
+  });
+
+  it('rejects ids with non-integer values', () => {
+    expect(() => searchCatalogSchema.parse({ ids: [1.5] })).toThrow();
+  });
+
+  it('rejects ids with non-positive values', () => {
+    expect(() => searchCatalogSchema.parse({ ids: [0] })).toThrow();
+    expect(() => searchCatalogSchema.parse({ ids: [-1] })).toThrow();
+  });
+
+  it('allows all new fields to be omitted', () => {
+    const result = searchCatalogSchema.parse({});
+    expect(result.name).toBeUndefined();
+    expect(result.supplier).toBeUndefined();
+    expect(result.ids).toBeUndefined();
+  });
+
+  it('combines new fields with existing fields', () => {
+    const result = searchCatalogSchema.parse({
+      origin: 'Ethiopia',
+      name: 'Guji',
+      supplier: 'Royal',
+      stocked: true,
+    });
+    expect(result.origin).toBe('Ethiopia');
+    expect(result.name).toBe('Guji');
+    expect(result.supplier).toBe('Royal');
+    expect(result.stocked).toBe(true);
+  });
+
+  it('applies default limit when not provided', () => {
+    const result = searchCatalogSchema.parse({ ids: [1, 2, 3] });
+    expect(result.limit).toBe(10);
+  });
+});
+
+describe('sanitizeFilterValue', () => {
+  it('strips PostgREST special characters', () => {
+    expect(sanitizeFilterValue('Royal (Coffee)')).toBe('Royal Coffee');
+    expect(sanitizeFilterValue('test%value')).toBe('testvalue');
+    expect(sanitizeFilterValue('a.b*c')).toBe('abc');
+  });
+
+  it('passes clean strings through unchanged', () => {
+    expect(sanitizeFilterValue('Ethiopia Guji')).toBe('Ethiopia Guji');
+    expect(sanitizeFilterValue('Royal Coffee')).toBe('Royal Coffee');
   });
 });
