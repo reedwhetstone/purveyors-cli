@@ -42,6 +42,11 @@ export function buildRoastCommand(): Command {
     .command('list')
     .description('List your roast profiles, sorted by date (newest first)')
     .option('--coffee-id <id>', 'Filter by green_coffee_inv ID')
+    .option('--batch-name <text>', 'Filter by batch name (partial match, case-insensitive)')
+    .option('--date-start <YYYY-MM-DD>', 'Only show roasts on or after this date')
+    .option('--date-end <YYYY-MM-DD>', 'Only show roasts on or before this date')
+    .option('--stocked', 'Only show roasts for currently stocked beans')
+    .option('--catalog-id <id>', 'Filter by coffee_catalog ID')
     .option('--limit <n>', 'Maximum results to return', '20')
     .addHelpText(
       'after',
@@ -49,11 +54,19 @@ export function buildRoastCommand(): Command {
 Examples:
   purvey roast list --pretty
   purvey roast list --coffee-id 7 --pretty
+  purvey roast list --batch-name "Ethiopia Guji" --pretty
+  purvey roast list --date-start 2026-03-01 --date-end 2026-03-31
+  purvey roast list --stocked --limit 10
+  purvey roast list --catalog-id 128 --pretty
   purvey roast list --limit 5 | jq '.[].roast_id'
   purvey roast list --csv > roasts.csv
 
 Notes:
   --coffee-id filters by inventory item (green_coffee_inv.id), not catalog_id.
+  --catalog-id filters by coffee_catalog ID (cross-reference from catalog search).
+  --batch-name accepts partial matches (case-insensitive).
+  --date-start and --date-end accept YYYY-MM-DD format; use together for a range.
+  --stocked only returns roasts for beans currently marked as stocked in inventory.
   Returns roast_id, batch_name, roast_date, oz_in, oz_out, and bean details.
   Requires authentication (member role).
 `
@@ -63,9 +76,42 @@ Notes:
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
         const { supabase, userId } = await requireAuth('member');
 
+        // Parse --date-start and --date-end format
+        const dateStart = opts.dateStart as string | undefined;
+        const dateEnd = opts.dateEnd as string | undefined;
+        if (dateStart && !/^\d{4}-\d{2}-\d{2}$/.test(dateStart)) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid --date-start: "${dateStart}". Must be YYYY-MM-DD format.`
+          );
+        }
+        if (dateEnd && !/^\d{4}-\d{2}-\d{2}$/.test(dateEnd)) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid --date-end: "${dateEnd}". Must be YYYY-MM-DD format.`
+          );
+        }
+
+        // Parse --catalog-id
+        let catalogId: number | undefined;
+        if (opts.catalogId !== undefined) {
+          catalogId = parseInt(opts.catalogId as string, 10);
+          if (isNaN(catalogId) || catalogId <= 0) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              `Invalid --catalog-id: "${opts.catalogId}". Must be a positive integer.`
+            );
+          }
+        }
+
         const data = await listRoasts(supabase, userId, {
           coffee_id:
             opts.coffeeId !== undefined ? parseInt(opts.coffeeId as string, 10) : undefined,
+          batch_name: opts.batchName as string | undefined,
+          date_start: dateStart,
+          date_end: dateEnd,
+          stocked_only: opts.stocked === true ? true : undefined,
+          catalog_id: catalogId,
           limit: Math.max(1, parseInt(opts.limit as string, 10)),
         });
 
