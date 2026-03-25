@@ -75,7 +75,7 @@ export const searchCatalogSchema = z.object({
   limit: z.number().int().min(1).default(10),
   name: z.string().optional(),
   supplier: z.string().optional(),
-  ids: z.array(z.number().int().positive()).optional(),
+  ids: z.array(z.number().int().positive()).max(100).optional(),
 });
 
 export type SearchCatalogInput = z.input<typeof searchCatalogSchema>;
@@ -219,7 +219,8 @@ export async function searchCatalog(
   }
 
   if (parsed.ids && parsed.ids.length > 0) {
-    query = query.in('catalog_id', parsed.ids);
+    // coffee_catalog PK is `id`; `catalog_id` is the FK name on other tables
+    query = query.in('id', parsed.ids);
   }
 
   if (parsed.stocked) {

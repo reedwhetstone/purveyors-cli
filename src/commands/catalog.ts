@@ -93,7 +93,7 @@ Notes:
         // Parse --ids: comma-separated integers
         let parsedIds: number[] | undefined;
         if (opts.ids) {
-          const raw = (opts.ids as string).split(',').map((s) => s.trim());
+          const raw = (opts.ids as string).split(',').map((s) => s.trim()).filter(Boolean);
           const nums: number[] = [];
           for (const token of raw) {
             const n = parseInt(token, 10);
