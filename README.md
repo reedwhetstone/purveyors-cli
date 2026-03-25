@@ -184,11 +184,11 @@ purvey inventory add --form    # interactive wizard
 
 ### Roast Profiles (member role required)
 
-| Command                      | Description                           |
-| ---------------------------- | ------------------------------------- |
-| `purvey roast list`          | List your roast profiles              |
-| `purvey roast get <id>`      | Get a single roast profile            |
-| `purvey roast create`        | Create a new roast profile            |
+| Command                      | Description                                 |
+| ---------------------------- | ------------------------------------------- |
+| `purvey roast list`          | List your roast profiles                    |
+| `purvey roast get <id>`      | Get a single roast profile                  |
+| `purvey roast create`        | Create a new roast profile                  |
 | `purvey roast update <id>`   | Update a roast profile (supports --targets) |
 | `purvey roast delete <id>`   | Delete a roast profile                      |
 | `purvey roast import [file]` | Import an Artisan .alog roast file          |

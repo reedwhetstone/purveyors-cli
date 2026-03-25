@@ -34,14 +34,14 @@ The current design fetches up to 45 rows (`finalLimit * 3` where `finalLimit` ma
 
 ### Impact Score
 
-| LLM Field          | CLI Support | Failure Mode                                       |
-|--------------------|-------------|---------------------------------------------------|
-| `roast_id`         | None        | Client-side; misses results past 45-row window     |
-| `batch_name`       | None        | Client-side; misses results past 45-row window     |
-| `roast_date_start` | None        | Client-side; misses results past 45-row window     |
-| `roast_date_end`   | None        | Client-side; misses results past 45-row window     |
-| `stocked_only`     | **None**    | Silently ignored; always returns all roasts        |
-| `catalog_id`       | **None**    | Silently ignored; not even attempted client-side   |
+| LLM Field          | CLI Support | Failure Mode                                     |
+| ------------------ | ----------- | ------------------------------------------------ |
+| `roast_id`         | None        | Client-side; misses results past 45-row window   |
+| `batch_name`       | None        | Client-side; misses results past 45-row window   |
+| `roast_date_start` | None        | Client-side; misses results past 45-row window   |
+| `roast_date_end`   | None        | Client-side; misses results past 45-row window   |
+| `stocked_only`     | **None**    | Silently ignored; always returns all roasts      |
+| `catalog_id`       | **None**    | Silently ignored; not even attempted client-side |
 
 The two **bolded** cases (stocked_only, catalog_id) are the most insidious because they produce no error and no indication that the filter was dropped — the agent just gets wrong data with no warning.
 
@@ -65,11 +65,17 @@ Add five new optional fields:
 export const listRoastsSchema = z.object({
   coffee_id: z.number().int().positive().optional(),
   catalog_id: z.number().int().positive().optional(), // NEW: filter by catalog_id
-  roast_id: z.number().int().positive().optional(),   // NEW: fetch a specific roast by id (returns array for API consistency)
-  batch_name: z.string().optional(),                  // NEW: ilike filter on batch_name
-  roast_date_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), // NEW: YYYY-MM-DD
-  roast_date_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),   // NEW: YYYY-MM-DD
-  stocked_only: z.boolean().optional(),               // NEW: filter to stocked beans only
+  roast_id: z.number().int().positive().optional(), // NEW: fetch a specific roast by id (returns array for API consistency)
+  batch_name: z.string().optional(), // NEW: ilike filter on batch_name
+  roast_date_start: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(), // NEW: YYYY-MM-DD
+  roast_date_end: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(), // NEW: YYYY-MM-DD
+  stocked_only: z.boolean().optional(), // NEW: filter to stocked beans only
   limit: z.number().int().min(1).default(20),
 });
 ```
@@ -124,6 +130,7 @@ The `--stocked` flag aligns with the existing `inventory list --stocked` pattern
 ### 4. Update `purvey roast list` help text and examples
 
 Add examples:
+
 ```
 purvey roast list --batch-name "Ethiopia Guji"
 purvey roast list --date-start 2026-03-01 --date-end 2026-03-31
@@ -138,6 +145,7 @@ Add the new flags to the ROAST COMMANDS section's `roast list` entry.
 ### 6. Update `coffee-app tools.ts` (follow-up, separate PR)
 
 After CLI publish:
+
 - Pass `batch_name`, `roast_date_start`, `roast_date_end`, `stocked_only`, `catalog_id` through to CLI
 - Remove client-side post-filter blocks for these fields
 - Keep only `include_calculations` as chat-specific (no CLI equivalent)
@@ -148,6 +156,7 @@ After CLI publish:
 ## Files to Change
 
 **purveyors-cli:**
+
 - `src/lib/roast.ts` — extend schema + query logic
 - `src/commands/roast.ts` — add flags to `list` subcommand
 - `src/commands/context.ts` — update `roast list` option list
@@ -155,6 +164,7 @@ After CLI publish:
 - `package.json` — bump to v0.8.4 (patch)
 
 **coffee-app (follow-up):**
+
 - `src/lib/services/tools.ts` — wire new fields, remove client-side hacks, revert 3× limit
 
 ---
@@ -192,6 +202,7 @@ Add to `tests/roast-list.test.ts` (new file) or extend existing roast tests:
 ## Risk Assessment
 
 **Low.** All changes are additive:
+
 - New schema fields are optional; no breaking change to existing callers
 - `listRoasts()` only activates new branches when fields are provided
 - The `stocked` and `catalog_id` columns are available on the `roast_profiles` view via the existing join (verified by `coffee_catalog!catalog_id` join pattern in the file)

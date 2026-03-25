@@ -70,14 +70,14 @@ None.
 
 ## Assumptions Review
 
-| Assumption | Validity | Rationale | Action |
-|---|---|---|---|
-| `catalog_id` is the correct raw column name for `.in()` | Likely Valid | `catalog similar` command uses `.eq('catalog_id', coffeeId)` on the same table; inventory joins reference `catalog_id` | Verify once, add comment |
-| `ilike` on `name` column works for partial matching | Valid | Same pattern used for `origin` (`.ilike` on `country`, `region`) | None |
-| `source` is the correct column for supplier | Valid | `CatalogItem.source` is typed `string | null`, and `catalog similar` displays `targetBean.source` as the supplier name | None |
-| Sanitization via `sanitizeFilterValue` is sufficient for `ilike` inputs | Valid | Strips `(),.%*` which are the PostgREST special chars; the `%` wildcards are added programmatically, not from user input | None |
-| Patch version bump (0.8.2 -> 0.8.3) is appropriate | Valid | Purely additive, no breaking changes to existing callers | None |
-| `ids` bypass of `limit`/`offset` won't return unbounded result sets | Weak | Without a `.max()` on the array, a large IDs array returns all matching rows. Supabase default row limit is 1000, but that's a server config, not a guaranteed cap | Add `.max(100)` to schema |
+| Assumption                                                              | Validity     | Rationale                                                                                                                                                          | Action                                                                       |
+| ----------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- | ---- |
+| `catalog_id` is the correct raw column name for `.in()`                 | Likely Valid | `catalog similar` command uses `.eq('catalog_id', coffeeId)` on the same table; inventory joins reference `catalog_id`                                             | Verify once, add comment                                                     |
+| `ilike` on `name` column works for partial matching                     | Valid        | Same pattern used for `origin` (`.ilike` on `country`, `region`)                                                                                                   | None                                                                         |
+| `source` is the correct column for supplier                             | Valid        | `CatalogItem.source` is typed `string                                                                                                                              | null`, and `catalog similar`displays`targetBean.source` as the supplier name | None |
+| Sanitization via `sanitizeFilterValue` is sufficient for `ilike` inputs | Valid        | Strips `(),.%*` which are the PostgREST special chars; the `%` wildcards are added programmatically, not from user input                                           | None                                                                         |
+| Patch version bump (0.8.2 -> 0.8.3) is appropriate                      | Valid        | Purely additive, no breaking changes to existing callers                                                                                                           | None                                                                         |
+| `ids` bypass of `limit`/`offset` won't return unbounded result sets     | Weak         | Without a `.max()` on the array, a large IDs array returns all matching rows. Supabase default row limit is 1000, but that's a server config, not a guaranteed cap | Add `.max(100)` to schema                                                    |
 
 ## Tech Debt Notes
 
@@ -119,11 +119,13 @@ None.
 ### `src/lib/catalog.ts`
 
 Line 78: Change `ids` schema to include max:
+
 ```typescript
 ids: z.array(z.number().int().positive()).max(100).optional(),
 ```
 
 Line 221-222: Add explanatory comment:
+
 ```typescript
 if (parsed.ids && parsed.ids.length > 0) {
   // Use raw column name 'catalog_id' (not the Supabase alias 'id' used in getCatalog)
@@ -134,13 +136,18 @@ if (parsed.ids && parsed.ids.length > 0) {
 ### `src/commands/catalog.ts`
 
 Line 95: Filter empty tokens:
+
 ```typescript
-const raw = (opts.ids as string).split(',').map((s) => s.trim()).filter(Boolean);
+const raw = (opts.ids as string)
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 ```
 
 ### `src/lib/catalog.ts` (schema ordering, P3-1)
 
 Move `name`, `supplier`, `ids` before `stocked`:
+
 ```typescript
 export const searchCatalogSchema = z.object({
   origin: z.string().optional(),
