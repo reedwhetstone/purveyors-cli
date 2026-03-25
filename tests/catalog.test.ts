@@ -253,6 +253,17 @@ describe('searchCatalogSchema', () => {
     expect(() => searchCatalogSchema.parse({ ids: [-1] })).toThrow();
   });
 
+  it('rejects ids array exceeding max of 100', () => {
+    const tooMany = Array.from({ length: 101 }, (_, i) => i + 1);
+    expect(() => searchCatalogSchema.parse({ ids: tooMany })).toThrow();
+  });
+
+  it('accepts ids array at max boundary of 100', () => {
+    const atMax = Array.from({ length: 100 }, (_, i) => i + 1);
+    const result = searchCatalogSchema.parse({ ids: atMax });
+    expect(result.ids).toHaveLength(100);
+  });
+
   it('allows all new fields to be omitted', () => {
     const result = searchCatalogSchema.parse({});
     expect(result.name).toBeUndefined();
