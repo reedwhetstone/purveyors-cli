@@ -158,6 +158,11 @@ User feedback messages (spinners, success/error) go to **stderr** only — stdou
 --flavor <keywords>  comma-separated (e.g. "blueberry,citrus")
 --stocked            only currently stocked coffees
 --limit <n>          max results (default: 10)
+--name <text>        search by coffee name
+--supplier <text>    search by supplier name
+--ids <list>         comma-separated list of catalog IDs
+--sort <field>       sort by 'name', 'price', or 'origin'
+--offset <n>         skip this many results (for pagination)
 ```
 
 ### Inventory (member role required)
@@ -184,10 +189,11 @@ purvey inventory add --form    # interactive wizard
 | `purvey roast list`          | List your roast profiles              |
 | `purvey roast get <id>`      | Get a single roast profile            |
 | `purvey roast create`        | Create a new roast profile            |
-| `purvey roast update <id>`   | Update a roast profile                |
-| `purvey roast delete <id>`   | Delete a roast profile                |
-| `purvey roast import [file]` | Import an Artisan .alog roast file    |
-| `purvey roast watch [dir]`   | Watch a directory for new .alog files |
+| `purvey roast update <id>`   | Update a roast profile (supports --targets) |
+| `purvey roast delete <id>`   | Delete a roast profile                      |
+| `purvey roast import [file]` | Import an Artisan .alog roast file          |
+| `purvey roast watch [dir]`   | Watch a directory for new .alog files       |
+| `purvey roast similar <id>`  | Find similar roast profiles                 |
 
 **roast import** — required: `<file>`, `--coffee-id`
 
