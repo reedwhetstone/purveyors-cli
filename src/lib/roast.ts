@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AuthError, PrvrsError } from './errors.js';
+import { sanitizeFilterValue } from './catalog.js';
 import { importArtisanData } from './artisan/import.js';
 import type { ArtisanImportResult } from './artisan/import.js';
 
@@ -62,8 +63,31 @@ const ROAST_DETAIL_SELECT =
 
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
 export const listRoastsSchema = z.object({
   coffee_id: z.number().int().positive().optional().describe('Filter by green coffee inventory ID'),
+  batch_name: z
+    .string()
+    .optional()
+    .describe('Filter by batch name (partial match, case-insensitive)'),
+  date_start: z
+    .string()
+    .regex(DATE_REGEX, 'Must be YYYY-MM-DD format')
+    .optional()
+    .describe('Only show roasts on or after this date'),
+  date_end: z
+    .string()
+    .regex(DATE_REGEX, 'Must be YYYY-MM-DD format')
+    .optional()
+    .describe('Only show roasts on or before this date'),
+  stocked_only: z.boolean().optional().describe('Only show roasts for currently stocked beans'),
+  catalog_id: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Filter by coffee_catalog ID (cross-reference from catalog search)'),
   limit: z.number().int().min(1).default(20).describe('Maximum results to return'),
 });
 
@@ -123,6 +147,48 @@ export async function listRoasts(
 
   if (parsed.coffee_id !== undefined) {
     query = query.eq('coffee_id', parsed.coffee_id);
+  }
+
+  if (parsed.batch_name) {
+    const safe = sanitizeFilterValue(parsed.batch_name);
+    query = query.ilike('batch_name', `%${safe}%`);
+  }
+
+  if (parsed.date_start) {
+    query = query.gte('roast_date', parsed.date_start);
+  }
+
+  if (parsed.date_end) {
+    query = query.lte('roast_date', parsed.date_end);
+  }
+
+  // stocked_only and catalog_id require filtering through the green_coffee_inv FK.
+  // Use Supabase's inner-join filter: select from roast_profiles with
+  // green_coffee_inv!coffee_id!inner(...) to restrict to matching inventory rows.
+  if (parsed.stocked_only === true || parsed.catalog_id !== undefined) {
+    // Build a joined select to filter on green_coffee_inv columns.
+    // We fetch inventory IDs matching the criteria, then filter roast_profiles.
+    let invQuery = supabase.from('green_coffee_inv').select('id').eq('user', userId);
+
+    if (parsed.stocked_only === true) {
+      invQuery = invQuery.eq('stocked', true);
+    }
+
+    if (parsed.catalog_id !== undefined) {
+      invQuery = invQuery.eq('catalog_id', parsed.catalog_id);
+    }
+
+    const { data: invRows, error: invError } = await invQuery;
+    if (invError) throw invError;
+
+    const invIds = (invRows ?? []).map((r) => (r as { id: number }).id);
+
+    if (invIds.length === 0) {
+      // No matching inventory items; return empty
+      return [];
+    }
+
+    query = query.in('coffee_id', invIds);
   }
 
   const { data, error } = await query.order('roast_date', { ascending: false }).limit(parsed.limit);

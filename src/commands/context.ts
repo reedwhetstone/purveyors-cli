@@ -6,7 +6,7 @@ import { Command } from 'commander';
 // An agent reading this once should be able to use every CLI command correctly.
 
 const CONTEXT_TEXT = `
-PURVEY CLI — Agent Reference v0.7
+PURVEY CLI — Agent Reference v0.8
 ==================================
 CLI for purveyors.io coffee marketplace. Node >=20 required.
 Credentials: ~/.config/purvey/credentials.json (auto-refreshed, do not edit)
@@ -124,8 +124,13 @@ ROAST COMMANDS (member role required)
 List roast profiles:
   purvey roast list [options]
   Options:
-    --coffee-id <id>  filter by inventory item id
-    --limit <n>       max results (default: 20)
+    --coffee-id <id>           filter by inventory item id
+    --batch-name <text>        filter by batch name (partial match, case-insensitive)
+    --date-start <YYYY-MM-DD>  only show roasts on or after this date
+    --date-end <YYYY-MM-DD>    only show roasts on or before this date
+    --stocked                  only show roasts for currently stocked beans
+    --catalog-id <id>          filter by coffee_catalog ID (cross-reference from catalog search)
+    --limit <n>                max results (default: 20)
   Returns: array of roast profiles with roast_id, batch_name, roast_date, oz_in, oz_out
 
 Get roast profile:
