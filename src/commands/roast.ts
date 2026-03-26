@@ -42,6 +42,7 @@ export function buildRoastCommand(): Command {
     .command('list')
     .description('List your roast profiles, sorted by date (newest first)')
     .option('--coffee-id <id>', 'Filter by green_coffee_inv ID')
+    .option('--roast-id <id>', 'Filter by roast profile ID')
     .option('--batch-name <text>', 'Filter by batch name (partial match, case-insensitive)')
     .option('--date-start <YYYY-MM-DD>', 'Only show roasts on or after this date')
     .option('--date-end <YYYY-MM-DD>', 'Only show roasts on or before this date')
@@ -54,6 +55,7 @@ export function buildRoastCommand(): Command {
 Examples:
   purvey roast list --pretty
   purvey roast list --coffee-id 7 --pretty
+  purvey roast list --roast-id 123 --pretty
   purvey roast list --batch-name "Ethiopia Guji" --pretty
   purvey roast list --date-start 2026-03-01 --date-end 2026-03-31
   purvey roast list --stocked --limit 10
@@ -63,6 +65,7 @@ Examples:
 
 Notes:
   --coffee-id filters by inventory item (green_coffee_inv.id), not catalog_id.
+  --roast-id filters by the exact roast profile ID while preserving list output shape.
   --catalog-id filters by coffee_catalog ID (cross-reference from catalog search).
   --batch-name accepts partial matches (case-insensitive).
   --date-start and --date-end accept YYYY-MM-DD format; use together for a range.
@@ -92,7 +95,18 @@ Notes:
           );
         }
 
-        // Parse --catalog-id
+        // Parse exact-id filters
+        let roastId: number | undefined;
+        if (opts.roastId !== undefined) {
+          roastId = parseInt(opts.roastId as string, 10);
+          if (isNaN(roastId) || roastId <= 0) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              `Invalid --roast-id: "${opts.roastId}". Must be a positive integer.`
+            );
+          }
+        }
+
         let catalogId: number | undefined;
         if (opts.catalogId !== undefined) {
           catalogId = parseInt(opts.catalogId as string, 10);
@@ -107,6 +121,7 @@ Notes:
         const data = await listRoasts(supabase, userId, {
           coffee_id:
             opts.coffeeId !== undefined ? parseInt(opts.coffeeId as string, 10) : undefined,
+          roast_id: roastId,
           batch_name: opts.batchName as string | undefined,
           date_start: dateStart,
           date_end: dateEnd,

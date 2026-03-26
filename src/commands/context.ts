@@ -125,6 +125,7 @@ List roast profiles:
   purvey roast list [options]
   Options:
     --coffee-id <id>           filter by inventory item id
+    --roast-id <id>            filter by roast profile id
     --batch-name <text>        filter by batch name (partial match, case-insensitive)
     --date-start <YYYY-MM-DD>  only show roasts on or after this date
     --date-end <YYYY-MM-DD>    only show roasts on or before this date

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { listRoastsSchema } from '../src/lib/roast.js';
+import { listRoasts, listRoastsSchema } from '../src/lib/roast.js';
 
 describe('listRoastsSchema', () => {
   // ── Existing fields ────────────────────────────────────────────────────────
@@ -10,6 +10,7 @@ describe('listRoastsSchema', () => {
     if (result.success) {
       expect(result.data.limit).toBe(20);
       expect(result.data.coffee_id).toBeUndefined();
+      expect(result.data.roast_id).toBeUndefined();
       expect(result.data.batch_name).toBeUndefined();
       expect(result.data.date_start).toBeUndefined();
       expect(result.data.date_end).toBeUndefined();
@@ -27,6 +28,21 @@ describe('listRoastsSchema', () => {
   it('rejects non-positive coffee_id', () => {
     expect(listRoastsSchema.safeParse({ coffee_id: 0 }).success).toBe(false);
     expect(listRoastsSchema.safeParse({ coffee_id: -1 }).success).toBe(false);
+  });
+
+  it('accepts roast_id filter', () => {
+    const result = listRoastsSchema.safeParse({ roast_id: 123 });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.roast_id).toBe(123);
+  });
+
+  it('rejects non-positive roast_id', () => {
+    expect(listRoastsSchema.safeParse({ roast_id: 0 }).success).toBe(false);
+    expect(listRoastsSchema.safeParse({ roast_id: -1 }).success).toBe(false);
+  });
+
+  it('rejects non-integer roast_id', () => {
+    expect(listRoastsSchema.safeParse({ roast_id: 1.5 }).success).toBe(false);
   });
 
   it('accepts custom limit', () => {
@@ -131,6 +147,7 @@ describe('listRoastsSchema', () => {
   it('accepts all filters together', () => {
     const result = listRoastsSchema.safeParse({
       coffee_id: 7,
+      roast_id: 123,
       batch_name: 'Ethiopia',
       date_start: '2026-03-01',
       date_end: '2026-03-31',
@@ -141,6 +158,7 @@ describe('listRoastsSchema', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.coffee_id).toBe(7);
+      expect(result.data.roast_id).toBe(123);
       expect(result.data.batch_name).toBe('Ethiopia');
       expect(result.data.date_start).toBe('2026-03-01');
       expect(result.data.date_end).toBe('2026-03-31');
@@ -156,5 +174,99 @@ describe('listRoastsSchema', () => {
       date_start: '2026-01-01',
     });
     expect(result.success).toBe(true);
+  });
+});
+
+type QueryCall = {
+  method: string;
+  args: unknown[];
+};
+
+function createRoastProfilesQuery(result: unknown[]) {
+  const calls: QueryCall[] = [];
+
+  const query = {
+    eq(field: string, value: unknown) {
+      calls.push({ method: 'eq', args: [field, value] });
+      return query;
+    },
+    ilike(field: string, value: unknown) {
+      calls.push({ method: 'ilike', args: [field, value] });
+      return query;
+    },
+    gte(field: string, value: unknown) {
+      calls.push({ method: 'gte', args: [field, value] });
+      return query;
+    },
+    lte(field: string, value: unknown) {
+      calls.push({ method: 'lte', args: [field, value] });
+      return query;
+    },
+    in(field: string, value: unknown) {
+      calls.push({ method: 'in', args: [field, value] });
+      return query;
+    },
+    order(field: string, options: unknown) {
+      calls.push({ method: 'order', args: [field, options] });
+      return query;
+    },
+    limit(limitValue: number) {
+      calls.push({ method: 'limit', args: [limitValue] });
+      return Promise.resolve({ data: result, error: null });
+    },
+  };
+
+  return { query, calls };
+}
+
+function createSupabaseForRoastList(result: unknown[] = []) {
+  const roastProfiles = createRoastProfilesQuery(result);
+
+  const supabase = {
+    from(table: string) {
+      if (table !== 'roast_profiles') {
+        throw new Error(`Unexpected table: ${table}`);
+      }
+
+      return {
+        select(_columns: string) {
+          return roastProfiles.query;
+        },
+      };
+    },
+  } as unknown as Parameters<typeof listRoasts>[0];
+
+  return { supabase, roastProfiles };
+}
+
+describe('listRoasts', () => {
+  it('applies roast_id as an exact server-side filter', async () => {
+    const { supabase, roastProfiles } = createSupabaseForRoastList([{ roast_id: 123 }]);
+
+    const data = await listRoasts(supabase, 'user-123', {
+      roast_id: 123,
+      limit: 1,
+    });
+
+    expect(data).toEqual([{ roast_id: 123 }]);
+    expect(roastProfiles.calls).toContainEqual({ method: 'eq', args: ['user', 'user-123'] });
+    expect(roastProfiles.calls).toContainEqual({ method: 'eq', args: ['roast_id', 123] });
+    expect(roastProfiles.calls).toContainEqual({
+      method: 'order',
+      args: ['roast_date', { ascending: false }],
+    });
+    expect(roastProfiles.calls).toContainEqual({ method: 'limit', args: [1] });
+  });
+
+  it('returns an empty array when roast_id matches no roast', async () => {
+    const { supabase, roastProfiles } = createSupabaseForRoastList([]);
+
+    const data = await listRoasts(supabase, 'user-123', {
+      roast_id: 999999,
+      limit: 1,
+    });
+
+    expect(data).toEqual([]);
+    expect(roastProfiles.calls).toContainEqual({ method: 'eq', args: ['roast_id', 999999] });
   });
 });
