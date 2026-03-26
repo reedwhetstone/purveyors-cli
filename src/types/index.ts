@@ -22,6 +22,7 @@ export interface StoredCredentials {
 export interface OutputOptions {
   pretty?: boolean;
   csv?: boolean;
+  json?: boolean;
 }
 
 export interface CliError {

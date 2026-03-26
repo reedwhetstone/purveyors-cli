@@ -1,12 +1,10 @@
-# purvey — The Purveyors CLI
+# purvey
 
-> Coffee intelligence from your terminal.
+Coffee intelligence from your terminal.
 
-`purvey` is the official command-line interface for [purveyors.io](https://purveyors.io). It gives coffee professionals direct terminal access to the Purveyors platform: search green coffee availability, track pricing tiers, monitor inventory, record roasts, log sales, and capture tasting notes — all from your terminal or scripts.
+`purvey` is the official CLI for [purveyors.io](https://purveyors.io). It gives coffee professionals and AI agents direct access to the Purveyors platform from the terminal: catalog search, inventory tracking, roast logging, sales records, tasting notes, and Artisan `.alog` import.
 
-**Designed for both humans and AI agents.** Run `purvey context` for instant agent onboarding.
-
----
+Run `purvey context` for the dense agent reference.
 
 ## Installation
 
@@ -14,15 +12,15 @@
 npm install -g @purveyors/cli
 ```
 
-Requires **Node.js >= 20**.
+Requirements:
 
-Verify:
+- Node.js 20 or newer
+
+Verify the install:
 
 ```bash
 purvey --version
 ```
-
----
 
 ## Quick Start
 
@@ -30,274 +28,280 @@ purvey --version
 # 1. Authenticate
 purvey auth login
 
-# 2. Confirm your session
+# 2. Confirm the session
 purvey auth status
 
-# 3. Search the catalog (no login required)
+# 3. Search the catalog
 purvey catalog search --origin "Ethiopia" --stocked --pretty
 
-# 4. Check your inventory
+# 4. Check inventory
 purvey inventory list --stocked --pretty
 
 # 5. Import a roast from Artisan
 purvey roast import ~/artisan/my-roast.alog --coffee-id 7 --pretty
 ```
 
----
-
 ## Authentication
 
-`purvey` authenticates via Google OAuth, using the same account as your purveyors.io web session.
+`purvey` uses Google OAuth through purveyors.io.
 
-### Browser Login (interactive)
+Interactive login:
 
 ```bash
 purvey auth login
 ```
 
-Opens your default browser. Complete Google sign-in, then return to the terminal. Credentials are stored at `~/.config/purvey/credentials.json` (owner-readable only, mode 0600).
-
-### Headless Login (agents, CI, servers)
+Headless login for agents, CI, and remote machines:
 
 ```bash
 purvey auth login --headless
 ```
 
-No browser required. The CLI prints a Google OAuth URL — open it in any browser, sign in, then copy the full callback URL and paste it back at the prompt.
-
-### Status
+Status:
 
 ```bash
 purvey auth status
 purvey auth status --pretty
 ```
 
-```
-✔ Logged in as you@example.com
-ℹ Role: member
-ℹ Token expires: 2026-04-01T08:00:00.000Z
-```
-
-### Token Refresh
-
-Tokens refresh automatically. No need to re-login between sessions.
-
-### Logout
+Logout:
 
 ```bash
 purvey auth logout
 ```
 
-Clears stored credentials from disk.
+Credentials are stored at `~/.config/purvey/credentials.json`.
 
----
+### Current auth behavior
 
-## Output Formats
+Catalog commands require an authenticated viewer session. Sign in before using:
 
-All `purvey` commands default to **compact JSON** — one line, no colors, machine-readable. This makes `purvey` pipeable into `jq`, `csvkit`, or any script.
+- `purvey catalog search`
+- `purvey catalog get <id>`
+- `purvey catalog stats`
+- `purvey catalog similar <id>`
 
-### Compact JSON (default)
+Inventory, roast, sales, and tasting commands require a member role.
+
+## Output and Scripting
+
+Most commands write compact JSON to stdout by default.
+Use `--json` if you want to request that mode explicitly.
+
+Pretty JSON:
 
 ```bash
-purvey auth status
-# → {"authenticated":true,"email":"you@example.com","role":"member","tokenExpires":"..."}
+purvey inventory list --pretty
 ```
 
-### Pretty JSON (`--pretty`)
-
-```bash
-purvey catalog search --origin "Ethiopia" --pretty
-# → indented, colorized JSON
-```
-
-### CSV (`--csv`)
+CSV output for array results:
 
 ```bash
 purvey inventory list --csv > inventory.csv
-purvey catalog search --stocked --csv | head -5
+purvey sales list --csv > sales.csv
 ```
 
-### Piping with jq
+Pipe JSON into `jq`:
 
 ```bash
 purvey inventory list | jq '.[].id'
-purvey catalog search --origin "Colombia" | jq '.[].cost_lb'
-purvey auth status | jq -r '.email'
+purvey roast list --limit 5 | jq '.[].roast_id'
+purvey auth status 2>/dev/null | jq -r '.email'
 ```
 
-User feedback messages (spinners, success/error) go to **stderr** only — stdout is always clean data, safe to pipe.
+Operational messages go to stderr, so stdout stays script-friendly.
 
----
+### Output caveats worth knowing
 
-## Command Reference
+- `purvey auth status` prints human-readable output in an interactive terminal. When piped or redirected, it emits JSON.
+- `--json` is an explicit alias for the default compact JSON mode.
 
-### Authentication
+## Command Overview
 
-| Command                        | Description                                   |
-| ------------------------------ | --------------------------------------------- |
-| `purvey auth login`            | Log in via Google OAuth (browser)             |
-| `purvey auth login --headless` | Log in without a browser (paste callback URL) |
-| `purvey auth status`           | Show current authentication state and role    |
-| `purvey auth logout`           | Clear stored credentials                      |
+### auth
 
-### Catalog (no authentication required)
+- `purvey auth login`
+- `purvey auth login --headless`
+- `purvey auth status`
+- `purvey auth logout`
 
-| Command                   | Description                                         |
-| ------------------------- | --------------------------------------------------- |
-| `purvey catalog search`   | Search coffees by origin, process, price, or flavor |
-| `purvey catalog get <id>` | Get details for a specific coffee by catalog ID     |
-| `purvey catalog stats`    | Aggregate statistics for the full catalog           |
+### catalog
 
-**catalog search options:**
+- `purvey catalog search`
+- `purvey catalog get <id>`
+- `purvey catalog stats`
+- `purvey catalog similar <id>`
 
+Key search filters:
+
+- `--origin <text>`
+- `--process <method>`
+- `--price-min <n>`
+- `--price-max <n>`
+- `--flavor <keywords>`
+- `--name <text>`
+- `--supplier <name>`
+- `--ids <n,n,...>`
+- `--stocked`
+- `--sort <price|price-desc|name|origin|newest>`
+- `--offset <n>`
+- `--limit <n>`
+
+Examples:
+
+```bash
+purvey catalog search --origin "Ethiopia" --pretty
+purvey catalog search --supplier "Royal Coffee" --stocked --pretty
+purvey catalog search --ids "1182,1183,1200"
+purvey catalog similar 1182 --threshold 0.85 --stocked-only --pretty
+purvey catalog similar 1182 --json | jq '.[0]'
 ```
---origin <text>      country or region (e.g. "Ethiopia", "Colombia")
---process <method>   natural, washed, honey
---price-min <n>      min USD/lb
---price-max <n>      max USD/lb
---flavor <keywords>  comma-separated (e.g. "blueberry,citrus")
---stocked            only currently stocked coffees
---limit <n>          max results (default: 10)
---name <text>        search by coffee name
---supplier <text>    search by supplier name
---ids <list>         comma-separated list of catalog IDs
---sort <field>       sort by 'name', 'price', or 'origin'
---offset <n>         skip this many results (for pagination)
-```
 
-### Inventory (member role required)
+### inventory
 
-| Command                        | Description                      |
-| ------------------------------ | -------------------------------- |
-| `purvey inventory list`        | List your green coffee inventory |
-| `purvey inventory get <id>`    | Get a single inventory item      |
-| `purvey inventory add`         | Add a bean to your inventory     |
-| `purvey inventory update <id>` | Update an inventory item         |
-| `purvey inventory delete <id>` | Delete an inventory item         |
+- `purvey inventory list`
+- `purvey inventory get <id>`
+- `purvey inventory add`
+- `purvey inventory update <id>`
+- `purvey inventory delete <id>`
 
-**inventory add** — required flags: `--catalog-id`, `--qty`
+Create inventory from the catalog:
 
 ```bash
 purvey inventory add --catalog-id 128 --qty 10 --cost 8.50
-purvey inventory add --form    # interactive wizard
 ```
 
-### Roast Profiles (member role required)
+Update fields:
 
-| Command                      | Description                                 |
-| ---------------------------- | ------------------------------------------- |
-| `purvey roast list`          | List your roast profiles                    |
-| `purvey roast get <id>`      | Get a single roast profile                  |
-| `purvey roast create`        | Create a new roast profile                  |
-| `purvey roast update <id>`   | Update a roast profile (supports --targets) |
-| `purvey roast delete <id>`   | Delete a roast profile                      |
-| `purvey roast import [file]` | Import an Artisan .alog roast file          |
-| `purvey roast watch [dir]`   | Watch a directory for new .alog files       |
-| `purvey roast similar <id>`  | Find similar roast profiles                 |
+- `--qty <lbs>`
+- `--cost <dollars>`
+- `--tax-ship <dollars>`
+- `--notes <text>`
+- `--stocked <true|false>`
 
-**roast import** — required: `<file>`, `--coffee-id`
+### roast
+
+- `purvey roast list`
+- `purvey roast get <id>`
+- `purvey roast create`
+- `purvey roast update <id>`
+- `purvey roast delete <id>`
+- `purvey roast import [file]`
+- `purvey roast watch [directory]`
+
+`roast list` filters:
+
+- `--coffee-id <id>`
+- `--batch-name <text>`
+- `--date-start <YYYY-MM-DD>`
+- `--date-end <YYYY-MM-DD>`
+- `--stocked`
+- `--catalog-id <id>`
+- `--limit <n>`
+
+`roast update <id>` fields:
+
+- `--notes <text>`
+- `--oz-out <oz>`
+- `--batch-name <name>`
+- `--targets <text>`
+
+Examples:
 
 ```bash
+purvey roast list --catalog-id 128 --pretty
+purvey roast create --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz-in 16
+purvey roast update 123 --targets "Aim for FC at 390F, 18% dev"
 purvey roast import ~/artisan/ethiopia.alog --coffee-id 7
-purvey roast import --form    # interactive wizard
+purvey roast watch ~/artisan/ --auto-match
 ```
 
-**roast watch** — required: `<directory>`, `--coffee-id` (or `--auto-match`)
+### sales
+
+- `purvey sales list`
+- `purvey sales record`
+- `purvey sales update <id>`
+- `purvey sales delete <id>`
+
+Record a sale:
 
 ```bash
-purvey roast watch ~/artisan/ --coffee-id 7
-purvey roast watch ~/artisan/ --auto-match    # AI matches beans per file
-purvey roast watch --resume                  # continue previous session
+purvey sales record --roast-id 123 --oz 12 --price 22.00 --buyer "Jane Smith"
 ```
 
-### Sales (member role required)
+### tasting
 
-| Command                    | Description             |
-| -------------------------- | ----------------------- |
-| `purvey sales list`        | List your sales records |
-| `purvey sales record`      | Record a new sale       |
-| `purvey sales update <id>` | Update a sale record    |
-| `purvey sales delete <id>` | Delete a sale record    |
+- `purvey tasting get <bean-id>`
+- `purvey tasting rate [bean-id]`
 
-**sales record** — required flags: `--roast-id`, `--oz`, `--price`
+`purvey tasting get <bean-id>` options:
 
-```bash
-purvey sales record --roast-id 123 --oz 12 --price 22.00
-purvey sales record --form    # interactive wizard
-```
+- `--filter <user|supplier|both>`
 
-### Tasting Notes (member role required)
+`purvey tasting rate [bean-id]` options:
 
-| Command                              | Description                            |
-| ------------------------------------ | -------------------------------------- |
-| `purvey tasting get <catalog-id>`    | Get tasting notes for a catalog coffee |
-| `purvey tasting rate [inventory-id]` | Rate a coffee with cupping scores      |
+- `--aroma <1-5>`
+- `--body <1-5>`
+- `--acidity <1-5>`
+- `--sweetness <1-5>`
+- `--aftertaste <1-5>`
+- `--brew-method <method>`
+- `--notes <text>`
+- `--form`
 
-**tasting rate** — required (flag mode): `<inventory-id>` + all five score flags
+Examples:
 
 ```bash
+purvey tasting get 128 --filter both --pretty
 purvey tasting rate 7 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
-purvey tasting rate --form    # interactive wizard
 ```
 
-### Configuration
+### config
 
-| Command                           | Description                  |
-| --------------------------------- | ---------------------------- |
-| `purvey config list`              | Show all config values       |
-| `purvey config get <key>`         | Get a single config value    |
-| `purvey config set <key> <value>` | Set a config value           |
-| `purvey config reset`             | Reset all config to defaults |
+- `purvey config list`
+- `purvey config get <key>`
+- `purvey config set <key> <value>`
+- `purvey config reset`
 
-**Supported config keys:**
+Current config key:
 
-| Key         | Values           | Description                                                                          |
-| ----------- | ---------------- | ------------------------------------------------------------------------------------ |
-| `form-mode` | `true` / `false` | When true, write commands auto-enter interactive wizard if required args are missing |
+- `form-mode`: when set to `true`, write commands enter interactive mode when required args are missing
+
+Examples:
 
 ```bash
 purvey config set form-mode true
 purvey config get form-mode
-purvey config list
 ```
 
----
+### context
+
+- `purvey context`
+
+Use this when an agent needs a compact, source-aware CLI reference.
 
 ## Common Workflows
 
-### Buy green coffee, roast it, record a sale
+### Buy coffee, roast it, rate it, and record a sale
 
 ```bash
-# Find a coffee
 purvey catalog search --origin "Ethiopia" --process "natural" --stocked --pretty
-
-# Add to inventory (catalog-id from search results)
 purvey inventory add --catalog-id 128 --qty 10 --cost 8.50
-
-# Get your inventory id
 purvey inventory list --stocked --pretty
-
-# Import a roast from Artisan (inventory id = 7)
 purvey roast import ~/artisan/guji-light.alog --coffee-id 7 --pretty
-
-# Rate the coffee after brewing
 purvey tasting rate 7 --aroma 5 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
-
-# Record a sale (roast_id from import output)
 purvey sales record --roast-id 123 --oz 12 --price 22.00 --buyer "Jane Smith"
 ```
 
-### Continuous watch mode for Artisan
+### Continuous Artisan watch mode
 
 ```bash
-# Watch a directory — auto-imports every new .alog file
-purvey roast watch ~/Library/Application\ Support/Artisan-Scope/artisan/ --coffee-id 7
-
-# Resume a watch session after restart
+purvey roast watch ~/artisan/ --coffee-id 7
+purvey roast watch ~/artisan/ --auto-match
 purvey roast watch --resume
 ```
 
-### Export data for spreadsheets
+### Export records for spreadsheets
 
 ```bash
 purvey inventory list --csv > inventory.csv
@@ -305,66 +309,45 @@ purvey roast list --csv > roasts.csv
 purvey sales list --csv > sales.csv
 ```
 
----
+## ID Reference
+
+Use the right ID for the right command.
+
+- `catalog_id`: catalog rows, used by `catalog get`, `inventory add --catalog-id`, `tasting get`
+- `inventory id`: personal inventory rows, used by `inventory get/update/delete`, `roast --coffee-id`, `tasting rate`
+- `roast_id`: roast rows, used by `roast get/delete`, `sales --roast-id`
+- `sale id`: sales rows, used by `sales update/delete`
 
 ## Environment Variables
 
-| Variable                      | Description                                     |
-| ----------------------------- | ----------------------------------------------- |
-| `PURVEYORS_SUPABASE_URL`      | Override the Supabase project URL (dev/staging) |
-| `PURVEYORS_SUPABASE_ANON_KEY` | Override the Supabase anon key                  |
-| `PURVEY_DEBUG`                | Set to any value to enable verbose error output |
-
----
+- `PURVEYORS_SUPABASE_URL`: override the Supabase project URL
+- `PURVEYORS_SUPABASE_ANON_KEY`: override the Supabase anon key
+- `PURVEYORS_BASE_URL`: override the Purveyors web base URL
+- `PURVEY_DEBUG`: enable verbose error output
 
 ## For AI Agents
 
-`purvey` is built with AI agents in mind. Every command has structured JSON output, clear error messages, and an `--headless` auth flow.
-
-### Agent Onboarding
-
-Run this once to get complete CLI knowledge:
+Start here:
 
 ```bash
 purvey context
 ```
 
-This outputs a comprehensive, token-efficient reference covering all commands, required vs optional flags, data model relationships, common workflows, and error recovery. Designed for agents to read once and use every command correctly.
-
-### Agent Auth Flow
+Recommended flow:
 
 ```bash
 purvey auth login --headless
-# → prints OAuth URL
-# → user opens URL, signs in, pastes callback URL back
-# Token auto-refreshes; no further auth action needed.
+purvey auth status 2>/dev/null | jq .
+purvey inventory list | jq '.[].id'
 ```
 
-### Agent Usage Pattern
+The CLI is designed to be agent-friendly:
 
-```bash
-# Check auth before any write operations
-purvey auth status
-
-# Always use JSON output (default) for scripting
-purvey catalog search --origin "Ethiopia" | jq '.[0].catalog_id'
-purvey inventory list | jq '.[] | select(.stocked == true) | .id'
-
-# Use --yes to skip confirmation prompts in automated flows
-purvey inventory delete 7 --yes
-purvey sales delete 5 --yes
-```
-
-### ID Types (avoid confusion)
-
-| ID             | Table              | Used with                                                          |
-| -------------- | ------------------ | ------------------------------------------------------------------ |
-| `catalog_id`   | `coffee_catalog`   | `catalog get`, `inventory add --catalog-id`, `tasting get`         |
-| `inventory_id` | `green_coffee_inv` | `inventory get/update/delete`, `roast --coffee-id`, `tasting rate` |
-| `roast_id`     | `roast_data`       | `roast get/delete`, `sales --roast-id`                             |
-| `sale_id`      | `coffee_sales`     | `sales update/delete`                                              |
-
----
+- stable command names
+- structured output on stdout
+- headless auth flow
+- copy-pasteable examples
+- a dedicated context command for onboarding
 
 ## Development
 
@@ -372,68 +355,19 @@ purvey sales delete 5 --yes
 git clone https://github.com/reedwhetstone/purveyors-cli
 cd purveyors-cli
 pnpm install
+npm run build
+npm run check
+npm run lint
+npm test
 ```
 
-Create a `.env` file:
+Key files:
 
-```
-PURVEYORS_SUPABASE_URL=https://your-project.supabase.co
-PURVEYORS_SUPABASE_ANON_KEY=your-anon-key
-```
-
-Run locally:
-
-```bash
-pnpm dev -- auth status
-pnpm dev -- catalog search --origin Ethiopia --pretty
-pnpm dev -- --help
-```
-
-Build:
-
-```bash
-pnpm build
-```
-
-Lint + type check + test:
-
-```bash
-pnpm lint
-pnpm check
-pnpm test
-```
-
-### Architecture
-
-```
-src/
-  index.ts           Entry point — registers all subcommands
-  commands/          One file per command group
-    auth.ts          OAuth login/status/logout
-    catalog.ts       Public coffee catalog search
-    config.ts        CLI configuration
-    context.ts       Agent onboarding reference
-    inventory.ts     Green coffee inventory management
-    roast.ts         Roast profiles + Artisan .alog import
-    sales.ts         Sales recording
-    tasting.ts       Cupping notes and scoring
-  lib/               Business logic (no Commander dependencies)
-    supabase.ts      Auth client + session management
-    catalog.ts       Catalog query functions
-    inventory.ts     Inventory CRUD
-    roast.ts         Roast profile CRUD + import pipeline
-    sales.ts         Sales CRUD
-    tasting.ts       Tasting notes + cupping score logic
-    artisan/         Artisan .alog parser
-    interactive/     Interactive form prompts + watch mode
-    output.ts        JSON/CSV output formatting
-    errors.ts        Error handling + withErrorHandling wrapper
-    config.ts        Local config read/write
-```
-
-See [AGENTS.md](./AGENTS.md) for the full contributor guide including code conventions and PR requirements.
-
----
+- `src/index.ts`: top-level CLI registration and global options
+- `src/commands/`: command definitions and help text
+- `src/lib/`: business logic and Supabase integration
+- `src/commands/context.ts`: dense agent reference
+- `AGENTS.md`: contributor guide
 
 ## License
 
