@@ -67,6 +67,7 @@ const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 export const listRoastsSchema = z.object({
   coffee_id: z.number().int().positive().optional().describe('Filter by green coffee inventory ID'),
+  roast_id: z.number().int().positive().optional().describe('Filter by roast profile ID'),
   batch_name: z
     .string()
     .optional()
@@ -147,6 +148,10 @@ export async function listRoasts(
 
   if (parsed.coffee_id !== undefined) {
     query = query.eq('coffee_id', parsed.coffee_id);
+  }
+
+  if (parsed.roast_id !== undefined) {
+    query = query.eq('roast_id', parsed.roast_id);
   }
 
   if (parsed.batch_name) {
