@@ -28,10 +28,10 @@ const program = new Command();
 
 program
   .name('purvey')
-  .description('The official CLI for purveyors.io — coffee intelligence from your terminal')
+  .description('The official CLI for purveyors.io. Coffee intelligence from your terminal')
   .version(version, '-v, --version', 'Print version')
   .option('--pretty', 'Pretty-print JSON output with colors')
-  .option('--csv', 'Output results as CSV (useful for piping to spreadsheets)')
+  .option('--csv', 'Output results as CSV where supported')
   .addHelpText(
     'after',
     `
@@ -40,10 +40,11 @@ Authentication:
   auth status       Show current login status and role
   auth logout       Clear stored credentials
 
-Coffee Data (viewer+, no login needed):
+Catalog (viewer session required in current CLI implementation):
   catalog search    Search the coffee catalog with filters
   catalog get       Get details for a specific coffee by ID
   catalog stats     Aggregate statistics for the catalog
+  catalog similar   Find similar coffees by catalog ID
 
 Personal Data (member role required):
   inventory list    List your green coffee inventory
@@ -54,6 +55,7 @@ Personal Data (member role required):
   roast list        List your roast profiles
   roast get         Get a single roast profile
   roast create      Create a new roast profile
+  roast update      Update a roast profile
   roast delete      Delete a roast profile
   roast import      Import an Artisan .alog roast file
   roast watch       Watch a directory for new .alog files
@@ -62,7 +64,7 @@ Personal Data (member role required):
   sales update      Update a sale record
   sales delete      Delete a sale record
   tasting get       Get tasting notes for a coffee
-  tasting rate      Rate a coffee bean (cupping scores)
+  tasting rate      Rate a coffee bean with cupping scores
 
 Configuration:
   config list       Show all config values
@@ -71,24 +73,23 @@ Configuration:
   config reset      Reset config to defaults
 
 Agent Tools:
-  context           Output full CLI reference for AI agent onboarding
+  context           Output the dense CLI reference for agents
 
 Global Options:
-  --json            Output as JSON (default for most commands)
   --pretty          Pretty-print JSON output
-  --csv             Output as CSV
+  --csv             Output array results as CSV where supported
   --help            Show help for any command
   --version         Show version number
 
 Examples:
   $ purvey auth login --headless
   $ purvey catalog search --origin "Ethiopia" --process "natural" --pretty
-  $ purvey catalog search --stocked --flavor "blueberry,citrus" --csv
+  $ purvey catalog similar 1182 --threshold 0.85 --stocked-only --pretty
   $ purvey inventory list --stocked --pretty
   $ purvey roast import my-roast.alog --coffee-id 128
   $ purvey roast watch ~/artisan/ --auto-match
   $ purvey tasting rate 42 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
-  $ purvey context                              # AI agent onboarding reference
+  $ purvey context
 
 Documentation: https://github.com/reedwhetstone/purveyors-cli
 Agent reference: purvey context

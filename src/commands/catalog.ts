@@ -73,7 +73,7 @@ Notes:
   --name and --supplier accept partial matches (case-insensitive).
   --ids fetches specific catalog items by ID, ignoring --limit and --offset.
   --offset + --limit enables pagination through large result sets.
-  No authentication required — catalog is publicly readable.
+  Requires a valid viewer session in the current CLI implementation.
 `
     )
     .action(
@@ -151,7 +151,7 @@ Examples:
 Notes:
   <id> is the coffee_catalog.catalog_id (integer).
   Use 'purvey catalog search' to find IDs.
-  No authentication required.
+  Requires a valid viewer session in the current CLI implementation.
 `
     )
     .action(
@@ -179,7 +179,7 @@ Examples:
 Notes:
   Returns aggregated data: total count, average price, unique origins,
   processing method breakdown, and stocked count.
-  No authentication required.
+  Requires a valid viewer session in the current CLI implementation.
 `
     )
     .action(
@@ -205,11 +205,12 @@ Notes:
 Examples:
   purvey catalog similar 1182
   purvey catalog similar 1182 --threshold 0.85 --stocked-only
-  purvey catalog similar 1182 --json | jq '.[0]'
+  purvey catalog similar 1182 --pretty
 
 Notes:
   Uses pgvector cosine similarity on tasting notes and bean descriptors.
   --threshold controls sensitivity (higher = more strict match).
+  Default output is a plain-text ranking. Use --pretty for structured JSON.
   Returns beans sorted by similarity score (highest first).
 `
     )
