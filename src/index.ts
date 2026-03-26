@@ -30,6 +30,7 @@ program
   .name('purvey')
   .description('The official CLI for purveyors.io. Coffee intelligence from your terminal')
   .version(version, '-v, --version', 'Print version')
+  .option('--json', 'Output compact JSON explicitly (same as the default)')
   .option('--pretty', 'Pretty-print JSON output with colors')
   .option('--csv', 'Output results as CSV where supported')
   .addHelpText(
@@ -40,7 +41,7 @@ Authentication:
   auth status       Show current login status and role
   auth logout       Clear stored credentials
 
-Catalog (viewer session required in current CLI implementation):
+Catalog (authenticated viewer session required):
   catalog search    Search the coffee catalog with filters
   catalog get       Get details for a specific coffee by ID
   catalog stats     Aggregate statistics for the catalog
@@ -76,6 +77,7 @@ Agent Tools:
   context           Output the dense CLI reference for agents
 
 Global Options:
+  --json            Output compact JSON explicitly
   --pretty          Pretty-print JSON output
   --csv             Output array results as CSV where supported
   --help            Show help for any command
@@ -84,7 +86,7 @@ Global Options:
 Examples:
   $ purvey auth login --headless
   $ purvey catalog search --origin "Ethiopia" --process "natural" --pretty
-  $ purvey catalog similar 1182 --threshold 0.85 --stocked-only --pretty
+  $ purvey catalog similar 1182 --threshold 0.85 --stocked-only --json | jq '.[0]'
   $ purvey inventory list --stocked --pretty
   $ purvey roast import my-roast.alog --coffee-id 128
   $ purvey roast watch ~/artisan/ --auto-match

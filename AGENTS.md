@@ -71,7 +71,7 @@ Command files:
 
 ### Auth and roles
 
-- Use `requireAuth('viewer')` for viewer-level access.
+- Use `requireAuth('viewer')` for catalog commands and other viewer-level access.
 - Use `requireAuth('member')` for personal data and writes.
 - Keep docs aligned with actual handler behavior. If auth requirements change, update README, help text, and context in the same PR.
 
@@ -79,8 +79,11 @@ Command files:
 
 - Keep user-facing data on stdout.
 - Keep status, success, spinner, and error messaging on stderr.
+- Default to compact JSON.
+- Treat `--json` as an explicit alias for the default compact JSON mode.
+- Use `--pretty` for formatted JSON and `--csv` where CSV output is supported.
 - Prefer `outputData()` for structured results.
-- If a command intentionally diverges from the default output contract, document it explicitly.
+- Avoid command-specific human-readable defaults for data commands unless there is a strong reason and the divergence is documented.
 
 ### Help text
 

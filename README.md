@@ -74,7 +74,7 @@ Credentials are stored at `~/.config/purvey/credentials.json`.
 
 ### Current auth behavior
 
-Catalog commands are read-only, but the current CLI implementation still expects a valid viewer session. In practice, sign in before using:
+Catalog commands require an authenticated viewer session. Sign in before using:
 
 - `purvey catalog search`
 - `purvey catalog get <id>`
@@ -86,6 +86,7 @@ Inventory, roast, sales, and tasting commands require a member role.
 ## Output and Scripting
 
 Most commands write compact JSON to stdout by default.
+Use `--json` if you want to request that mode explicitly.
 
 Pretty JSON:
 
@@ -113,7 +114,7 @@ Operational messages go to stderr, so stdout stays script-friendly.
 ### Output caveats worth knowing
 
 - `purvey auth status` prints human-readable output in an interactive terminal. When piped or redirected, it emits JSON.
-- `purvey catalog similar <id>` currently prints a plain-text ranking by default. Use `--pretty` for structured JSON output.
+- `--json` is an explicit alias for the default compact JSON mode.
 
 ## Command Overview
 
@@ -153,6 +154,7 @@ purvey catalog search --origin "Ethiopia" --pretty
 purvey catalog search --supplier "Royal Coffee" --stocked --pretty
 purvey catalog search --ids "1182,1183,1200"
 purvey catalog similar 1182 --threshold 0.85 --stocked-only --pretty
+purvey catalog similar 1182 --json | jq '.[0]'
 ```
 
 ### inventory

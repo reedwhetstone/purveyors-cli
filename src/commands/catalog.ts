@@ -21,11 +21,11 @@ export { sanitizeFilterValue, computeCatalogStats };
 // ─── Command builder ──────────────────────────────────────────────────────────
 
 /**
- * `purvey catalog` — Browse the public coffee catalog.
- * Requires authentication (viewer+).
+ * `purvey catalog` — Browse the coffee catalog.
+ * Requires an authenticated viewer session.
  */
 export function buildCatalogCommand(): Command {
-  const catalog = new Command('catalog').description('Browse the public coffee catalog');
+  const catalog = new Command('catalog').description('Browse the coffee catalog');
 
   // ── catalog search ────────────────────────────────────────────────────────
   catalog
@@ -73,7 +73,7 @@ Notes:
   --name and --supplier accept partial matches (case-insensitive).
   --ids fetches specific catalog items by ID, ignoring --limit and --offset.
   --offset + --limit enables pagination through large result sets.
-  Requires a valid viewer session in the current CLI implementation.
+  Requires an authenticated viewer session.
 `
     )
     .action(
@@ -151,7 +151,7 @@ Examples:
 Notes:
   <id> is the coffee_catalog.catalog_id (integer).
   Use 'purvey catalog search' to find IDs.
-  Requires a valid viewer session in the current CLI implementation.
+  Requires an authenticated viewer session.
 `
     )
     .action(
@@ -179,7 +179,7 @@ Examples:
 Notes:
   Returns aggregated data: total count, average price, unique origins,
   processing method breakdown, and stocked count.
-  Requires a valid viewer session in the current CLI implementation.
+  Requires an authenticated viewer session.
 `
     )
     .action(
@@ -204,19 +204,20 @@ Notes:
       `
 Examples:
   purvey catalog similar 1182
-  purvey catalog similar 1182 --threshold 0.85 --stocked-only
-  purvey catalog similar 1182 --pretty
+  purvey catalog similar 1182 --threshold 0.85 --stocked-only --pretty
+  purvey catalog similar 1182 --json | jq '.[0]'
 
 Notes:
   Uses pgvector cosine similarity on tasting notes and bean descriptors.
   --threshold controls sensitivity (higher = more strict match).
-  Default output is a plain-text ranking. Use --pretty for structured JSON.
+  Default output is compact JSON. Use --pretty for formatted JSON.
   Returns beans sorted by similarity score (highest first).
+  Requires an authenticated viewer session.
 `
     )
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
-        const globalOpts = cmd.optsWithGlobals() as OutputOptions & { json?: boolean };
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
         const { supabase } = await requireAuth('viewer');
 
         const coffeeId = parseInt(id, 10);
@@ -229,10 +230,10 @@ Notes:
         const limit = Math.max(1, parseInt(opts.limit as string, 10));
         const stockedOnly = Boolean(opts.stockedOnly);
 
-        // Fetch target bean name for the header
+        // Confirm the target bean exists before running similarity lookup.
         const { data: targetBean, error: targetError } = await supabase
           .from('coffee_catalog')
-          .select('name, source')
+          .select('catalog_id')
           .eq('catalog_id', coffeeId)
           .single();
 
@@ -263,37 +264,7 @@ Notes:
           }
         }
 
-        // JSON output: raw array
-        if (globalOpts.json) {
-          console.log(JSON.stringify(filtered));
-          return;
-        }
-
-        // Human-readable output
-        if (globalOpts.pretty) {
-          outputData(filtered, globalOpts);
-          return;
-        }
-
-        // Default: formatted human-readable table
-        console.log(
-          `\nSimilar beans to: ${targetBean.name} (ID: ${coffeeId}, ${targetBean.source})\n`
-        );
-        filtered.forEach((bean, i) => {
-          const pct = (bean.avg_similarity * 100).toFixed(1);
-          const stockedLabel = bean.stocked ? 'Stocked ✓' : 'Unstocked';
-          const perLb = bean.price_per_lb ?? bean.cost_lb;
-          const price = perLb != null ? `$${perLb.toFixed(2)}/lb` : 'price N/A';
-          const origin = bean.origin || 'Unknown';
-          const processing = bean.processing || 'Unknown';
-          const chunkWord = bean.chunk_matches === 1 ? 'chunk' : 'chunks';
-          console.log(`${i + 1}. ${bean.coffee_name} (${bean.source}) — ${pct}% similar`);
-          console.log(
-            `   Origin: ${origin} | Processing: ${processing} | ${price} | ${stockedLabel}`
-          );
-          console.log(`   Matched on: ${bean.chunk_matches} ${chunkWord}`);
-          console.log('');
-        });
+        outputData(filtered, globalOpts);
       })
     );
 

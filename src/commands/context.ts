@@ -12,7 +12,7 @@ Config file: ~/.config/purvey/config.json
 
 ROLES
 -----
-viewer  valid authenticated session; used by catalog commands in the current implementation
+viewer  valid authenticated session; required for catalog commands
 member  required for inventory, roast, sales, and tasting commands
 
 AUTH
@@ -36,13 +36,13 @@ Logout:
 OUTPUT
 ------
 Most commands emit compact JSON to stdout by default.
+Use --json to request compact JSON explicitly.
 Use --pretty for indented JSON.
 Use --csv for array-shaped results that support CSV output.
 User feedback goes to stderr.
 
-Important exceptions:
+Important exception:
 - auth status prints human-readable output in an interactive TTY, JSON when piped or redirected
-- catalog similar prints a plain-text ranking by default; use --pretty for structured JSON
 
 ID MAP
 ------

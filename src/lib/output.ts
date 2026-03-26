@@ -41,6 +41,7 @@ function toCsv(data: unknown[]): string {
  * Output data to stdout in the requested format.
  *
  * Defaults to compact JSON (machine-readable, no colors).
+ * --json: explicit alias for compact JSON
  * --pretty: indented JSON with syntax highlighting
  * --csv: CSV format (only works with arrays of objects)
  */
