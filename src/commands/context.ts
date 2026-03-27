@@ -42,7 +42,7 @@ Use --csv for array-shaped results that support CSV output.
 User feedback goes to stderr.
 
 Important exception:
-- auth status prints human-readable output in an interactive TTY, JSON when piped or redirected
+- auth status prints human-readable output in an interactive TTY unless --json, --pretty, or --csv is passed; otherwise it emits structured output
 
 ID MAP
 ------

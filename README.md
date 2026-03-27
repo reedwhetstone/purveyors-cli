@@ -61,6 +61,7 @@ Status:
 
 ```bash
 purvey auth status
+purvey auth status --json
 purvey auth status --pretty
 ```
 
@@ -113,8 +114,8 @@ Operational messages go to stderr, so stdout stays script-friendly.
 
 ### Output caveats worth knowing
 
-- `purvey auth status` prints human-readable output in an interactive terminal. When piped or redirected, it emits JSON.
-- `--json` is an explicit alias for the default compact JSON mode.
+- `purvey auth status` prints human-readable output in an interactive terminal unless you pass `--json`, `--pretty`, or `--csv`. When piped or redirected, it emits JSON.
+- `--json` is an explicit alias for the default compact JSON mode, and it forces JSON even in an interactive terminal.
 
 ## Command Overview
 

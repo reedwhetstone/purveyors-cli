@@ -2,9 +2,9 @@ import { Command } from 'commander';
 import { createServer } from 'http';
 import { createAnonClient, validateSession } from '../lib/supabase.js';
 import { writeCredentials, deleteCredentials } from '../lib/config.js';
-import { outputData, success, info, warn } from '../lib/output.js';
+import { outputData, shouldUseInteractiveOutput, success, info, warn } from '../lib/output.js';
 import { withErrorHandling, AuthError } from '../lib/errors.js';
-import type { StoredCredentials } from '../types/index.js';
+import type { OutputOptions, StoredCredentials } from '../types/index.js';
 import chalk from 'chalk';
 import ora from 'ora';
 
@@ -185,8 +185,8 @@ const loginAction = withErrorHandling(async () => {
  * Shows current login state and token info.
  */
 const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
-  const opts = cmd.optsWithGlobals() as { pretty?: boolean; csv?: boolean };
-  const isInteractive = process.stdout.isTTY && !opts.pretty && !opts.csv;
+  const opts = cmd.optsWithGlobals() as OutputOptions;
+  const isInteractive = shouldUseInteractiveOutput(opts);
   const spinner = ora({
     text: 'Checking authentication status...',
     stream: process.stderr,
@@ -371,9 +371,10 @@ Notes:
       `
 Examples:
   purvey auth status                     # human-readable in terminal, JSON when piped
+  purvey auth status --json              # force compact JSON, even in a terminal
   purvey auth status --pretty            # indented colorized JSON
   purvey auth status | jq '.email'       # compact JSON on stdout
-  purvey auth status 2>/dev/null | jq .  # suppress spinner, get clean JSON
+  purvey auth status --json 2>/dev/null | jq .
 
 Output fields:
   authenticated  boolean — true if a valid session exists
@@ -382,7 +383,8 @@ Output fields:
   tokenExpires   ISO timestamp when the access token expires
 
 Notes:
-  When stdout is a TTY (interactive terminal), output is human-readable.
+  When stdout is a TTY (interactive terminal), output is human-readable unless
+  you pass --json, --pretty, or --csv.
   When piped or redirected, output is compact JSON (same as all other commands).
 `
     )
