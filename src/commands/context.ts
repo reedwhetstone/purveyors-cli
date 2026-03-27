@@ -46,9 +46,9 @@ Important exception:
 
 ID MAP
 ------
-catalog_id      coffee_catalog row; used by catalog get, inventory add --catalog-id, tasting get
-inventory_id    green_coffee_inv row; used by inventory get/update/delete, roast --coffee-id, tasting rate
-roast_id        roast_data row; used by roast get/delete, sales --roast-id
+catalog_id      coffee_catalog row; used by catalog get, inventory add --catalog-id, tasting get, roast list --catalog-id
+inventory_id    green_coffee_inv row; used by inventory get/update/delete, roast --coffee-id, roast list --coffee-id, tasting rate
+roast_id        roast_data row; used by roast get/delete, roast list --roast-id, sales --roast-id
 sale_id         coffee_sales row; used by sales update/delete
 
 COMMANDS
@@ -101,6 +101,7 @@ inventory (member)
 roast (member)
   list
     --coffee-id <inventory_id>
+    --roast-id <roast_id>
     --batch-name <text>
     --date-start <YYYY-MM-DD>
     --date-end <YYYY-MM-DD>

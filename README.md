@@ -72,16 +72,16 @@ purvey auth logout
 
 Credentials are stored at `~/.config/purvey/credentials.json`.
 
-### Current auth behavior
+### Auth roles
 
-Catalog commands require an authenticated viewer session. Sign in before using:
+`catalog` commands require an authenticated viewer session. Sign in before using:
 
 - `purvey catalog search`
 - `purvey catalog get <id>`
 - `purvey catalog stats`
 - `purvey catalog similar <id>`
 
-Inventory, roast, sales, and tasting commands require a member role.
+`inventory`, `roast`, `sales`, and `tasting` commands require a member role.
 
 ## Output and Scripting
 
@@ -116,7 +116,7 @@ Operational messages go to stderr, so stdout stays script-friendly.
 - `purvey auth status` prints human-readable output in an interactive terminal. When piped or redirected, it emits JSON.
 - `--json` is an explicit alias for the default compact JSON mode.
 
-## Command Overview
+## Command Reference
 
 ### auth
 
@@ -132,20 +132,26 @@ Operational messages go to stderr, so stdout stays script-friendly.
 - `purvey catalog stats`
 - `purvey catalog similar <id>`
 
-Key search filters:
+`catalog search` filters:
 
-- `--origin <text>`
-- `--process <method>`
-- `--price-min <n>`
-- `--price-max <n>`
-- `--flavor <keywords>`
-- `--name <text>`
-- `--supplier <name>`
-- `--ids <n,n,...>`
-- `--stocked`
-- `--sort <price|price-desc|name|origin|newest>`
-- `--offset <n>`
-- `--limit <n>`
+- `--origin <text>` -- filter by origin (country, continent, or region)
+- `--process <method>` -- filter by processing method (e.g. natural, washed)
+- `--price-min <n>` -- minimum price per lb (USD)
+- `--price-max <n>` -- maximum price per lb (USD)
+- `--flavor <keywords>` -- flavor keywords, comma-separated
+- `--name <text>` -- filter by coffee name (partial match, case-insensitive)
+- `--supplier <name>` -- filter by supplier/source name (partial match, case-insensitive)
+- `--ids <n,n,...>` -- fetch specific catalog IDs (comma-separated, ignores limit)
+- `--stocked` -- only show currently stocked coffees
+- `--sort <price|price-desc|name|origin|newest>` -- sort results
+- `--offset <n>` -- skip N results for pagination
+- `--limit <n>` -- maximum results to return (default: 10)
+
+`catalog similar <id>` options:
+
+- `--threshold <0-1>` -- minimum similarity score (default: 0.70)
+- `--limit <n>` -- max results (default: 10)
+- `--stocked-only` -- only show currently stocked beans
 
 Examples:
 
@@ -153,6 +159,7 @@ Examples:
 purvey catalog search --origin "Ethiopia" --pretty
 purvey catalog search --supplier "Royal Coffee" --stocked --pretty
 purvey catalog search --ids "1182,1183,1200"
+purvey catalog search --stocked --sort price --offset 10 --limit 10
 purvey catalog similar 1182 --threshold 0.85 --stocked-only --pretty
 purvey catalog similar 1182 --json | jq '.[0]'
 ```
@@ -165,19 +172,38 @@ purvey catalog similar 1182 --json | jq '.[0]'
 - `purvey inventory update <id>`
 - `purvey inventory delete <id>`
 
-Create inventory from the catalog:
+`inventory list` options:
+
+- `--stocked` -- only show currently stocked beans
+- `--limit <n>` -- maximum results (default: 20)
+
+`inventory add` flags:
+
+- `--catalog-id <id>` -- [REQUIRED] coffee_catalog.catalog_id
+- `--qty <lbs>` -- [REQUIRED] quantity in pounds
+- `--cost <dollars>` -- bean cost in dollars
+- `--tax-ship <dollars>` -- tax and shipping cost in dollars
+- `--notes <text>` -- notes for this inventory item
+- `--purchase-date <YYYY-MM-DD>` -- purchase date (defaults to today)
+- `--form` -- interactive form mode
+
+`inventory update <id>` flags:
+
+- `--qty <lbs>` -- updated quantity in pounds
+- `--cost <dollars>` -- updated bean cost
+- `--tax-ship <dollars>` -- updated tax/shipping cost
+- `--notes <text>` -- updated notes
+- `--stocked <true|false>` -- mark as stocked or not
+
+Examples:
 
 ```bash
+purvey inventory list --stocked --pretty
 purvey inventory add --catalog-id 128 --qty 10 --cost 8.50
+purvey inventory add --catalog-id 42 --qty 5 --cost 6.25 --tax-ship 4.00
+purvey inventory update 7 --stocked false
+purvey inventory delete 7 --yes
 ```
-
-Update fields:
-
-- `--qty <lbs>`
-- `--cost <dollars>`
-- `--tax-ship <dollars>`
-- `--notes <text>`
-- `--stocked <true|false>`
 
 ### roast
 
@@ -191,25 +217,60 @@ Update fields:
 
 `roast list` filters:
 
-- `--coffee-id <id>`
-- `--batch-name <text>`
-- `--date-start <YYYY-MM-DD>`
-- `--date-end <YYYY-MM-DD>`
-- `--stocked`
-- `--catalog-id <id>`
-- `--limit <n>`
+- `--coffee-id <id>` -- filter by inventory item ID (green_coffee_inv.id)
+- `--roast-id <id>` -- filter by exact roast profile ID
+- `--batch-name <text>` -- filter by batch name (partial match, case-insensitive)
+- `--date-start <YYYY-MM-DD>` -- only show roasts on or after this date
+- `--date-end <YYYY-MM-DD>` -- only show roasts on or before this date
+- `--stocked` -- only show roasts for currently stocked beans
+- `--catalog-id <id>` -- filter by coffee_catalog ID
+- `--limit <n>` -- maximum results (default: 20)
+
+`roast get <id>` options:
+
+- `--include-temps` -- include temperature curve data
+- `--include-events` -- include roast event markers
+
+`roast create` flags:
+
+- `--coffee-id <id>` -- [REQUIRED] green_coffee_inv ID
+- `--batch-name <name>` -- batch name (defaults to coffee name + today's date)
+- `--oz-in <oz>` -- green weight in ounces
+- `--oz-out <oz>` -- roasted weight in ounces
+- `--roast-date <YYYY-MM-DD>` -- roast date (defaults to today)
+- `--notes <text>` -- roast notes
+- `--form` -- interactive form mode
 
 `roast update <id>` fields:
 
-- `--notes <text>`
-- `--oz-out <oz>`
-- `--batch-name <name>`
-- `--targets <text>`
+- `--notes <text>` -- updated roast notes
+- `--oz-out <oz>` -- updated roasted weight (triggers weight loss recalculation)
+- `--batch-name <name>` -- updated batch name
+- `--targets <text>` -- updated roast targets
+
+`roast import [file]` flags:
+
+- `--coffee-id <id>` -- [REQUIRED] green_coffee_inv ID
+- `--batch-name <name>` -- batch name (auto-generated if omitted)
+- `--oz-in <oz>` -- green weight (extracted from .alog if present, overridden here)
+- `--roast-notes <text>` -- additional roast notes
+- `--form` -- interactive form mode
+
+`roast watch [directory]` options:
+
+- `--coffee-id <id>` -- [REQUIRED unless --auto-match] inventory ID for all imports
+- `--batch-prefix <name>` -- batch name prefix for auto-named batches
+- `--prompt-each` -- prompt for bean selection on each new file
+- `--auto-match` -- auto-match beans per file (mutually exclusive with --coffee-id)
+- `--resume` -- resume a previous watch session
+- `--form` -- interactive setup wizard
 
 Examples:
 
 ```bash
 purvey roast list --catalog-id 128 --pretty
+purvey roast list --batch-name "Ethiopia Guji" --pretty
+purvey roast list --date-start 2026-03-01 --date-end 2026-03-31
 purvey roast create --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz-in 16
 purvey roast update 123 --targets "Aim for FC at 390F, 18% dev"
 purvey roast import ~/artisan/ethiopia.alog --coffee-id 7
@@ -223,10 +284,29 @@ purvey roast watch ~/artisan/ --auto-match
 - `purvey sales update <id>`
 - `purvey sales delete <id>`
 
-Record a sale:
+`sales record` flags:
+
+- `--roast-id <id>` -- [REQUIRED] roast_data.roast_id
+- `--oz <amount>` -- [REQUIRED] ounces sold
+- `--price <dollars>` -- [REQUIRED] total sale price in dollars
+- `--buyer <name>` -- buyer name or identifier
+- `--sell-date <YYYY-MM-DD>` -- sale date (defaults to today)
+- `--form` -- interactive form mode
+
+`sales update <id>` flags:
+
+- `--oz <amount>` -- updated ounces sold
+- `--price <dollars>` -- updated sale price
+- `--buyer <name>` -- updated buyer name
+- `--sell-date <YYYY-MM-DD>` -- updated sale date
+
+Examples:
 
 ```bash
 purvey sales record --roast-id 123 --oz 12 --price 22.00 --buyer "Jane Smith"
+purvey sales list --pretty
+purvey sales update 5 --price 24.00
+purvey sales delete 5 --yes
 ```
 
 ### tasting
@@ -236,24 +316,25 @@ purvey sales record --roast-id 123 --oz 12 --price 22.00 --buyer "Jane Smith"
 
 `purvey tasting get <bean-id>` options:
 
-- `--filter <user|supplier|both>`
+- `--filter <user|supplier|both>` -- which notes to show (default: both)
 
 `purvey tasting rate [bean-id]` options:
 
-- `--aroma <1-5>`
-- `--body <1-5>`
-- `--acidity <1-5>`
-- `--sweetness <1-5>`
-- `--aftertaste <1-5>`
-- `--brew-method <method>`
-- `--notes <text>`
-- `--form`
+- `--aroma <1-5>` -- [REQUIRED in flag mode]
+- `--body <1-5>` -- [REQUIRED in flag mode]
+- `--acidity <1-5>` -- [REQUIRED in flag mode]
+- `--sweetness <1-5>` -- [REQUIRED in flag mode]
+- `--aftertaste <1-5>` -- [REQUIRED in flag mode]
+- `--brew-method <method>` -- brew method used (e.g. pour_over, espresso)
+- `--notes <text>` -- additional tasting notes
+- `--form` -- interactive form mode
 
 Examples:
 
 ```bash
 purvey tasting get 128 --filter both --pretty
 purvey tasting rate 7 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
+purvey tasting rate 42 --aroma 3 --body 3 --acidity 3 --sweetness 3 --aftertaste 3 --notes "Underextracted"
 ```
 
 ### config
@@ -313,10 +394,10 @@ purvey sales list --csv > sales.csv
 
 Use the right ID for the right command.
 
-- `catalog_id`: catalog rows, used by `catalog get`, `inventory add --catalog-id`, `tasting get`
-- `inventory id`: personal inventory rows, used by `inventory get/update/delete`, `roast --coffee-id`, `tasting rate`
-- `roast_id`: roast rows, used by `roast get/delete`, `sales --roast-id`
-- `sale id`: sales rows, used by `sales update/delete`
+- `catalog_id`: coffee_catalog rows; used by `catalog get`, `inventory add --catalog-id`, `tasting get`, `roast list --catalog-id`
+- `inventory id`: green_coffee_inv rows; used by `inventory get/update/delete`, `roast --coffee-id`, `tasting rate`, `roast list --coffee-id`
+- `roast_id`: roast_data rows; used by `roast get/delete`, `sales --roast-id`, `roast list --roast-id`
+- `sale id`: coffee_sales rows; used by `sales update/delete`
 
 ## Environment Variables
 
@@ -347,7 +428,7 @@ The CLI is designed to be agent-friendly:
 - structured output on stdout
 - headless auth flow
 - copy-pasteable examples
-- a dedicated context command for onboarding
+- a dedicated `context` command for onboarding
 
 ## Development
 
@@ -373,4 +454,4 @@ Key files:
 
 Sustainable Use License. See [LICENSE.md](./LICENSE.md).
 
-Copyright © 2026 Reed Whetstone / purveyors.io
+Copyright 2026 Reed Whetstone / purveyors.io
