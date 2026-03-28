@@ -39,6 +39,9 @@ export function buildCatalogCommand(): Command {
     .option('--name <text>', 'Filter by coffee name (partial match, case-insensitive)')
     .option('--supplier <name>', 'Filter by supplier/source name (partial match, case-insensitive)')
     .option('--ids <n,n,...>', 'Fetch specific catalog IDs (comma-separated, ignores limit)')
+    .option('--variety <text>', 'Filter by coffee variety/cultivar (partial match)')
+    .option('--drying-method <text>', 'Filter by drying method (partial match)')
+    .option('--stocked-days <n>', 'Only show coffees stocked within N days')
     .option('--stocked', 'Only show currently stocked coffees')
     .option('--sort <field>', `Sort results by: ${catalogSortFields.join(', ')}`)
     .option('--offset <n>', 'Skip N results (for pagination)', '0')
@@ -59,6 +62,9 @@ Examples:
   purvey catalog search --name "Guji" --pretty
   purvey catalog search --supplier "Royal Coffee" --stocked --pretty
   purvey catalog search --ids "1182,1183,1200"
+  purvey catalog search --variety "gesha" --stocked --pretty
+  purvey catalog search --drying-method "sun" --origin "Ethiopia" --pretty
+  purvey catalog search --stocked-days 30 --pretty
 
 Sort fields:
   price       cheapest first
@@ -71,6 +77,9 @@ Notes:
   All filters are optional. Without flags, returns up to --limit results.
   --origin accepts partial matches (e.g. "Ethiopia" matches "Ethiopia Guji").
   --name and --supplier accept partial matches (case-insensitive).
+  --variety filters on cultivar_detail (partial match, case-insensitive).
+  --drying-method filters on drying_method (partial match, case-insensitive).
+  --stocked-days N shows only coffees stocked within the last N days.
   --ids fetches specific catalog items by ID, ignoring --limit and --offset.
   --offset + --limit enables pagination through large result sets.
   Requires an authenticated viewer session.
@@ -118,6 +127,12 @@ Notes:
           name: opts.name as string | undefined,
           supplier: opts.supplier as string | undefined,
           ids: parsedIds,
+          variety: opts.variety as string | undefined,
+          dryingMethod: opts.dryingMethod as string | undefined,
+          stockedDays:
+            opts.stockedDays !== undefined
+              ? Math.max(1, parseInt(opts.stockedDays as string, 10))
+              : undefined,
           stocked: opts.stocked ? true : undefined,
           sort: sortValue as CatalogSortField | undefined,
           offset:

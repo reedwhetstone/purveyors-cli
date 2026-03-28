@@ -68,6 +68,9 @@ catalog
     --name <text>
     --supplier <name>
     --ids <n,n,...>
+    --variety <text>
+    --drying-method <text>
+    --stocked-days <n>
     --stocked
     --sort <price|price-desc|name|origin|newest>
     --offset <n>
