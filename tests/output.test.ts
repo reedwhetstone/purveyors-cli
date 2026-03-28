@@ -16,6 +16,33 @@ describe('output utilities', () => {
     vi.restoreAllMocks();
   });
 
+  describe('shouldUseInteractiveOutput', () => {
+    it('allows interactive output for a TTY with no explicit mode', async () => {
+      const { shouldUseInteractiveOutput } = await import('../src/lib/output.js');
+      expect(shouldUseInteractiveOutput({}, true)).toBe(true);
+    });
+
+    it('disables interactive output when --json is requested', async () => {
+      const { shouldUseInteractiveOutput } = await import('../src/lib/output.js');
+      expect(shouldUseInteractiveOutput({ json: true }, true)).toBe(false);
+    });
+
+    it('disables interactive output when --pretty is requested', async () => {
+      const { shouldUseInteractiveOutput } = await import('../src/lib/output.js');
+      expect(shouldUseInteractiveOutput({ pretty: true }, true)).toBe(false);
+    });
+
+    it('disables interactive output when --csv is requested', async () => {
+      const { shouldUseInteractiveOutput } = await import('../src/lib/output.js');
+      expect(shouldUseInteractiveOutput({ csv: true }, true)).toBe(false);
+    });
+
+    it('disables interactive output when stdout is not a TTY', async () => {
+      const { shouldUseInteractiveOutput } = await import('../src/lib/output.js');
+      expect(shouldUseInteractiveOutput({}, false)).toBe(false);
+    });
+  });
+
   describe('outputData — default (compact JSON)', () => {
     it('prints compact JSON with no options', async () => {
       const { outputData } = await import('../src/lib/output.js');

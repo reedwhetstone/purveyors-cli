@@ -2,6 +2,17 @@ import chalk from 'chalk';
 import type { OutputOptions } from '../types/index.js';
 
 /**
+ * Determine whether a command should emit interactive human-readable output.
+ * Structured output wins whenever an explicit mode is requested or stdout is not a TTY.
+ */
+export function shouldUseInteractiveOutput(
+  options: OutputOptions = {},
+  isTTY = process.stdout.isTTY
+): boolean {
+  return Boolean(isTTY && !options.pretty && !options.csv && !options.json);
+}
+
+/**
  * Flatten a nested object to a single-depth record for CSV output.
  */
 function flattenObject(obj: Record<string, unknown>, prefix = ''): Record<string, string> {
