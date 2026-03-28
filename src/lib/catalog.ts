@@ -76,6 +76,9 @@ export const searchCatalogSchema = z.object({
   name: z.string().optional(),
   supplier: z.string().optional(),
   ids: z.array(z.number().int().positive()).max(100).optional(),
+  variety: z.string().optional(),
+  dryingMethod: z.string().optional(),
+  stockedDays: z.number().int().positive().optional(),
 });
 
 export type SearchCatalogInput = z.input<typeof searchCatalogSchema>;
@@ -221,6 +224,22 @@ export async function searchCatalog(
   if (parsed.ids && parsed.ids.length > 0) {
     // coffee_catalog PK is `id`; `catalog_id` is the FK name on other tables
     query = query.in('id', parsed.ids);
+  }
+
+  if (parsed.variety) {
+    const v = sanitizeFilterValue(parsed.variety);
+    query = query.ilike('cultivar_detail', `%${v}%`);
+  }
+
+  if (parsed.dryingMethod) {
+    const d = sanitizeFilterValue(parsed.dryingMethod);
+    query = query.ilike('drying_method', `%${d}%`);
+  }
+
+  if (parsed.stockedDays) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - parsed.stockedDays);
+    query = query.gte('stocked_date', cutoff.toISOString().slice(0, 10));
   }
 
   if (parsed.stocked) {

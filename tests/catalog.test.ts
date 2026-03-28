@@ -288,6 +288,55 @@ describe('searchCatalogSchema', () => {
     const result = searchCatalogSchema.parse({ ids: [1, 2, 3] });
     expect(result.limit).toBe(10);
   });
+
+  it('accepts variety as optional string', () => {
+    const result = searchCatalogSchema.parse({ variety: 'gesha' });
+    expect(result.variety).toBe('gesha');
+  });
+
+  it('accepts dryingMethod as optional string', () => {
+    const result = searchCatalogSchema.parse({ dryingMethod: 'sun dried' });
+    expect(result.dryingMethod).toBe('sun dried');
+  });
+
+  it('accepts stockedDays as positive integer', () => {
+    const result = searchCatalogSchema.parse({ stockedDays: 30 });
+    expect(result.stockedDays).toBe(30);
+  });
+
+  it('rejects stockedDays of 0', () => {
+    expect(() => searchCatalogSchema.parse({ stockedDays: 0 })).toThrow();
+  });
+
+  it('rejects negative stockedDays', () => {
+    expect(() => searchCatalogSchema.parse({ stockedDays: -5 })).toThrow();
+  });
+
+  it('rejects non-integer stockedDays', () => {
+    expect(() => searchCatalogSchema.parse({ stockedDays: 7.5 })).toThrow();
+  });
+
+  it('allows variety, dryingMethod, and stockedDays to be omitted', () => {
+    const result = searchCatalogSchema.parse({});
+    expect(result.variety).toBeUndefined();
+    expect(result.dryingMethod).toBeUndefined();
+    expect(result.stockedDays).toBeUndefined();
+  });
+
+  it('combines variety and dryingMethod with existing fields', () => {
+    const result = searchCatalogSchema.parse({
+      origin: 'Ethiopia',
+      variety: 'heirloom',
+      dryingMethod: 'raised bed',
+      stocked: true,
+      stockedDays: 14,
+    });
+    expect(result.origin).toBe('Ethiopia');
+    expect(result.variety).toBe('heirloom');
+    expect(result.dryingMethod).toBe('raised bed');
+    expect(result.stocked).toBe(true);
+    expect(result.stockedDays).toBe(14);
+  });
 });
 
 describe('sanitizeFilterValue', () => {
