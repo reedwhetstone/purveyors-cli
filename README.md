@@ -192,6 +192,7 @@ Update fields:
 `roast list` filters:
 
 - `--coffee-id <id>`
+- `--roast-id <id>`
 - `--batch-name <text>`
 - `--date-start <YYYY-MM-DD>`
 - `--date-end <YYYY-MM-DD>`
