@@ -26,17 +26,27 @@ export function buildSalesCommand(): Command {
   sales
     .command('list')
     .description('List your sales, sorted by sell date (newest first)')
+    .option('--roast-id <id>', 'Filter by roast profile ID')
+    .option('--date-start <YYYY-MM-DD>', 'Only show sales on or after this date')
+    .option('--date-end <YYYY-MM-DD>', 'Only show sales on or before this date')
+    .option('--buyer <name>', 'Filter by buyer name (partial match, case-insensitive)')
     .option('--limit <n>', 'Maximum results to return', '20')
     .addHelpText(
       'after',
       `
 Examples:
   purvey sales list --pretty
+  purvey sales list --roast-id 42 --pretty
+  purvey sales list --date-start 2026-03-01 --date-end 2026-03-31 --pretty
+  purvey sales list --buyer "Jane" --pretty
+  purvey sales list --date-start 2026-01-01 --limit 100 --csv > sales-ytd.csv
   purvey sales list --limit 50 | jq '.[].id'
-  purvey sales list --csv > sales.csv
 
 Notes:
-  Returns all your sale records with roast_id, oz, price, buyer, and sell_date.
+  Returns sale records with roast_id, oz, price, buyer, and sell_date.
+  --date-start and --date-end accept YYYY-MM-DD; use together for a date range.
+  --buyer accepts partial matches (case-insensitive).
+  All filters are optional and composable.
   Requires authentication (member role).
 `
     )
@@ -45,8 +55,23 @@ Notes:
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
         const { supabase, userId } = await requireAuth('member');
 
+        let roastId: number | undefined;
+        if (opts.roastId !== undefined) {
+          roastId = parseInt(opts.roastId as string, 10);
+          if (isNaN(roastId) || roastId <= 0) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              `Invalid --roast-id: "${opts.roastId}". Must be a positive integer.`
+            );
+          }
+        }
+
         const data = await listSales(supabase, userId, {
           limit: Math.max(1, parseInt(opts.limit as string, 10)),
+          roastId,
+          dateStart: opts.dateStart as string | undefined,
+          dateEnd: opts.dateEnd as string | undefined,
+          buyer: opts.buyer as string | undefined,
         });
 
         if (data.length === 0) {
