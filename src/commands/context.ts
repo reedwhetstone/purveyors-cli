@@ -143,7 +143,12 @@ roast (member)
     --form
 
 sales (member)
-  list [--limit <n>]
+  list
+    --roast-id <roast_id>
+    --date-start <YYYY-MM-DD>
+    --date-end <YYYY-MM-DD>
+    --buyer <name>
+    --limit <n>
   record
     --roast-id <roast_id>   required in flag mode
     --oz <amount>           required in flag mode
