@@ -33,6 +33,10 @@ export function buildInventoryCommand(): Command {
     .command('list')
     .description('List your green coffee inventory with catalog details')
     .option('--stocked', 'Only show currently stocked beans')
+    .option('--catalog-id <id>', 'Filter by catalog ID')
+    .option('--purchase-date-start <YYYY-MM-DD>', 'Only show purchases on or after this date')
+    .option('--purchase-date-end <YYYY-MM-DD>', 'Only show purchases on or before this date')
+    .option('--origin <country>', 'Filter by country of origin (partial match)')
     .option('--limit <n>', 'Maximum results to return', '20')
     .addHelpText(
       'after',
@@ -40,6 +44,10 @@ export function buildInventoryCommand(): Command {
 Examples:
   purvey inventory list --pretty
   purvey inventory list --stocked --pretty
+  purvey inventory list --catalog-id 128 --pretty
+  purvey inventory list --origin Ethiopia --pretty
+  purvey inventory list --purchase-date-start 2026-01-01 --purchase-date-end 2026-03-31
+  purvey inventory list --stocked --origin Colombia --limit 10
   purvey inventory list --limit 50 | jq '.[].id'
   purvey inventory list --csv > inventory.csv
 
@@ -55,9 +63,21 @@ Notes:
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
         const { supabase, userId } = await requireAuth('member');
 
+        let catalogId: number | undefined;
+        if (opts.catalogId !== undefined) {
+          catalogId = parseInt(opts.catalogId as string, 10);
+          if (isNaN(catalogId)) {
+            throw new PrvrsError('INVALID_ARGUMENT', `Invalid --catalog-id: "${opts.catalogId}".`);
+          }
+        }
+
         const data = await listInventory(supabase, userId, {
           stocked_only: opts.stocked ? true : undefined,
           limit: Math.max(1, parseInt(opts.limit as string, 10)),
+          catalogId,
+          purchaseDateStart: opts.purchaseDateStart as string | undefined,
+          purchaseDateEnd: opts.purchaseDateEnd as string | undefined,
+          origin: opts.origin as string | undefined,
         });
 
         if (data.length === 0) {
