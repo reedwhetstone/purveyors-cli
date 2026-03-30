@@ -46,6 +46,81 @@ describe('listInventorySchema', () => {
   it('rejects non-integer limit', () => {
     expect(() => listInventorySchema.parse({ limit: 5.5 })).toThrow();
   });
+
+  it('accepts catalogId filter', () => {
+    const parsed = listInventorySchema.parse({ catalogId: 128 });
+    expect(parsed.catalogId).toBe(128);
+  });
+
+  it('catalogId defaults to undefined when omitted', () => {
+    const parsed = listInventorySchema.parse({});
+    expect(parsed.catalogId).toBeUndefined();
+  });
+
+  it('rejects non-positive catalogId', () => {
+    expect(() => listInventorySchema.parse({ catalogId: 0 })).toThrow();
+    expect(() => listInventorySchema.parse({ catalogId: -1 })).toThrow();
+  });
+
+  it('rejects non-integer catalogId', () => {
+    expect(() => listInventorySchema.parse({ catalogId: 1.5 })).toThrow();
+  });
+
+  it('accepts purchaseDateStart filter', () => {
+    const parsed = listInventorySchema.parse({ purchaseDateStart: '2026-01-01' });
+    expect(parsed.purchaseDateStart).toBe('2026-01-01');
+  });
+
+  it('accepts purchaseDateEnd filter', () => {
+    const parsed = listInventorySchema.parse({ purchaseDateEnd: '2026-03-31' });
+    expect(parsed.purchaseDateEnd).toBe('2026-03-31');
+  });
+
+  it('purchaseDateStart defaults to undefined when omitted', () => {
+    const parsed = listInventorySchema.parse({});
+    expect(parsed.purchaseDateStart).toBeUndefined();
+  });
+
+  it('purchaseDateEnd defaults to undefined when omitted', () => {
+    const parsed = listInventorySchema.parse({});
+    expect(parsed.purchaseDateEnd).toBeUndefined();
+  });
+
+  it('accepts origin filter', () => {
+    const parsed = listInventorySchema.parse({ origin: 'Ethiopia' });
+    expect(parsed.origin).toBe('Ethiopia');
+  });
+
+  it('origin defaults to undefined when omitted', () => {
+    const parsed = listInventorySchema.parse({});
+    expect(parsed.origin).toBeUndefined();
+  });
+
+  it('accepts all four new filters together', () => {
+    const parsed = listInventorySchema.parse({
+      catalogId: 42,
+      purchaseDateStart: '2026-01-01',
+      purchaseDateEnd: '2026-03-31',
+      origin: 'Colombia',
+    });
+    expect(parsed.catalogId).toBe(42);
+    expect(parsed.purchaseDateStart).toBe('2026-01-01');
+    expect(parsed.purchaseDateEnd).toBe('2026-03-31');
+    expect(parsed.origin).toBe('Colombia');
+  });
+
+  it('accepts filters combined with stocked_only and custom limit', () => {
+    const parsed = listInventorySchema.parse({
+      stocked_only: true,
+      limit: 10,
+      catalogId: 128,
+      origin: 'Kenya',
+    });
+    expect(parsed.stocked_only).toBe(true);
+    expect(parsed.limit).toBe(10);
+    expect(parsed.catalogId).toBe(128);
+    expect(parsed.origin).toBe('Kenya');
+  });
 });
 
 // ─── getInventorySchema ───────────────────────────────────────────────────────

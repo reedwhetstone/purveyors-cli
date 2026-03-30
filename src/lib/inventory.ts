@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AuthError, PrvrsError } from './errors.js';
+import { sanitizeFilterValue } from './catalog.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -71,6 +72,10 @@ export const INVENTORY_DETAIL_SELECT = [
 export const listInventorySchema = z.object({
   stocked_only: z.boolean().optional().describe('Only show currently stocked beans'),
   limit: z.number().int().min(1).default(20).describe('Maximum results to return'),
+  catalogId: z.number().int().positive().optional().describe('Filter by catalog ID'),
+  purchaseDateStart: z.string().optional().describe('Only show purchases on or after this date'),
+  purchaseDateEnd: z.string().optional().describe('Only show purchases on or before this date'),
+  origin: z.string().optional().describe('Filter by country of origin (partial match)'),
 });
 
 export type ListInventoryInput = z.input<typeof listInventorySchema>;
@@ -128,6 +133,30 @@ export async function listInventory(
 
   if (parsed.stocked_only) {
     query = query.eq('stocked', true);
+  }
+  if (parsed.catalogId !== undefined) {
+    query = query.eq('catalog_id', parsed.catalogId);
+  }
+  if (parsed.purchaseDateStart) {
+    query = query.gte('purchase_date', parsed.purchaseDateStart);
+  }
+  if (parsed.purchaseDateEnd) {
+    query = query.lte('purchase_date', parsed.purchaseDateEnd);
+  }
+
+  // origin filter: look up matching catalog IDs first, then restrict inventory
+  if (parsed.origin) {
+    const safe = sanitizeFilterValue(parsed.origin);
+    const { data: catalogRows, error: catError } = await supabase
+      .from('coffee_catalog')
+      .select('id')
+      .ilike('country', `%${safe}%`);
+    if (catError) throw catError;
+    const catalogIds = (catalogRows ?? []).map((r: { id: number }) => r.id);
+    if (catalogIds.length === 0) {
+      return [];
+    }
+    query = query.in('catalog_id', catalogIds);
   }
 
   const { data, error } = await query

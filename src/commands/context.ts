@@ -83,7 +83,13 @@ catalog
     --stocked-only
 
 inventory (member)
-  list [--stocked] [--limit <n>]
+  list
+    --stocked
+    --catalog-id <catalog_id>
+    --purchase-date-start <YYYY-MM-DD>
+    --purchase-date-end <YYYY-MM-DD>
+    --origin <country>
+    --limit <n>
   get <inventory_id>
   add
     --catalog-id <id>     required in flag mode
