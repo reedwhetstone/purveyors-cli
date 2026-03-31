@@ -72,6 +72,10 @@ export const listRoastsSchema = z.object({
     .string()
     .optional()
     .describe('Filter by batch name (partial match, case-insensitive)'),
+  coffee_name: z
+    .string()
+    .optional()
+    .describe('Filter by bean name (partial match, case-insensitive)'),
   date_start: z
     .string()
     .regex(DATE_REGEX, 'Must be YYYY-MM-DD format')
@@ -157,6 +161,11 @@ export async function listRoasts(
   if (parsed.batch_name) {
     const safe = sanitizeFilterValue(parsed.batch_name);
     query = query.ilike('batch_name', `%${safe}%`);
+  }
+
+  if (parsed.coffee_name) {
+    const safe = sanitizeFilterValue(parsed.coffee_name);
+    query = query.ilike('coffee_name', `%${safe}%`);
   }
 
   if (parsed.date_start) {
