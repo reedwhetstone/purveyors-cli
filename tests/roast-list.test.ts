@@ -142,6 +142,25 @@ describe('listRoastsSchema', () => {
     expect(listRoastsSchema.safeParse({ catalog_id: 1.5 }).success).toBe(false);
   });
 
+  // ── coffee_name ────────────────────────────────────────────────────────────
+
+  it('accepts coffee_name string', () => {
+    const result = listRoastsSchema.safeParse({ coffee_name: 'Ethiopia Yirgacheffe' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.coffee_name).toBe('Ethiopia Yirgacheffe');
+  });
+
+  it('accepts empty string coffee_name', () => {
+    const result = listRoastsSchema.safeParse({ coffee_name: '' });
+    expect(result.success).toBe(true);
+  });
+
+  it('coffee_name defaults to undefined', () => {
+    const result = listRoastsSchema.safeParse({});
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.coffee_name).toBeUndefined();
+  });
+
   // ── Combined filters ──────────────────────────────────────────────────────
 
   it('accepts all filters together', () => {
@@ -149,6 +168,7 @@ describe('listRoastsSchema', () => {
       coffee_id: 7,
       roast_id: 123,
       batch_name: 'Ethiopia',
+      coffee_name: 'Ethiopia Yirgacheffe',
       date_start: '2026-03-01',
       date_end: '2026-03-31',
       stocked_only: true,
@@ -160,6 +180,7 @@ describe('listRoastsSchema', () => {
       expect(result.data.coffee_id).toBe(7);
       expect(result.data.roast_id).toBe(123);
       expect(result.data.batch_name).toBe('Ethiopia');
+      expect(result.data.coffee_name).toBe('Ethiopia Yirgacheffe');
       expect(result.data.date_start).toBe('2026-03-01');
       expect(result.data.date_end).toBe('2026-03-31');
       expect(result.data.stocked_only).toBe(true);
@@ -268,5 +289,61 @@ describe('listRoasts', () => {
 
     expect(data).toEqual([]);
     expect(roastProfiles.calls).toContainEqual({ method: 'eq', args: ['roast_id', 999999] });
+  });
+
+  it('applies coffee_name as an ilike server-side filter', async () => {
+    const mockRow = { roast_id: 42, coffee_name: 'Ethiopia Yirgacheffe' };
+    const { supabase, roastProfiles } = createSupabaseForRoastList([mockRow]);
+
+    const data = await listRoasts(supabase, 'user-123', {
+      coffee_name: 'Ethiopia',
+    });
+
+    expect(data).toEqual([mockRow]);
+    expect(roastProfiles.calls).toContainEqual({
+      method: 'ilike',
+      args: ['coffee_name', '%Ethiopia%'],
+    });
+  });
+
+  it('does NOT add ilike filter when coffee_name is omitted', async () => {
+    const { supabase, roastProfiles } = createSupabaseForRoastList([]);
+
+    await listRoasts(supabase, 'user-123', {});
+
+    const ilikeCalls = roastProfiles.calls.filter((c) => c.method === 'ilike');
+    expect(ilikeCalls).toHaveLength(0);
+  });
+
+  it('returns empty array when coffee_name matches nothing', async () => {
+    const { supabase, roastProfiles } = createSupabaseForRoastList([]);
+
+    const data = await listRoasts(supabase, 'user-123', {
+      coffee_name: 'nonexistent-bean-xyz',
+    });
+
+    expect(data).toEqual([]);
+    expect(roastProfiles.calls).toContainEqual({
+      method: 'ilike',
+      args: ['coffee_name', '%nonexistent-bean-xyz%'],
+    });
+  });
+
+  it('applies coffee_name ilike independently of batch_name ilike', async () => {
+    const { supabase, roastProfiles } = createSupabaseForRoastList([]);
+
+    await listRoasts(supabase, 'user-123', {
+      batch_name: 'Light Roast',
+      coffee_name: 'Guji',
+    });
+
+    expect(roastProfiles.calls).toContainEqual({
+      method: 'ilike',
+      args: ['batch_name', '%Light Roast%'],
+    });
+    expect(roastProfiles.calls).toContainEqual({
+      method: 'ilike',
+      args: ['coffee_name', '%Guji%'],
+    });
   });
 });

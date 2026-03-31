@@ -44,6 +44,7 @@ export function buildRoastCommand(): Command {
     .option('--coffee-id <id>', 'Filter by green_coffee_inv ID')
     .option('--roast-id <id>', 'Filter by roast profile ID')
     .option('--batch-name <text>', 'Filter by batch name (partial match, case-insensitive)')
+    .option('--coffee-name <text>', 'Filter by bean name (partial match, case-insensitive)')
     .option('--date-start <YYYY-MM-DD>', 'Only show roasts on or after this date')
     .option('--date-end <YYYY-MM-DD>', 'Only show roasts on or before this date')
     .option('--stocked', 'Only show roasts for currently stocked beans')
@@ -57,6 +58,7 @@ Examples:
   purvey roast list --coffee-id 7 --pretty
   purvey roast list --roast-id 123 --pretty
   purvey roast list --batch-name "Ethiopia Guji" --pretty
+  purvey roast list --coffee-name "Ethiopia" --pretty
   purvey roast list --date-start 2026-03-01 --date-end 2026-03-31
   purvey roast list --stocked --limit 10
   purvey roast list --catalog-id 128 --pretty
@@ -68,6 +70,7 @@ Notes:
   --roast-id filters by the exact roast profile ID while preserving list output shape.
   --catalog-id filters by coffee_catalog ID (cross-reference from catalog search).
   --batch-name accepts partial matches (case-insensitive).
+  --coffee-name accepts partial matches on the bean name (case-insensitive).
   --date-start and --date-end accept YYYY-MM-DD format; use together for a range.
   --stocked only returns roasts for beans currently marked as stocked in inventory.
   Returns roast_id, batch_name, roast_date, oz_in, oz_out, and bean details.
@@ -123,6 +126,7 @@ Notes:
             opts.coffeeId !== undefined ? parseInt(opts.coffeeId as string, 10) : undefined,
           roast_id: roastId,
           batch_name: opts.batchName as string | undefined,
+          coffee_name: opts.coffeeName as string | undefined,
           date_start: dateStart,
           date_end: dateEnd,
           stocked_only: opts.stocked === true ? true : undefined,

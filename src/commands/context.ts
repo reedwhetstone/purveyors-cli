@@ -112,6 +112,7 @@ roast (member)
     --coffee-id <inventory_id>
     --roast-id <roast_id>
     --batch-name <text>
+    --coffee-name <text>
     --date-start <YYYY-MM-DD>
     --date-end <YYYY-MM-DD>
     --stocked
