@@ -316,7 +316,7 @@ describe('listSales query builder', () => {
     const { supabase, salesQuery } = createSupabaseForSalesList([]);
     await listSales(supabase, 'user-abc', {});
     const roastIdEqs = salesQuery.calls.filter(
-      (c) => c.method === 'eq' && (c.args as string[])[0] === 'roast_id'
+      (c) => c.method === 'eq' && (c.args as unknown[])[0] === 'roast_id'
     );
     expect(roastIdEqs).toHaveLength(0);
   });

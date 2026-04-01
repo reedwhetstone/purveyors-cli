@@ -362,20 +362,7 @@ function createSupabaseForInventoryList(opts: {
   const invQuery = createInventoryQuery(inventoryResult);
   const catalogCalls: QueryCall[] = [];
 
-  // Simple chainable mock for coffee_catalog queries
-  let catalogSelectResult: unknown[] | null = null;
-
-  const catalogQuery = {
-    ilike(field: string, value: unknown) {
-      catalogCalls.push({ method: 'ilike', args: [field, value] });
-      return {
-        then: undefined, // ensure Promise.resolve is used
-        async [Symbol.iterator]() {},
-      };
-    },
-  };
-
-  // We need the catalog ilike to resolve to ids
+  // Chainable mock for coffee_catalog queries that resolves to matching IDs
   const catalogQueryWithResolve = {
     ilike(field: string, value: unknown) {
       catalogCalls.push({ method: 'ilike', args: [field, value] });
@@ -405,9 +392,6 @@ function createSupabaseForInventoryList(opts: {
       throw new Error(`Unexpected table: ${table}`);
     },
   } as unknown as Parameters<typeof listInventory>[0];
-
-  void catalogQuery;
-  void catalogSelectResult;
 
   return { supabase, invQuery, catalogCalls };
 }
