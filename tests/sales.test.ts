@@ -4,6 +4,7 @@ import {
   recordSaleSchema,
   updateSaleSchema,
   deleteSaleSchema,
+  listSales,
 } from '../src/lib/sales.js';
 
 // ─── listSalesSchema ──────────────────────────────────────────────────────────
@@ -236,5 +237,170 @@ describe('deleteSaleSchema', () => {
   it('rejects missing id', () => {
     const result = deleteSaleSchema.safeParse({});
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── listSales query builder ──────────────────────────────────────────────────
+
+type QueryCall = {
+  method: string;
+  args: unknown[];
+};
+
+function createSalesQuery(result: unknown[]) {
+  const calls: QueryCall[] = [];
+
+  const query = {
+    eq(field: string, value: unknown) {
+      calls.push({ method: 'eq', args: [field, value] });
+      return query;
+    },
+    ilike(field: string, value: unknown) {
+      calls.push({ method: 'ilike', args: [field, value] });
+      return query;
+    },
+    gte(field: string, value: unknown) {
+      calls.push({ method: 'gte', args: [field, value] });
+      return query;
+    },
+    lte(field: string, value: unknown) {
+      calls.push({ method: 'lte', args: [field, value] });
+      return query;
+    },
+    order(field: string, options: unknown) {
+      calls.push({ method: 'order', args: [field, options] });
+      return query;
+    },
+    limit(limitValue: number) {
+      calls.push({ method: 'limit', args: [limitValue] });
+      return Promise.resolve({ data: result, error: null });
+    },
+  };
+
+  return { query, calls };
+}
+
+function createSupabaseForSalesList(result: unknown[] = []) {
+  const salesQuery = createSalesQuery(result);
+
+  const supabase = {
+    from(table: string) {
+      if (table !== 'sales') {
+        throw new Error(`Unexpected table: ${table}`);
+      }
+      return {
+        select(_columns: string) {
+          return salesQuery.query;
+        },
+      };
+    },
+  } as unknown as Parameters<typeof listSales>[0];
+
+  return { supabase, salesQuery };
+}
+
+describe('listSales query builder', () => {
+  it('always filters by user', async () => {
+    const { supabase, salesQuery } = createSupabaseForSalesList([]);
+    await listSales(supabase, 'user-abc', {});
+    expect(salesQuery.calls).toContainEqual({ method: 'eq', args: ['user', 'user-abc'] });
+  });
+
+  it('applies roastId as an exact eq filter', async () => {
+    const { supabase, salesQuery } = createSupabaseForSalesList([{ id: 1, roast_id: 42 }]);
+    await listSales(supabase, 'user-abc', { roastId: 42 });
+    expect(salesQuery.calls).toContainEqual({ method: 'eq', args: ['roast_id', 42] });
+  });
+
+  it('does NOT add roastId eq when roastId is omitted', async () => {
+    const { supabase, salesQuery } = createSupabaseForSalesList([]);
+    await listSales(supabase, 'user-abc', {});
+    const roastIdEqs = salesQuery.calls.filter(
+      (c) => c.method === 'eq' && (c.args as string[])[0] === 'roast_id'
+    );
+    expect(roastIdEqs).toHaveLength(0);
+  });
+
+  it('applies dateStart as gte filter', async () => {
+    const { supabase, salesQuery } = createSupabaseForSalesList([]);
+    await listSales(supabase, 'user-abc', { dateStart: '2026-01-01' });
+    expect(salesQuery.calls).toContainEqual({ method: 'gte', args: ['sell_date', '2026-01-01'] });
+  });
+
+  it('applies dateEnd as lte filter', async () => {
+    const { supabase, salesQuery } = createSupabaseForSalesList([]);
+    await listSales(supabase, 'user-abc', { dateEnd: '2026-03-31' });
+    expect(salesQuery.calls).toContainEqual({ method: 'lte', args: ['sell_date', '2026-03-31'] });
+  });
+
+  it('does NOT add date filters when date fields are omitted', async () => {
+    const { supabase, salesQuery } = createSupabaseForSalesList([]);
+    await listSales(supabase, 'user-abc', {});
+    const dateCalls = salesQuery.calls.filter((c) => c.method === 'gte' || c.method === 'lte');
+    expect(dateCalls).toHaveLength(0);
+  });
+
+  it('applies buyer as ilike filter', async () => {
+    const { supabase, salesQuery } = createSupabaseForSalesList([]);
+    await listSales(supabase, 'user-abc', { buyer: 'Alice' });
+    expect(salesQuery.calls).toContainEqual({
+      method: 'ilike',
+      args: ['buyer', '%Alice%'],
+    });
+  });
+
+  it('does NOT add ilike filter when buyer is omitted', async () => {
+    const { supabase, salesQuery } = createSupabaseForSalesList([]);
+    await listSales(supabase, 'user-abc', {});
+    const ilikeCalls = salesQuery.calls.filter((c) => c.method === 'ilike');
+    expect(ilikeCalls).toHaveLength(0);
+  });
+
+  it('applies all filters together', async () => {
+    const { supabase, salesQuery } = createSupabaseForSalesList([]);
+    await listSales(supabase, 'user-abc', {
+      roastId: 7,
+      dateStart: '2026-01-01',
+      dateEnd: '2026-03-31',
+      buyer: 'Bob',
+    });
+    expect(salesQuery.calls).toContainEqual({ method: 'eq', args: ['roast_id', 7] });
+    expect(salesQuery.calls).toContainEqual({ method: 'gte', args: ['sell_date', '2026-01-01'] });
+    expect(salesQuery.calls).toContainEqual({ method: 'lte', args: ['sell_date', '2026-03-31'] });
+    expect(salesQuery.calls).toContainEqual({ method: 'ilike', args: ['buyer', '%Bob%'] });
+  });
+
+  it('orders by sell_date descending', async () => {
+    const { supabase, salesQuery } = createSupabaseForSalesList([]);
+    await listSales(supabase, 'user-abc', {});
+    expect(salesQuery.calls).toContainEqual({
+      method: 'order',
+      args: ['sell_date', { ascending: false }],
+    });
+  });
+
+  it('applies the default limit of 20', async () => {
+    const { supabase, salesQuery } = createSupabaseForSalesList([]);
+    await listSales(supabase, 'user-abc', {});
+    expect(salesQuery.calls).toContainEqual({ method: 'limit', args: [20] });
+  });
+
+  it('applies a custom limit', async () => {
+    const { supabase, salesQuery } = createSupabaseForSalesList([]);
+    await listSales(supabase, 'user-abc', { limit: 5 });
+    expect(salesQuery.calls).toContainEqual({ method: 'limit', args: [5] });
+  });
+
+  it('returns the data rows from the query result', async () => {
+    const mockSale = { id: 1, roast_id: 42, oz_sold: 12 };
+    const { supabase } = createSupabaseForSalesList([mockSale]);
+    const result = await listSales(supabase, 'user-abc', {});
+    expect(result).toEqual([mockSale]);
+  });
+
+  it('returns empty array when no sales match', async () => {
+    const { supabase } = createSupabaseForSalesList([]);
+    const result = await listSales(supabase, 'user-abc', { roastId: 999 });
+    expect(result).toEqual([]);
   });
 });

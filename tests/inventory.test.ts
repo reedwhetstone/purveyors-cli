@@ -5,6 +5,7 @@ import {
   addInventorySchema,
   updateInventorySchema,
   deleteInventorySchema,
+  listInventory,
 } from '../src/lib/inventory.js';
 
 // ─── listInventorySchema ──────────────────────────────────────────────────────
@@ -300,5 +301,251 @@ describe('deleteInventorySchema', () => {
   it('rejects missing id', () => {
     const result = deleteInventorySchema.safeParse({});
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── listInventory query builder ──────────────────────────────────────────────
+
+type QueryCall = {
+  method: string;
+  args: unknown[];
+};
+
+/**
+ * Build a mock for green_coffee_inv queries.
+ * The mock must handle .select().eq()...gte().lte().in().order().limit() chains
+ * where limit() is the terminal call.
+ */
+function createInventoryQuery(result: unknown[]) {
+  const calls: QueryCall[] = [];
+
+  const query = {
+    eq(field: string, value: unknown) {
+      calls.push({ method: 'eq', args: [field, value] });
+      return query;
+    },
+    gte(field: string, value: unknown) {
+      calls.push({ method: 'gte', args: [field, value] });
+      return query;
+    },
+    lte(field: string, value: unknown) {
+      calls.push({ method: 'lte', args: [field, value] });
+      return query;
+    },
+    in(field: string, value: unknown) {
+      calls.push({ method: 'in', args: [field, value] });
+      return query;
+    },
+    order(field: string, options: unknown) {
+      calls.push({ method: 'order', args: [field, options] });
+      return query;
+    },
+    limit(limitValue: number) {
+      calls.push({ method: 'limit', args: [limitValue] });
+      return Promise.resolve({ data: result, error: null });
+    },
+  };
+
+  return { query, calls };
+}
+
+/**
+ * Build a mock Supabase for listInventory. Also handles the two-step origin
+ * lookup: coffee_catalog ilike → IDs → green_coffee_inv .in().
+ */
+function createSupabaseForInventoryList(opts: {
+  inventoryResult?: unknown[];
+  catalogIdsForOrigin?: number[];
+}) {
+  const inventoryResult = opts.inventoryResult ?? [];
+  const catalogIdsForOrigin = opts.catalogIdsForOrigin ?? null;
+  const invQuery = createInventoryQuery(inventoryResult);
+  const catalogCalls: QueryCall[] = [];
+
+  // Simple chainable mock for coffee_catalog queries
+  let catalogSelectResult: unknown[] | null = null;
+
+  const catalogQuery = {
+    ilike(field: string, value: unknown) {
+      catalogCalls.push({ method: 'ilike', args: [field, value] });
+      return {
+        then: undefined, // ensure Promise.resolve is used
+        async [Symbol.iterator]() {},
+      };
+    },
+  };
+
+  // We need the catalog ilike to resolve to ids
+  const catalogQueryWithResolve = {
+    ilike(field: string, value: unknown) {
+      catalogCalls.push({ method: 'ilike', args: [field, value] });
+      return Promise.resolve({
+        data: catalogIdsForOrigin !== null ? catalogIdsForOrigin.map((id) => ({ id })) : [],
+        error: null,
+      });
+    },
+  };
+
+  const supabase = {
+    from(table: string) {
+      if (table === 'green_coffee_inv') {
+        return {
+          select(_columns: string) {
+            return invQuery.query;
+          },
+        };
+      }
+      if (table === 'coffee_catalog') {
+        return {
+          select(_columns: string) {
+            return catalogQueryWithResolve;
+          },
+        };
+      }
+      throw new Error(`Unexpected table: ${table}`);
+    },
+  } as unknown as Parameters<typeof listInventory>[0];
+
+  void catalogQuery;
+  void catalogSelectResult;
+
+  return { supabase, invQuery, catalogCalls };
+}
+
+describe('listInventory query builder', () => {
+  it('always filters by user', async () => {
+    const { supabase, invQuery } = createSupabaseForInventoryList({});
+    await listInventory(supabase, 'user-xyz', {});
+    expect(invQuery.calls).toContainEqual({ method: 'eq', args: ['user', 'user-xyz'] });
+  });
+
+  it('applies stocked_only as eq(stocked, true)', async () => {
+    const { supabase, invQuery } = createSupabaseForInventoryList({});
+    await listInventory(supabase, 'user-xyz', { stocked_only: true });
+    expect(invQuery.calls).toContainEqual({ method: 'eq', args: ['stocked', true] });
+  });
+
+  it('does NOT add stocked eq when stocked_only is false', async () => {
+    const { supabase, invQuery } = createSupabaseForInventoryList({});
+    await listInventory(supabase, 'user-xyz', { stocked_only: false });
+    const stockedEqs = invQuery.calls.filter(
+      (c) => c.method === 'eq' && (c.args as unknown[])[0] === 'stocked'
+    );
+    expect(stockedEqs).toHaveLength(0);
+  });
+
+  it('does NOT add stocked eq when stocked_only is omitted', async () => {
+    const { supabase, invQuery } = createSupabaseForInventoryList({});
+    await listInventory(supabase, 'user-xyz', {});
+    const stockedEqs = invQuery.calls.filter(
+      (c) => c.method === 'eq' && (c.args as unknown[])[0] === 'stocked'
+    );
+    expect(stockedEqs).toHaveLength(0);
+  });
+
+  it('applies catalogId as eq filter', async () => {
+    const { supabase, invQuery } = createSupabaseForInventoryList({});
+    await listInventory(supabase, 'user-xyz', { catalogId: 128 });
+    expect(invQuery.calls).toContainEqual({ method: 'eq', args: ['catalog_id', 128] });
+  });
+
+  it('does NOT add catalogId eq when catalogId is omitted', async () => {
+    const { supabase, invQuery } = createSupabaseForInventoryList({});
+    await listInventory(supabase, 'user-xyz', {});
+    const catalogIdEqs = invQuery.calls.filter(
+      (c) => c.method === 'eq' && (c.args as unknown[])[0] === 'catalog_id'
+    );
+    expect(catalogIdEqs).toHaveLength(0);
+  });
+
+  it('applies purchaseDateStart as gte filter', async () => {
+    const { supabase, invQuery } = createSupabaseForInventoryList({});
+    await listInventory(supabase, 'user-xyz', { purchaseDateStart: '2026-01-01' });
+    expect(invQuery.calls).toContainEqual({
+      method: 'gte',
+      args: ['purchase_date', '2026-01-01'],
+    });
+  });
+
+  it('applies purchaseDateEnd as lte filter', async () => {
+    const { supabase, invQuery } = createSupabaseForInventoryList({});
+    await listInventory(supabase, 'user-xyz', { purchaseDateEnd: '2026-03-31' });
+    expect(invQuery.calls).toContainEqual({
+      method: 'lte',
+      args: ['purchase_date', '2026-03-31'],
+    });
+  });
+
+  it('does NOT add date filters when date fields are omitted', async () => {
+    const { supabase, invQuery } = createSupabaseForInventoryList({});
+    await listInventory(supabase, 'user-xyz', {});
+    const dateCalls = invQuery.calls.filter((c) => c.method === 'gte' || c.method === 'lte');
+    expect(dateCalls).toHaveLength(0);
+  });
+
+  it('applies origin filter as ilike on coffee_catalog.country, then in on catalog_id', async () => {
+    const { supabase, invQuery, catalogCalls } = createSupabaseForInventoryList({
+      catalogIdsForOrigin: [10, 20, 30],
+    });
+    await listInventory(supabase, 'user-xyz', { origin: 'Ethiopia' });
+    // Verify catalog lookup used ilike on country
+    expect(catalogCalls).toContainEqual({
+      method: 'ilike',
+      args: ['country', '%Ethiopia%'],
+    });
+    // Verify inventory query applied .in() with returned catalog IDs
+    expect(invQuery.calls).toContainEqual({
+      method: 'in',
+      args: ['catalog_id', [10, 20, 30]],
+    });
+  });
+
+  it('returns empty array immediately when no catalog IDs match the origin', async () => {
+    const { supabase } = createSupabaseForInventoryList({
+      catalogIdsForOrigin: [],
+    });
+    const result = await listInventory(supabase, 'user-xyz', { origin: 'Atlantis' });
+    expect(result).toEqual([]);
+  });
+
+  it('does NOT add in() filter when origin is omitted', async () => {
+    const { supabase, invQuery } = createSupabaseForInventoryList({});
+    await listInventory(supabase, 'user-xyz', {});
+    const inCalls = invQuery.calls.filter((c) => c.method === 'in');
+    expect(inCalls).toHaveLength(0);
+  });
+
+  it('orders by last_updated descending', async () => {
+    const { supabase, invQuery } = createSupabaseForInventoryList({});
+    await listInventory(supabase, 'user-xyz', {});
+    expect(invQuery.calls).toContainEqual({
+      method: 'order',
+      args: ['last_updated', { ascending: false }],
+    });
+  });
+
+  it('applies the default limit of 20', async () => {
+    const { supabase, invQuery } = createSupabaseForInventoryList({});
+    await listInventory(supabase, 'user-xyz', {});
+    expect(invQuery.calls).toContainEqual({ method: 'limit', args: [20] });
+  });
+
+  it('applies a custom limit', async () => {
+    const { supabase, invQuery } = createSupabaseForInventoryList({});
+    await listInventory(supabase, 'user-xyz', { limit: 5 });
+    expect(invQuery.calls).toContainEqual({ method: 'limit', args: [5] });
+  });
+
+  it('returns the inventory rows from the query result', async () => {
+    const mockItem = { id: 1, catalog_id: 128, stocked: true };
+    const { supabase } = createSupabaseForInventoryList({ inventoryResult: [mockItem] });
+    const result = await listInventory(supabase, 'user-xyz', {});
+    expect(result).toEqual([mockItem]);
+  });
+
+  it('returns empty array when no items match', async () => {
+    const { supabase } = createSupabaseForInventoryList({ inventoryResult: [] });
+    const result = await listInventory(supabase, 'user-xyz', { catalogId: 999 });
+    expect(result).toEqual([]);
   });
 });
