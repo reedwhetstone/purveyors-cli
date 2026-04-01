@@ -5,7 +5,7 @@ _Status: Strategy Draft_
 
 ## The Idea
 
-Build a standalone CLI (`purveyors-cli` or `pvrs`) that becomes the single interface for all Purveyors data operations. The GenUI chat agent, the web app, external developers, and CI/CD all consume the same CLI. When we add a feature to the CLI, every surface gets it automatically.
+Build a standalone CLI (`purveyors-cli` or `purvey`) that becomes the single interface for all Purveyors data operations. The GenUI chat agent, the web app, external developers, and CI/CD all consume the same CLI. When we add a feature to the CLI, every surface gets it automatically.
 
 **Inspiration:** Google Workspace CLI (`gws`) uses Google's Discovery Service to auto-generate its entire command surface at runtime. When Google adds an API endpoint, `gws` picks it up without code changes. We can apply the same principle: our CLI reads our own API schema and builds commands dynamically.
 
@@ -50,52 +50,52 @@ src/routes/api/                   — 15+ internal endpoints with duplicated que
 - CI/CD can't exercise database operations without the full SvelteKit server running
 - Agent instructions scattered across multiple files
 
-## Proposed Architecture: `pvrs` CLI
+## Proposed Architecture: `purvey` CLI
 
 ### Command Structure
 
 ```
-pvrs auth login                          # OAuth with Supabase
-pvrs auth status                         # Show current session
+purvey auth login                          # OAuth with Supabase
+purvey auth status                         # Show current session
 
-pvrs catalog search --origin Ethiopia --process natural --limit 10
-pvrs catalog get <id>
-pvrs catalog stats                       # Aggregate stats (origins, avg price, etc.)
+purvey catalog search --origin Ethiopia --process natural --limit 10
+purvey catalog get <id>
+purvey catalog stats                       # Aggregate stats (origins, avg price, etc.)
 
-pvrs inventory list --stocked
-pvrs inventory add --catalog-id 123 --qty 5 --cost-per-lb 7.50
-pvrs inventory update <id> --notes "Great lot"
+purvey inventory list --stocked
+purvey inventory add --catalog-id 123 --qty 5 --cost-per-lb 7.50
+purvey inventory update <id> --notes "Great lot"
 
-pvrs roast list --coffee-id 45 --limit 10
-pvrs roast get <id> --include-temps --include-events
-pvrs roast create --coffee-id 45 --batch-name "Ethiopia Guji #3"
-pvrs roast import-artisan <file.alog> --roast-id 67
+purvey roast list --coffee-id 45 --limit 10
+purvey roast get <id> --include-temps --include-events
+purvey roast create --coffee-id 45 --batch-name "Ethiopia Guji #3"
+purvey roast import-artisan <file.alog> --roast-id 67
 
-pvrs sales list --from 2026-01-01
-pvrs sales record --roast-id 67 --oz 12 --price 18 --buyer "Local Cafe"
-pvrs sales profit --period month
+purvey sales list --from 2026-01-01
+purvey sales record --roast-id 67 --oz 12 --price 18 --buyer "Local Cafe"
+purvey sales profit --period month
 
-pvrs tasting get <bean-id> --filter both
-pvrs tasting rate <bean-id> --aroma 8 --body 7 --acidity 6
+purvey tasting get <bean-id> --filter both
+purvey tasting rate <bean-id> --aroma 8 --body 7 --acidity 6
 
-pvrs workspace list
-pvrs workspace summarize <id>
+purvey workspace list
+purvey workspace summarize <id>
 ```
 
 Every command outputs structured JSON by default. Add `--pretty` for human-readable output, `--csv` for spreadsheet export.
 
 ### How It Replaces Current Tools
 
-| Current                           | CLI Equivalent                               |
-| --------------------------------- | -------------------------------------------- |
-| `tools.ts` coffee_catalog_search  | `pvrs catalog search`                        |
-| `tools.ts` green_coffee_inventory | `pvrs inventory list`                        |
-| `tools.ts` roast_profiles         | `pvrs roast list/get`                        |
-| `tools.ts` bean_tasting_notes     | `pvrs tasting get`                           |
-| `tools.ts` add_bean_to_inventory  | `pvrs inventory add`                         |
-| `tools.ts` create_roast_session   | `pvrs roast create`                          |
-| `tools.ts` record_sale            | `pvrs sales record`                          |
-| `/api/catalog-api/` external API  | `pvrs catalog` (same commands, API key auth) |
+| Current                           | CLI Equivalent                                 |
+| --------------------------------- | ---------------------------------------------- |
+| `tools.ts` coffee_catalog_search  | `purvey catalog search`                        |
+| `tools.ts` green_coffee_inventory | `purvey inventory list`                        |
+| `tools.ts` roast_profiles         | `purvey roast list/get`                        |
+| `tools.ts` bean_tasting_notes     | `purvey tasting get`                           |
+| `tools.ts` add_bean_to_inventory  | `purvey inventory add`                         |
+| `tools.ts` create_roast_session   | `purvey roast create`                          |
+| `tools.ts` record_sale            | `purvey sales record`                          |
+| `/api/catalog-api/` external API  | `purvey catalog` (same commands, API key auth) |
 
 ### GenUI Integration
 
@@ -114,7 +114,7 @@ coffee_catalog_search: tool({
 coffee_catalog_search: tool({
   inputSchema: z.object({ origin: z.string(), ... }),
   execute: async (input) => {
-    return execCli('pvrs catalog search', input);
+    return execCli('purvey catalog search', input);
   }
 })
 ```
@@ -124,7 +124,7 @@ Or even better: auto-generate tool definitions from CLI `--help` output, just li
 ### The Flywheel You're Describing
 
 1. **Build CLI command** → test it with the dev Supabase account
-2. **CLI tests become integration tests** → `pvrs catalog search --origin Ethiopia` runs against the real DB
+2. **CLI tests become integration tests** → `purvey catalog search --origin Ethiopia` runs against the real DB
 3. **Agent gets the capability automatically** → tool definition wraps the CLI call
 4. **External API gets it too** → same CLI, different auth flag (`--api-key`)
 5. **CI exercises everything** → CLI tests validate the full stack without a browser
@@ -179,25 +179,25 @@ The real value of the CLI isn't speed; it's the unified interface pattern. A 500
 - New repo: `reedwhetstone/purveyors-cli`
 - TypeScript + Commander.js (or oclif for auto-generated help)
 - Supabase client with env-based auth
-- `pvrs auth login/status` commands
+- `purvey auth login/status` commands
 - JSON output by default, `--pretty` flag
 - Basic CI: lint + type check
 
 ### Phase 1: Read Commands (2-3 days)
 
-- `pvrs catalog search/get/stats`
-- `pvrs inventory list`
-- `pvrs roast list/get`
-- `pvrs tasting get`
+- `purvey catalog search/get/stats`
+- `purvey inventory list`
+- `purvey roast list/get`
+- `purvey tasting get`
 - Integration tests against dev Supabase
 - Publish to npm as `@purveyors/cli`
 
 ### Phase 2: Write Commands (2-3 days)
 
-- `pvrs inventory add/update`
-- `pvrs roast create/import-artisan`
-- `pvrs sales record`
-- `pvrs tasting rate`
+- `purvey inventory add/update`
+- `purvey roast create/import-artisan`
+- `purvey sales record`
+- `purvey tasting rate`
 - Confirmation prompts for destructive operations
 
 ### Phase 3: GenUI Integration (2-3 days)
@@ -209,15 +209,15 @@ The real value of the CLI isn't speed; it's the unified interface pattern. A 500
 
 ### Phase 4: External API Convergence (1-2 days)
 
-- `pvrs --api-key <key>` flag for external auth
+- `purvey --api-key <key>` flag for external auth
 - Deprecate `/api/catalog-api/` in favor of CLI commands
-- SDK generation: `pvrs sdk generate --language typescript`
+- SDK generation: `purvey sdk generate --language typescript`
 
 ### Phase 5: Discovery-Based Expansion (ongoing)
 
 - CLI reads an OpenAPI/schema file to build commands dynamically
 - Adding a new Supabase table + schema entry auto-generates CLI commands
-- `pvrs generate-skills` rebuilds agent skill files from the schema
+- `purvey generate-skills` rebuilds agent skill files from the schema
 - New features propagate to CLI → agent → web app automatically
 
 ## What This Means for the Product
@@ -245,7 +245,7 @@ The real value of the CLI isn't speed; it's the unified interface pattern. A 500
 
 5. **Don't deprecate REST API; generate both surfaces from same schema.** CLI and API are two transports for the same data functions. `purvey catalog search --origin Ethiopia` and `GET /api/v1/catalog?origin=Ethiopia` resolve to the same function. One schema, two surfaces. Enterprise customers get both.
 
-6. **CLI command name:** `purvey` (renamed from `prvrs` during PR #8, Mar 15)
+6. **CLI command name:** `purvey` (renamed from `purvey` during PR #8, Mar 15)
 
 7. **Language:** TypeScript. Type sharing with SvelteKit app is too valuable. Performance difference irrelevant when Supabase round-trips dominate.
 
