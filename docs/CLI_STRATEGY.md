@@ -12,18 +12,23 @@ Build a standalone CLI (`purveyors-cli` or `pvrs`) that becomes the single inter
 ## What Google Workspace CLI Gets Right
 
 ### 1. Single AGENTS.md as Source of Truth
+
 All agent instructions route through one file. Contributors, AI agents, and CI all follow the same rules. No scattered CLAUDE.md, COPILOT.md, .cursorrules, etc.
 
 ### 2. CLI-First Agent Architecture
+
 Instead of defining tools in multiple places (Vercel AI SDK tool definitions in `tools.ts`, Zod schemas, endpoint handlers), they expose one CLI binary. The agent's "tools" are just CLI commands with structured JSON output. Adding a feature to the CLI automatically gives the agent a new capability.
 
 ### 3. Dynamic Command Surface from Discovery
+
 `gws` doesn't hardcode commands. It fetches Google's Discovery JSON at runtime and builds a `clap` command tree dynamically. When a new API method appears, the CLI gets it for free. No code change, no deployment.
 
 ### 4. Auto-Generated Skills
+
 Skills (SKILL.md files) are generated from the same Discovery metadata. Each API surface gets a skill file that teaches AI agents how to use it. The `generate-skills` command rebuilds all skill files when the API changes.
 
 ### 5. Rust for Speed, npm for Distribution
+
 Built in Rust for instant startup and low overhead. Distributed via npm with pre-built native binaries. No Rust toolchain required for users.
 
 ## Current Purveyors Tool Architecture (Problems)
@@ -37,6 +42,7 @@ src/routes/api/                   — 15+ internal endpoints with duplicated que
 ```
 
 **Problems:**
+
 - Tool definitions are tightly coupled to the Vercel AI SDK
 - Adding a new tool means editing `tools.ts` (Zod schema), creating an API endpoint, testing through the chat UI
 - External API (`catalog-api`) duplicates logic from internal endpoints
@@ -80,16 +86,16 @@ Every command outputs structured JSON by default. Add `--pretty` for human-reada
 
 ### How It Replaces Current Tools
 
-| Current | CLI Equivalent |
-|---------|---------------|
-| `tools.ts` coffee_catalog_search | `pvrs catalog search` |
-| `tools.ts` green_coffee_inventory | `pvrs inventory list` |
-| `tools.ts` roast_profiles | `pvrs roast list/get` |
-| `tools.ts` bean_tasting_notes | `pvrs tasting get` |
-| `tools.ts` add_bean_to_inventory | `pvrs inventory add` |
-| `tools.ts` create_roast_session | `pvrs roast create` |
-| `tools.ts` record_sale | `pvrs sales record` |
-| `/api/catalog-api/` external API | `pvrs catalog` (same commands, API key auth) |
+| Current                           | CLI Equivalent                               |
+| --------------------------------- | -------------------------------------------- |
+| `tools.ts` coffee_catalog_search  | `pvrs catalog search`                        |
+| `tools.ts` green_coffee_inventory | `pvrs inventory list`                        |
+| `tools.ts` roast_profiles         | `pvrs roast list/get`                        |
+| `tools.ts` bean_tasting_notes     | `pvrs tasting get`                           |
+| `tools.ts` add_bean_to_inventory  | `pvrs inventory add`                         |
+| `tools.ts` create_roast_session   | `pvrs roast create`                          |
+| `tools.ts` record_sale            | `pvrs sales record`                          |
+| `/api/catalog-api/` external API  | `pvrs catalog` (same commands, API key auth) |
 
 ### GenUI Integration
 
@@ -130,6 +136,7 @@ This solves the CI/CD gap you've been feeling. Right now, testing data operation
 ### Option A: TypeScript (Node.js)
 
 **Pros:**
+
 - Shares types with the SvelteKit app (`database.types.ts`, `coffee.types.ts`)
 - Supabase JS client works natively
 - Faster iteration; same language as the web app
@@ -137,6 +144,7 @@ This solves the CI/CD gap you've been feeling. Right now, testing data operation
 - Easier to contribute to (one language for the whole project)
 
 **Cons:**
+
 - ~500ms cold start (Node.js runtime)
 - Larger binary/install footprint
 - Less "impressive" for open-source perception
@@ -144,6 +152,7 @@ This solves the CI/CD gap you've been feeling. Right now, testing data operation
 ### Option B: Rust
 
 **Pros:**
+
 - Instant startup (<50ms)
 - Single binary, no runtime dependency
 - Google chose Rust for `gws` for this reason
@@ -151,6 +160,7 @@ This solves the CI/CD gap you've been feeling. Right now, testing data operation
 - Can compile to WASM for browser use cases later
 
 **Cons:**
+
 - Supabase has no official Rust client (would use PostgREST HTTP API directly)
 - Can't share types with the SvelteKit app
 - Steeper learning curve; Reed doesn't write Rust currently
@@ -165,6 +175,7 @@ The real value of the CLI isn't speed; it's the unified interface pattern. A 500
 ## Implementation Phases
 
 ### Phase 0: Foundation (1-2 days)
+
 - New repo: `reedwhetstone/purveyors-cli`
 - TypeScript + Commander.js (or oclif for auto-generated help)
 - Supabase client with env-based auth
@@ -173,6 +184,7 @@ The real value of the CLI isn't speed; it's the unified interface pattern. A 500
 - Basic CI: lint + type check
 
 ### Phase 1: Read Commands (2-3 days)
+
 - `pvrs catalog search/get/stats`
 - `pvrs inventory list`
 - `pvrs roast list/get`
@@ -181,6 +193,7 @@ The real value of the CLI isn't speed; it's the unified interface pattern. A 500
 - Publish to npm as `@purveyors/cli`
 
 ### Phase 2: Write Commands (2-3 days)
+
 - `pvrs inventory add/update`
 - `pvrs roast create/import-artisan`
 - `pvrs sales record`
@@ -188,17 +201,20 @@ The real value of the CLI isn't speed; it's the unified interface pattern. A 500
 - Confirmation prompts for destructive operations
 
 ### Phase 3: GenUI Integration (2-3 days)
+
 - Replace `tools.ts` with CLI-backed tool executors
 - Auto-generate tool Zod schemas from CLI `--help` introspection
 - Test: chat agent uses CLI commands instead of direct API calls
 - Verify all existing GenUI functionality still works
 
 ### Phase 4: External API Convergence (1-2 days)
+
 - `pvrs --api-key <key>` flag for external auth
 - Deprecate `/api/catalog-api/` in favor of CLI commands
 - SDK generation: `pvrs sdk generate --language typescript`
 
 ### Phase 5: Discovery-Based Expansion (ongoing)
+
 - CLI reads an OpenAPI/schema file to build commands dynamically
 - Adding a new Supabase table + schema entry auto-generates CLI commands
 - `pvrs generate-skills` rebuilds agent skill files from the schema
