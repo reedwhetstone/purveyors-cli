@@ -12,7 +12,7 @@ import {
   updateInventory,
   deleteInventory,
 } from '../lib/inventory.js';
-import type { InventoryItem } from '../lib/inventory.js';
+import type { InventoryItem, DeleteInventoryResult } from '../lib/inventory.js';
 import { pickCatalogItem, guardCancel } from '../lib/interactive/forms.js';
 import type { OutputOptions } from '../types/index.js';
 
@@ -356,22 +356,29 @@ Notes:
     .command('delete <id>')
     .description('Delete an inventory item (must be yours)')
     .option('-y, --yes', 'Skip confirmation prompt')
+    .option('-f, --force', 'Cascade delete dependent roast profiles and sales records')
     .addHelpText(
       'after',
       `
 Examples:
-  purvey inventory delete 7           # prompts for confirmation
-  purvey inventory delete 7 --yes     # skip confirmation (use in scripts)
+  purvey inventory delete 7             # prompts for confirmation
+  purvey inventory delete 7 --yes       # skip confirmation (use in scripts)
+  purvey inventory delete 7 --force     # cascade delete dependents, prompts for confirmation
+  purvey inventory delete 7 --force --yes  # cascade delete, no prompt (agent/script use)
 
 Notes:
   Permanently deletes the inventory row. Cannot be undone.
+  If the item has dependent roast profiles or sales records, the command will
+  fail with a DEPENDENCY_CONFLICT error unless --force is passed.
+  With --force, all dependent sales and roast profiles are deleted first, then
+  the inventory item is removed. A summary of what was deleted is shown.
   Row-level security: only items belonging to you can be deleted.
   Requires authentication (member role).
 `
     )
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
-        void cmd;
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
         const { supabase, userId } = await requireAuth('member');
 
         const itemId = parseInt(id, 10);
@@ -379,7 +386,19 @@ Notes:
           throw new PrvrsError('INVALID_ARGUMENT', `Invalid inventory ID: "${id}".`);
         }
 
-        if (!opts.yes) {
+        const force = Boolean(opts.force);
+
+        // When --force is requested, show a pre-delete dependency summary if
+        // the user hasn't suppressed prompts via --yes.
+        if (force && !opts.yes) {
+          const ok = await confirm(
+            `Delete inventory item ${itemId} and all its dependent roast profiles and sales records?`
+          );
+          if (!ok) {
+            info('Aborted.');
+            return;
+          }
+        } else if (!opts.yes) {
           const ok = await confirm(`Delete inventory item ${itemId}?`);
           if (!ok) {
             info('Aborted.');
@@ -387,8 +406,26 @@ Notes:
           }
         }
 
-        await deleteInventory(supabase, userId, itemId);
-        success(`Inventory item ${itemId} deleted.`);
+        const result: DeleteInventoryResult = await deleteInventory(supabase, userId, itemId, {
+          force,
+        });
+
+        if (force && (result.deletedRoasts > 0 || result.deletedSales > 0)) {
+          const parts: string[] = [];
+          if (result.deletedRoasts > 0)
+            parts.push(
+              `${result.deletedRoasts} roast profile${result.deletedRoasts === 1 ? '' : 's'}`
+            );
+          if (result.deletedSales > 0)
+            parts.push(`${result.deletedSales} sale record${result.deletedSales === 1 ? '' : 's'}`);
+          success(`Inventory item ${itemId} deleted (also removed: ${parts.join(', ')}).`);
+        } else {
+          success(`Inventory item ${itemId} deleted.`);
+        }
+
+        if (globalOpts.json || globalOpts.pretty) {
+          outputData(result, globalOpts);
+        }
       })
     );
 

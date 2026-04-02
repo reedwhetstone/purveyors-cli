@@ -117,6 +117,16 @@ export const deleteInventorySchema = z.object({
 
 export type DeleteInventoryInput = z.input<typeof deleteInventorySchema>;
 
+export interface DeleteInventoryResult {
+  deletedInventoryId: number;
+  deletedRoasts: number;
+  deletedSales: number;
+}
+
+export interface DeleteInventoryOptions {
+  force?: boolean;
+}
+
 // ─── Pure lib functions ───────────────────────────────────────────────────────
 
 /**
@@ -298,12 +308,22 @@ export async function updateInventory(
 
 /**
  * Delete an inventory item (must belong to userId).
+ *
+ * By default, throws DEPENDENCY_CONFLICT if the item has dependent roast
+ * profiles or sales records, listing the counts and instructing the user
+ * to delete them first or re-run with `force: true`.
+ *
+ * When `opts.force` is true, all dependent sales and roast profiles are
+ * deleted first (user-scoped), then the inventory item is removed.
+ *
+ * Returns counts of what was removed so the caller can surface a summary.
  */
 export async function deleteInventory(
   supabase: SupabaseClient,
   userId: string,
-  id: number
-): Promise<void> {
+  id: number,
+  opts?: DeleteInventoryOptions
+): Promise<DeleteInventoryResult> {
   deleteInventorySchema.parse({ id });
 
   // Verify ownership
@@ -318,6 +338,60 @@ export async function deleteInventory(
     throw new AuthError(`Inventory item ${id} not found or does not belong to you.`);
   }
 
+  // Pre-flight dependency check
+  const { count: roastCount, error: roastCountErr } = await supabase
+    .from('roast_profiles')
+    .select('roast_id', { count: 'exact', head: true })
+    .eq('coffee_id', id)
+    .eq('user', userId);
+
+  if (roastCountErr) throw roastCountErr;
+
+  const { count: salesCount, error: salesCountErr } = await supabase
+    .from('sales')
+    .select('id', { count: 'exact', head: true })
+    .eq('green_coffee_inv_id', id)
+    .eq('user', userId);
+
+  if (salesCountErr) throw salesCountErr;
+
+  const dependentRoasts = roastCount ?? 0;
+  const dependentSales = salesCount ?? 0;
+
+  if (dependentRoasts > 0 || dependentSales > 0) {
+    if (!opts?.force) {
+      const parts: string[] = [];
+      if (dependentRoasts > 0)
+        parts.push(`${dependentRoasts} roast profile${dependentRoasts === 1 ? '' : 's'}`);
+      if (dependentSales > 0)
+        parts.push(`${dependentSales} sale record${dependentSales === 1 ? '' : 's'}`);
+      throw new PrvrsError(
+        'DEPENDENCY_CONFLICT',
+        `Cannot delete inventory item ${id} — it has ${parts.join(' and ')}. ` +
+          `Delete them first, or use --force to cascade delete all dependent records.`
+      );
+    }
+
+    // Force path: delete dependents first (sales, then roast profiles), then inventory
+    if (dependentSales > 0) {
+      const { error: delSalesErr } = await supabase
+        .from('sales')
+        .delete()
+        .eq('green_coffee_inv_id', id)
+        .eq('user', userId);
+      if (delSalesErr) throw delSalesErr;
+    }
+
+    if (dependentRoasts > 0) {
+      const { error: delRoastsErr } = await supabase
+        .from('roast_profiles')
+        .delete()
+        .eq('coffee_id', id)
+        .eq('user', userId);
+      if (delRoastsErr) throw delRoastsErr;
+    }
+  }
+
   const { error: deleteError } = await supabase
     .from('green_coffee_inv')
     .delete()
@@ -325,4 +399,10 @@ export async function deleteInventory(
     .eq('user', userId);
 
   if (deleteError) throw deleteError;
+
+  return {
+    deletedInventoryId: id,
+    deletedRoasts: dependentRoasts,
+    deletedSales: dependentSales,
+  };
 }
