@@ -105,7 +105,9 @@ inventory (member)
     --tax-ship <dollars>
     --notes <text>
     --stocked <true|false>
-  delete <inventory_id> [--yes]
+  delete <inventory_id> [--yes] [--force]
+    --force     cascade delete dependent roast profiles and sales records before deleting the item
+                without --force, delete fails with DEPENDENCY_CONFLICT if dependents exist
 
 roast (member)
   list
