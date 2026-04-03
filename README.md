@@ -144,6 +144,9 @@ Operational messages go to stderr, so stdout stays script-friendly.
 - `--supplier <name>` -- filter by supplier/source name (partial match, case-insensitive)
 - `--ids <n,n,...>` -- fetch specific catalog IDs (comma-separated, ignores limit)
 - `--stocked` -- only show currently stocked coffees
+- `--variety <text>` -- filter by coffee variety/cultivar (partial match)
+- `--drying-method <text>` -- filter by drying method (partial match)
+- `--stocked-days <n>` -- only show coffees stocked within N days
 - `--sort <price|price-desc|name|origin|newest>` -- sort results
 - `--offset <n>` -- skip N results for pagination
 - `--limit <n>` -- maximum results to return (default: 10)
@@ -176,6 +179,10 @@ purvey catalog similar 1182 --json | jq '.[0]'
 `inventory list` options:
 
 - `--stocked` -- only show currently stocked beans
+- `--catalog-id <id>` -- filter by catalog ID
+- `--purchase-date-start <YYYY-MM-DD>` -- only show purchases on or after this date
+- `--purchase-date-end <YYYY-MM-DD>` -- only show purchases on or before this date
+- `--origin <country>` -- filter by country of origin (partial match)
 - `--limit <n>` -- maximum results (default: 20)
 
 `inventory add` flags:
@@ -196,6 +203,11 @@ purvey catalog similar 1182 --json | jq '.[0]'
 - `--notes <text>` -- updated notes
 - `--stocked <true|false>` -- mark as stocked or not
 
+`inventory delete <id>` flags:
+
+- `--yes` -- skip confirmation prompt
+- `--force` -- cascade delete dependent roast profiles and sales records (without --force, delete fails with a dependency conflict error if dependents exist)
+
 Examples:
 
 ```bash
@@ -204,6 +216,7 @@ purvey inventory add --catalog-id 128 --qty 10 --cost 8.50
 purvey inventory add --catalog-id 42 --qty 5 --cost 6.25 --tax-ship 4.00
 purvey inventory update 7 --stocked false
 purvey inventory delete 7 --yes
+purvey inventory delete 7 --yes --force
 ```
 
 ### roast
@@ -219,6 +232,7 @@ purvey inventory delete 7 --yes
 `roast list` filters:
 
 - `--coffee-id <id>` -- filter by inventory item ID (green_coffee_inv.id)
+- `--coffee-name <text>` -- filter by coffee name (partial match, case-insensitive)
 - `--roast-id <id>` -- filter by exact roast profile ID
 - `--batch-name <text>` -- filter by batch name (partial match, case-insensitive)
 - `--date-start <YYYY-MM-DD>` -- only show roasts on or after this date
@@ -285,6 +299,14 @@ purvey roast watch ~/artisan/ --auto-match
 - `purvey sales update <id>`
 - `purvey sales delete <id>`
 
+`sales list` options:
+
+- `--roast-id <id>` -- filter by roast profile ID
+- `--date-start <YYYY-MM-DD>` -- only show sales on or after this date
+- `--date-end <YYYY-MM-DD>` -- only show sales on or before this date
+- `--buyer <name>` -- filter by buyer name (partial match, case-insensitive)
+- `--limit <n>` -- maximum results (default: 20)
+
 `sales record` flags:
 
 - `--roast-id <id>` -- [REQUIRED] roast_data.roast_id
@@ -304,8 +326,10 @@ purvey roast watch ~/artisan/ --auto-match
 Examples:
 
 ```bash
-purvey sales record --roast-id 123 --oz 12 --price 22.00 --buyer "Jane Smith"
 purvey sales list --pretty
+purvey sales list --roast-id 123 --pretty
+purvey sales list --buyer "Jane" --date-start 2026-01-01
+purvey sales record --roast-id 123 --oz 12 --price 22.00 --buyer "Jane Smith"
 purvey sales update 5 --price 24.00
 purvey sales delete 5 --yes
 ```
