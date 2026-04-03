@@ -50,7 +50,7 @@ None.
 
 **2. `--force` confirmation prompt does not show actual dependency counts**
 
-- **Evidence:** `src/commands/inventory.ts` line 393: `confirm('Delete inventory item ${itemId} and all its dependent roast profiles and sales records?')`. This is a generic message. The implementation plan (line 59-63) specifies a summary like "This will also delete: 3 roast profiles, 2 sale records". The actual counts are only known after the lib function's pre-flight check runs, but the confirmation prompt fires *before* `deleteInventory()` is called.
+- **Evidence:** `src/commands/inventory.ts` line 393: `confirm('Delete inventory item ${itemId} and all its dependent roast profiles and sales records?')`. This is a generic message. The implementation plan (line 59-63) specifies a summary like "This will also delete: 3 roast profiles, 2 sale records". The actual counts are only known after the lib function's pre-flight check runs, but the confirmation prompt fires _before_ `deleteInventory()` is called.
 - **Impact:** Users see "all its dependent roast profiles and sales records" without knowing there are 3 of one and 2 of the other. Lower-fidelity UX than the plan specified. The lib layer has the counts; the command layer prompts before calling the lib.
 - **Correction:** Either:
   - (a) Extract the count-checking logic into a separate exported function (e.g., `checkInventoryDependencies(supabase, userId, id)`) that the command layer calls before prompting, then passes the result into `deleteInventory()` to avoid double-querying. This is the clean approach.
@@ -95,15 +95,15 @@ None.
 
 ## Assumptions Review
 
-| # | Assumption | Validity | Why | Action |
-|---|-----------|----------|-----|--------|
-| 1 | `roast_profiles.coffee_id` references `green_coffee_inv.id` | **Valid** | Plan doc confirms FK, and the pre-existing code already referenced this relationship | None |
-| 2 | `sales.green_coffee_inv_id` references `green_coffee_inv.id` | **Valid** | Same confirmation via plan doc and schema knowledge | None |
-| 3 | `roast_temperatures` and `roast_events` cascade on roast profile delete | **Valid** | Plan doc Q1 confirms `ON DELETE CASCADE` on these child tables | None |
-| 4 | User-scoped `.eq('user', userId)` on sales and roast_profiles is correct | **Valid** | Matches the existing RLS pattern used throughout the codebase (see `updateInventory`, `getInventory`) | None |
-| 5 | Count queries with `{ count: 'exact', head: true }` return accurate counts | **Valid** | Standard Supabase pattern for counting without fetching rows | None |
-| 6 | No other tables reference `green_coffee_inv.id` beyond roasts and sales | **Weak** | The code only checks two FK relationships. If a future table (e.g., `blends`, `cupping_sessions`) references this ID, the pre-flight check will miss it and the raw PG error will resurface | Document the assumption; revisit if schema evolves |
-| 7 | `--force` without `--yes` always has a TTY for the confirmation prompt | **Valid** | The `confirm()` utility from `src/lib/prompts.ts` handles non-TTY gracefully (likely defaults to aborting) | Verify behavior in non-TTY |
+| #   | Assumption                                                                 | Validity  | Why                                                                                                                                                                                         | Action                                             |
+| --- | -------------------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| 1   | `roast_profiles.coffee_id` references `green_coffee_inv.id`                | **Valid** | Plan doc confirms FK, and the pre-existing code already referenced this relationship                                                                                                        | None                                               |
+| 2   | `sales.green_coffee_inv_id` references `green_coffee_inv.id`               | **Valid** | Same confirmation via plan doc and schema knowledge                                                                                                                                         | None                                               |
+| 3   | `roast_temperatures` and `roast_events` cascade on roast profile delete    | **Valid** | Plan doc Q1 confirms `ON DELETE CASCADE` on these child tables                                                                                                                              | None                                               |
+| 4   | User-scoped `.eq('user', userId)` on sales and roast_profiles is correct   | **Valid** | Matches the existing RLS pattern used throughout the codebase (see `updateInventory`, `getInventory`)                                                                                       | None                                               |
+| 5   | Count queries with `{ count: 'exact', head: true }` return accurate counts | **Valid** | Standard Supabase pattern for counting without fetching rows                                                                                                                                | None                                               |
+| 6   | No other tables reference `green_coffee_inv.id` beyond roasts and sales    | **Weak**  | The code only checks two FK relationships. If a future table (e.g., `blends`, `cupping_sessions`) references this ID, the pre-flight check will miss it and the raw PG error will resurface | Document the assumption; revisit if schema evolves |
+| 7   | `--force` without `--yes` always has a TTY for the confirmation prompt     | **Valid** | The `confirm()` utility from `src/lib/prompts.ts` handles non-TTY gracefully (likely defaults to aborting)                                                                                  | Verify behavior in non-TTY                         |
 
 ## Tech Debt Notes
 
@@ -156,14 +156,17 @@ Items 1-2 are quick doc edits. Item 3 is optional but strengthens confidence.
 ## Optional Patch Guidance
 
 ### `src/lib/inventory.ts`
+
 - JSDoc for `deleteInventory`: Add a note: "Note: the cascade deletion is sequential (sales, then roasts, then inventory). If a step fails, prior deletions are not rolled back."
 - No code changes required for merge.
 
 ### `notes/implementation-plans/2026-04-02-inventory-delete-dependency-check.md`
+
 - Line 69: Change "one atomic sequence" to "one sequential operation" (accuracy)
 - Acceptance criteria: Either mark the JSON error output criterion as deferred or add a note that it's blocked on the `fatal()` JSON infrastructure ticket
 
 ### `tests/inventory-delete.test.ts`
+
 - Add 2-3 tests for error propagation paths (count query error, cascade delete error)
 - Example for count query error:
   ```ts
