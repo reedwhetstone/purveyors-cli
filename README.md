@@ -144,6 +144,9 @@ Operational messages go to stderr, so stdout stays script-friendly.
 - `--supplier <name>` -- filter by supplier/source name (partial match, case-insensitive)
 - `--ids <n,n,...>` -- fetch specific catalog IDs (comma-separated, ignores limit)
 - `--stocked` -- only show currently stocked coffees
+- `--variety <text>` -- filter by coffee variety/cultivar (partial match)
+- `--drying-method <text>` -- filter by drying method (partial match)
+- `--stocked-days <n>` -- only show coffees stocked within N days
 - `--sort <price|price-desc|name|origin|newest>` -- sort results
 - `--offset <n>` -- skip N results for pagination
 - `--limit <n>` -- maximum results to return (default: 10)
@@ -171,11 +174,15 @@ purvey catalog similar 1182 --json | jq '.[0]'
 - `purvey inventory get <id>`
 - `purvey inventory add`
 - `purvey inventory update <id>`
-- `purvey inventory delete <id>`
+- `purvey inventory delete <id>` (use `--force` to cascade delete dependent roasts and sales)
 
 `inventory list` options:
 
 - `--stocked` -- only show currently stocked beans
+- `--catalog-id <id>` -- filter by catalog ID
+- `--purchase-date-start <YYYY-MM-DD>` -- only show purchases on or after this date
+- `--purchase-date-end <YYYY-MM-DD>` -- only show purchases on or before this date
+- `--origin <country>` -- filter by country of origin (partial match)
 - `--limit <n>` -- maximum results (default: 20)
 
 `inventory add` flags:
@@ -221,6 +228,7 @@ purvey inventory delete 7 --yes
 - `--coffee-id <id>` -- filter by inventory item ID (green_coffee_inv.id)
 - `--roast-id <id>` -- filter by exact roast profile ID
 - `--batch-name <text>` -- filter by batch name (partial match, case-insensitive)
+- `--coffee-name <text>` -- filter by bean name (partial match, case-insensitive)
 - `--date-start <YYYY-MM-DD>` -- only show roasts on or after this date
 - `--date-end <YYYY-MM-DD>` -- only show roasts on or before this date
 - `--stocked` -- only show roasts for currently stocked beans
@@ -284,6 +292,14 @@ purvey roast watch ~/artisan/ --auto-match
 - `purvey sales record`
 - `purvey sales update <id>`
 - `purvey sales delete <id>`
+
+`sales list` filters:
+
+- `--roast-id <id>` -- filter by roast profile ID
+- `--date-start <YYYY-MM-DD>` -- only show sales on or after this date
+- `--date-end <YYYY-MM-DD>` -- only show sales on or before this date
+- `--buyer <name>` -- filter by buyer name (partial match, case-insensitive)
+- `--limit <n>` -- maximum results (default: 20)
 
 `sales record` flags:
 
