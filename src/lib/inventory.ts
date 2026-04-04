@@ -72,6 +72,7 @@ export const INVENTORY_DETAIL_SELECT = [
 export const listInventorySchema = z.object({
   stocked_only: z.boolean().optional().describe('Only show currently stocked beans'),
   limit: z.number().int().min(1).default(20).describe('Maximum results to return'),
+  offset: z.number().int().min(0).optional().describe('Skip N results (for pagination)'),
   catalogId: z.number().int().positive().optional().describe('Filter by catalog ID'),
   purchaseDateStart: z.string().optional().describe('Only show purchases on or after this date'),
   purchaseDateEnd: z.string().optional().describe('Only show purchases on or before this date'),
@@ -169,9 +170,10 @@ export async function listInventory(
     query = query.in('catalog_id', catalogIds);
   }
 
+  const offset = parsed.offset ?? 0;
   const { data, error } = await query
     .order('last_updated', { ascending: false })
-    .limit(parsed.limit);
+    .range(offset, offset + parsed.limit - 1);
 
   if (error) throw error;
 

@@ -50,6 +50,7 @@ export function buildRoastCommand(): Command {
     .option('--stocked', 'Only show roasts for currently stocked beans')
     .option('--catalog-id <id>', 'Filter by coffee_catalog ID')
     .option('--limit <n>', 'Maximum results to return', '20')
+    .option('--offset <n>', 'Skip N results (for pagination)', '0')
     .addHelpText(
       'after',
       `
@@ -64,6 +65,7 @@ Examples:
   purvey roast list --catalog-id 128 --pretty
   purvey roast list --limit 5 | jq '.[].roast_id'
   purvey roast list --csv > roasts.csv
+  purvey roast list --limit 20 --offset 20   # page 2
 
 Notes:
   --coffee-id filters by inventory item (green_coffee_inv.id), not catalog_id.
@@ -73,6 +75,7 @@ Notes:
   --coffee-name accepts partial matches on the bean name (case-insensitive).
   --date-start and --date-end accept YYYY-MM-DD format; use together for a range.
   --stocked only returns roasts for beans currently marked as stocked in inventory.
+  --offset + --limit enables pagination through large result sets.
   Returns roast_id, batch_name, roast_date, oz_in, oz_out, and bean details.
   Requires authentication (member role).
 `
@@ -121,6 +124,7 @@ Notes:
           }
         }
 
+        const offsetVal = parseInt(opts.offset as string, 10);
         const data = await listRoasts(supabase, userId, {
           coffee_id:
             opts.coffeeId !== undefined ? parseInt(opts.coffeeId as string, 10) : undefined,
@@ -132,6 +136,7 @@ Notes:
           stocked_only: opts.stocked === true ? true : undefined,
           catalog_id: catalogId,
           limit: Math.max(1, parseInt(opts.limit as string, 10)),
+          offset: isNaN(offsetVal) || offsetVal < 0 ? 0 : offsetVal,
         });
 
         if (data.length === 0) {

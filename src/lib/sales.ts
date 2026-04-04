@@ -25,6 +25,7 @@ export const SALE_SELECT =
 
 export const listSalesSchema = z.object({
   limit: z.number().int().min(1).default(20),
+  offset: z.number().int().min(0).optional(),
   roastId: z.number().int().positive().optional(),
   dateStart: z.string().optional(),
   dateEnd: z.string().optional(),
@@ -96,7 +97,10 @@ export async function listSales(
     query = query.ilike('buyer', `%${safe}%`);
   }
 
-  const { data, error } = await query.order('sell_date', { ascending: false }).limit(parsed.limit);
+  const offset = parsed.offset ?? 0;
+  const { data, error } = await query
+    .order('sell_date', { ascending: false })
+    .range(offset, offset + parsed.limit - 1);
 
   if (error) throw error;
 

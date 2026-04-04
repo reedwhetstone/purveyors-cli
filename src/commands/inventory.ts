@@ -38,6 +38,7 @@ export function buildInventoryCommand(): Command {
     .option('--purchase-date-end <YYYY-MM-DD>', 'Only show purchases on or before this date')
     .option('--origin <country>', 'Filter by country of origin (partial match)')
     .option('--limit <n>', 'Maximum results to return', '20')
+    .option('--offset <n>', 'Skip N results (for pagination)', '0')
     .addHelpText(
       'after',
       `
@@ -50,11 +51,13 @@ Examples:
   purvey inventory list --stocked --origin Colombia --limit 10
   purvey inventory list --limit 50 | jq '.[].id'
   purvey inventory list --csv > inventory.csv
+  purvey inventory list --limit 20 --offset 20   # page 2
 
 Notes:
   Returns your green_coffee_inv rows joined with catalog details.
   The "id" field in each row is your inventory ID (used for roast --coffee-id,
   tasting rate, etc.) — distinct from catalog_id.
+  --offset + --limit enables pagination through large result sets.
   Requires authentication (member role).
 `
     )
@@ -71,9 +74,11 @@ Notes:
           }
         }
 
+        const offsetVal = parseInt(opts.offset as string, 10);
         const data = await listInventory(supabase, userId, {
           stocked_only: opts.stocked ? true : undefined,
           limit: Math.max(1, parseInt(opts.limit as string, 10)),
+          offset: isNaN(offsetVal) || offsetVal < 0 ? 0 : offsetVal,
           catalogId,
           purchaseDateStart: opts.purchaseDateStart as string | undefined,
           purchaseDateEnd: opts.purchaseDateEnd as string | undefined,

@@ -121,6 +121,42 @@ describe('listInventorySchema', () => {
     expect(parsed.catalogId).toBe(128);
     expect(parsed.origin).toBe('Kenya');
   });
+
+  it('offset defaults to undefined when omitted', () => {
+    const parsed = listInventorySchema.parse({});
+    expect(parsed.offset).toBeUndefined();
+  });
+
+  it('accepts offset of 0', () => {
+    const parsed = listInventorySchema.parse({ offset: 0 });
+    expect(parsed.offset).toBe(0);
+  });
+
+  it('accepts positive offset', () => {
+    const parsed = listInventorySchema.parse({ offset: 40 });
+    expect(parsed.offset).toBe(40);
+  });
+
+  it('rejects negative offset', () => {
+    expect(() => listInventorySchema.parse({ offset: -1 })).toThrow();
+  });
+
+  it('rejects non-integer offset', () => {
+    expect(() => listInventorySchema.parse({ offset: 10.5 })).toThrow();
+  });
+
+  it('accepts offset combined with limit and filters', () => {
+    const parsed = listInventorySchema.parse({
+      limit: 10,
+      offset: 30,
+      stocked_only: true,
+      origin: 'Ethiopia',
+    });
+    expect(parsed.limit).toBe(10);
+    expect(parsed.offset).toBe(30);
+    expect(parsed.stocked_only).toBe(true);
+    expect(parsed.origin).toBe('Ethiopia');
+  });
 });
 
 // ─── getInventorySchema ───────────────────────────────────────────────────────

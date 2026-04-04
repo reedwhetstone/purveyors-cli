@@ -31,6 +31,7 @@ export function buildSalesCommand(): Command {
     .option('--date-end <YYYY-MM-DD>', 'Only show sales on or before this date')
     .option('--buyer <name>', 'Filter by buyer name (partial match, case-insensitive)')
     .option('--limit <n>', 'Maximum results to return', '20')
+    .option('--offset <n>', 'Skip N results (for pagination)', '0')
     .addHelpText(
       'after',
       `
@@ -41,11 +42,13 @@ Examples:
   purvey sales list --buyer "Jane" --pretty
   purvey sales list --date-start 2026-01-01 --limit 100 --csv > sales-ytd.csv
   purvey sales list --limit 50 | jq '.[].id'
+  purvey sales list --limit 20 --offset 20   # page 2
 
 Notes:
   Returns sale records with roast_id, oz, price, buyer, and sell_date.
   --date-start and --date-end accept YYYY-MM-DD; use together for a date range.
   --buyer accepts partial matches (case-insensitive).
+  --offset + --limit enables pagination through large result sets.
   All filters are optional and composable.
   Requires authentication (member role).
 `
@@ -66,8 +69,10 @@ Notes:
           }
         }
 
+        const offsetVal = parseInt(opts.offset as string, 10);
         const data = await listSales(supabase, userId, {
           limit: Math.max(1, parseInt(opts.limit as string, 10)),
+          offset: isNaN(offsetVal) || offsetVal < 0 ? 0 : offsetVal,
           roastId,
           dateStart: opts.dateStart as string | undefined,
           dateEnd: opts.dateEnd as string | undefined,

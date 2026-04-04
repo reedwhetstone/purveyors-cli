@@ -90,6 +90,7 @@ inventory (member)
     --purchase-date-end <YYYY-MM-DD>
     --origin <country>
     --limit <n>
+    --offset <n>
   get <inventory_id>
   add
     --catalog-id <id>     required in flag mode
@@ -120,6 +121,7 @@ roast (member)
     --stocked
     --catalog-id <catalog_id>
     --limit <n>
+    --offset <n>
   get <roast_id>
     --include-temps
     --include-events
@@ -158,6 +160,7 @@ sales (member)
     --date-end <YYYY-MM-DD>
     --buyer <name>
     --limit <n>
+    --offset <n>
   record
     --roast-id <roast_id>   required in flag mode
     --oz <amount>           required in flag mode

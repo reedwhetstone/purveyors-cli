@@ -66,21 +66,42 @@ describe('listSalesSchema', () => {
     expect(parsed.dateStart).toBeUndefined();
     expect(parsed.dateEnd).toBeUndefined();
     expect(parsed.buyer).toBeUndefined();
+    expect(parsed.offset).toBeUndefined();
   });
 
-  it('accepts all filters together', () => {
+  it('accepts offset of 0', () => {
+    const parsed = listSalesSchema.parse({ offset: 0 });
+    expect(parsed.offset).toBe(0);
+  });
+
+  it('accepts positive offset', () => {
+    const parsed = listSalesSchema.parse({ offset: 20 });
+    expect(parsed.offset).toBe(20);
+  });
+
+  it('rejects negative offset', () => {
+    expect(() => listSalesSchema.parse({ offset: -1 })).toThrow();
+  });
+
+  it('rejects non-integer offset', () => {
+    expect(() => listSalesSchema.parse({ offset: 5.5 })).toThrow();
+  });
+
+  it('accepts all filters together including offset', () => {
     const parsed = listSalesSchema.parse({
       roastId: 42,
       dateStart: '2026-01-01',
       dateEnd: '2026-03-31',
       buyer: 'Alice',
       limit: 50,
+      offset: 100,
     });
     expect(parsed.roastId).toBe(42);
     expect(parsed.dateStart).toBe('2026-01-01');
     expect(parsed.dateEnd).toBe('2026-03-31');
     expect(parsed.buyer).toBe('Alice');
     expect(parsed.limit).toBe(50);
+    expect(parsed.offset).toBe(100);
   });
 });
 
