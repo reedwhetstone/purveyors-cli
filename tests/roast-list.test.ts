@@ -196,6 +196,50 @@ describe('listRoastsSchema', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  // ── offset ────────────────────────────────────────────────────────────────
+
+  it('offset defaults to undefined when omitted', () => {
+    const result = listRoastsSchema.safeParse({});
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.offset).toBeUndefined();
+  });
+
+  it('accepts offset of 0', () => {
+    const result = listRoastsSchema.safeParse({ offset: 0 });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.offset).toBe(0);
+  });
+
+  it('accepts positive offset', () => {
+    const result = listRoastsSchema.safeParse({ offset: 20 });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.offset).toBe(20);
+  });
+
+  it('rejects negative offset', () => {
+    expect(listRoastsSchema.safeParse({ offset: -1 }).success).toBe(false);
+  });
+
+  it('rejects non-integer offset', () => {
+    expect(listRoastsSchema.safeParse({ offset: 5.5 }).success).toBe(false);
+  });
+
+  it('accepts offset combined with limit and filters', () => {
+    const result = listRoastsSchema.safeParse({
+      limit: 10,
+      offset: 20,
+      stocked_only: true,
+      coffee_name: 'Ethiopia',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.limit).toBe(10);
+      expect(result.data.offset).toBe(20);
+      expect(result.data.stocked_only).toBe(true);
+      expect(result.data.coffee_name).toBe('Ethiopia');
+    }
+  });
 });
 
 type QueryCall = {
@@ -230,6 +274,10 @@ function createRoastProfilesQuery(result: unknown[]) {
     order(field: string, options: unknown) {
       calls.push({ method: 'order', args: [field, options] });
       return query;
+    },
+    range(from: number, to: number) {
+      calls.push({ method: 'range', args: [from, to] });
+      return Promise.resolve({ data: result, error: null });
     },
     limit(limitValue: number) {
       calls.push({ method: 'limit', args: [limitValue] });
@@ -276,7 +324,7 @@ describe('listRoasts', () => {
       method: 'order',
       args: ['roast_date', { ascending: false }],
     });
-    expect(roastProfiles.calls).toContainEqual({ method: 'limit', args: [1] });
+    expect(roastProfiles.calls).toContainEqual({ method: 'range', args: [0, 0] });
   });
 
   it('returns an empty array when roast_id matches no roast', async () => {

@@ -104,6 +104,7 @@ export const listRoastsSchema = z.object({
     .optional()
     .describe('Filter by coffee_catalog ID (cross-reference from catalog search)'),
   limit: z.number().int().min(1).default(20).describe('Maximum results to return'),
+  offset: z.number().int().min(0).optional().describe('Skip N results (for pagination)'),
 });
 
 export type ListRoastsInput = z.input<typeof listRoastsSchema>;
@@ -215,7 +216,10 @@ export async function listRoasts(
     query = query.in('coffee_id', invIds);
   }
 
-  const { data, error } = await query.order('roast_date', { ascending: false }).limit(parsed.limit);
+  const offset = parsed.offset ?? 0;
+  const { data, error } = await query
+    .order('roast_date', { ascending: false })
+    .range(offset, offset + parsed.limit - 1);
 
   if (error) throw error;
 
