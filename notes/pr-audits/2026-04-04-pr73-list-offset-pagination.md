@@ -28,6 +28,7 @@
 ### 1) Intent Coverage - PASS
 
 All deliverables are present:
+
 - Schema fields: `offset` added to `listInventorySchema`, `listRoastsSchema`, `listSalesSchema`
 - Command wiring: `--offset <n>` option added to all three `list` subcommands in `inventory.ts`, `roast.ts`, `sales.ts`
 - Lib functions: `.limit()` replaced with `.range()` in all three
@@ -40,6 +41,7 @@ All deliverables are present:
 **Happy path:** `.range(offset, offset + limit - 1)` is the correct Supabase API for offset-based pagination. When offset is 0 (default), `.range(0, limit - 1)` returns the same rows as `.limit(limit)`.
 
 **Edge cases handled:**
+
 - NaN offset: Command layer uses `isNaN(offsetVal) || offsetVal < 0 ? 0 : offsetVal` in all three commands
 - Negative offset: Guarded at command layer (falls back to 0) AND at schema layer (`z.number().int().min(0)`)
 - Non-integer offset: Rejected by Zod schema (`z.number().int()`)
@@ -76,6 +78,7 @@ All deliverables are present:
 **All 367 tests pass (verified in this audit).**
 
 16 new schema validation tests:
+
 - `inventory.test.ts`: 6 tests (defaults undefined, accepts 0, accepts positive, rejects negative, rejects non-integer, combined with filters)
 - `roast-list.test.ts`: 6 tests (same pattern, using `safeParse` style consistent with existing roast tests)
 - `sales.test.ts`: 4 tests (accepts 0, accepts positive, rejects negative, rejects non-integer) + modifications to 2 existing tests (defaults check, "all filters" test updated to include offset)
@@ -124,16 +127,19 @@ None.
 #### P2-2: Sales schema `offset` field lacks `.describe()` annotation
 
 **Evidence:** In `src/lib/sales.ts` line 30, the offset field is defined as:
+
 ```typescript
 offset: z.number().int().min(0).optional(),
 ```
 
 Compare with `src/lib/inventory.ts` line 75:
+
 ```typescript
 offset: z.number().int().min(0).optional().describe('Skip N results (for pagination)'),
 ```
 
 And `src/lib/roast.ts` line 97:
+
 ```typescript
 offset: z.number().int().min(0).optional().describe('Skip N results (for pagination)'),
 ```
@@ -166,13 +172,13 @@ The schema layer uses `.optional()`, meaning the "natural" default is `undefined
 
 ## Assumptions Review
 
-| Assumption | Validity | Why | Action |
-|---|---|---|---|
-| `.range(0, limit-1)` is equivalent to `.limit(limit)` in Supabase | **Valid** | Both return the first `limit` rows. Supabase documentation confirms `.range()` uses 0-based inclusive bounds. | None |
-| Commander default `'0'` string is always parseable by `parseInt` | **Valid** | `parseInt('0', 10)` always returns `0`. The guard `isNaN(offsetVal)` handles any CLI edge cases. | None |
-| `.range()` works correctly with Supabase RLS policies | **Valid** | `.range()` applies after all filters, including RLS. The range is applied to the filtered result set, not the raw table. | None |
-| Offset beyond total result count returns empty array | **Valid** | Supabase `.range()` returns empty `data: []` when offset exceeds available rows, with no error. This matches the existing "No items found" handling in all three commands. | None |
-| `offset ?? 0` in lib layer handles both `undefined` and explicit `0` | **Valid** | Nullish coalescing treats `undefined` as the only fallback case; explicit `0` passes through correctly. | None |
+| Assumption                                                           | Validity  | Why                                                                                                                                                                        | Action |
+| -------------------------------------------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `.range(0, limit-1)` is equivalent to `.limit(limit)` in Supabase    | **Valid** | Both return the first `limit` rows. Supabase documentation confirms `.range()` uses 0-based inclusive bounds.                                                              | None   |
+| Commander default `'0'` string is always parseable by `parseInt`     | **Valid** | `parseInt('0', 10)` always returns `0`. The guard `isNaN(offsetVal)` handles any CLI edge cases.                                                                           | None   |
+| `.range()` works correctly with Supabase RLS policies                | **Valid** | `.range()` applies after all filters, including RLS. The range is applied to the filtered result set, not the raw table.                                                   | None   |
+| Offset beyond total result count returns empty array                 | **Valid** | Supabase `.range()` returns empty `data: []` when offset exceeds available rows, with no error. This matches the existing "No items found" handling in all three commands. | None   |
+| `offset ?? 0` in lib layer handles both `undefined` and explicit `0` | **Valid** | Nullish coalescing treats `undefined` as the only fallback case; explicit `0` passes through correctly.                                                                    | None   |
 
 ## Tech Debt Notes
 
@@ -205,5 +211,6 @@ The schema layer uses `.optional()`, meaning the "natural" default is `undefined
 No corrections required before merge. This PR is clean.
 
 Optional improvements for a follow-up:
+
 1. Add query-builder mock tests for inventory and sales offset (P2-1)
 2. Add `.describe()` to sales offset schema field (P2-2)

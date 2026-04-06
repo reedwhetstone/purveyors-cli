@@ -40,7 +40,7 @@ None.
   match_threshold: parsed.threshold ?? 0.7,
   match_count: parsed.limit ?? 10,
   ```
-  After `findSimilarBeansSchema.parse(input)`, `parsed.threshold` and `parsed.limit` will **never** be `undefined` because the Zod chain `.default(X).optional()` applies the default on omitted/undefined inputs *before* the optional wrapper. The `?? 0.7` and `?? 10` are unreachable dead code.
+  After `findSimilarBeansSchema.parse(input)`, `parsed.threshold` and `parsed.limit` will **never** be `undefined` because the Zod chain `.default(X).optional()` applies the default on omitted/undefined inputs _before_ the optional wrapper. The `?? 0.7` and `?? 10` are unreachable dead code.
 - **Impact:** No behavioral impact (the dead fallbacks produce the same values as the defaults). However, the code is misleading: it suggests the schema might not apply defaults, which could cause confusion if someone later changes the schema chain order (e.g., `.optional().default(X)` vs `.default(X).optional()` have different Zod semantics). The tests correctly validate the observable behavior but don't explicitly prove the `??` fallbacks are unreachable.
 - **Correction:** Out of scope for this test-only PR but should be tracked. In `src/lib/catalog.ts`, simplify to:
   ```ts
@@ -55,6 +55,7 @@ None.
 - **Evidence:** The `findSimilarBeans` describe block tests only valid inputs. There is no test confirming that `findSimilarBeans(supabase, { coffee_id: -1 })` throws a Zod error (delegated via `findSimilarBeansSchema.parse()`). The schema tests cover this path independently, so the risk is minimal.
 - **Impact:** Negligible. If someone removed the `parse()` call from the function, the schema tests would still pass, but the function would silently accept invalid input.
 - **Correction:** Optional: add one test to `findSimilarBeans` confirming schema enforcement, e.g.:
+
   ```ts
   it('rejects invalid input via schema validation', async () => {
     const supabase = makeSupabaseRpc({ data: [], error: null });
@@ -69,13 +70,13 @@ None.
 
 ## Assumptions Review
 
-| Assumption | Validity | Why | Action |
-|---|---|---|---|
-| `findSimilarBeansSchema.parse()` always populates threshold/limit due to `.default()` | **Valid** | Verified via Zod runtime: `.default(0.7).optional()` yields `0.7` when omitted. Tested independently. | None |
-| RPC function name is `find_similar_beans_aggregated` | **Valid** | Tests assert this exactly; matches the source in `catalog.ts:320`. | None |
-| RPC params are named `target_coffee_id`, `match_threshold`, `match_count` | **Valid** | Tests assert exact param names via `toHaveBeenCalledWith`. Matches source. | None |
-| `SimilarBean` shape matches RPC output | **Weak** | Fixture matches the TypeScript interface, but no runtime validation of actual RPC output exists. | Pre-existing; no action for this PR. |
-| `makeSupabaseRpc` mock is a faithful representation of SupabaseClient.rpc() | **Valid** | Mock returns `{ data, error }` which matches the Supabase client RPC contract. Cast to `SupabaseClient` limits scope to `.rpc()` only, which is all `findSimilarBeans` uses. | None |
+| Assumption                                                                            | Validity  | Why                                                                                                                                                                          | Action                               |
+| ------------------------------------------------------------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `findSimilarBeansSchema.parse()` always populates threshold/limit due to `.default()` | **Valid** | Verified via Zod runtime: `.default(0.7).optional()` yields `0.7` when omitted. Tested independently.                                                                        | None                                 |
+| RPC function name is `find_similar_beans_aggregated`                                  | **Valid** | Tests assert this exactly; matches the source in `catalog.ts:320`.                                                                                                           | None                                 |
+| RPC params are named `target_coffee_id`, `match_threshold`, `match_count`             | **Valid** | Tests assert exact param names via `toHaveBeenCalledWith`. Matches source.                                                                                                   | None                                 |
+| `SimilarBean` shape matches RPC output                                                | **Weak**  | Fixture matches the TypeScript interface, but no runtime validation of actual RPC output exists.                                                                             | Pre-existing; no action for this PR. |
+| `makeSupabaseRpc` mock is a faithful representation of SupabaseClient.rpc()           | **Valid** | Mock returns `{ data, error }` which matches the Supabase client RPC contract. Cast to `SupabaseClient` limits scope to `.rpc()` only, which is all `findSimilarBeans` uses. | None                                 |
 
 ## Tech Debt Notes
 
@@ -105,12 +106,14 @@ None.
 No corrections required before merge. The PR is clean, test-only, and all 375 tests pass.
 
 **Optional improvements (not blocking):**
+
 1. Add one schema-propagation test to `findSimilarBeans` describe block (P3)
 2. Track removal of dead `??` fallbacks in `findSimilarBeans` source (P2, separate PR)
 
 ## Optional Patch Guidance
 
 No patches needed. For the optional P3 test addition:
+
 - File: `tests/catalog.test.ts`
 - Location: Inside `describe('findSimilarBeans', ...)` block, append after the last `it()`
 - Content: See P3 finding above for the test snippet
