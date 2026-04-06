@@ -11,6 +11,7 @@ import { buildTastingCommand } from './commands/tasting.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { fatal } from './lib/errors.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -110,6 +111,5 @@ program.addCommand(buildTastingCommand());
 
 // Parse and dispatch
 program.parseAsync(process.argv).catch((err: unknown) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
+  fatal(err);
 });

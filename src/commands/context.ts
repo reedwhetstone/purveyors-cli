@@ -44,6 +44,17 @@ User feedback goes to stderr.
 Important exception:
 - auth status prints human-readable output in an interactive TTY unless --json, --pretty, or --csv is passed; otherwise it emits structured output
 
+EXIT CODES
+----------
+Check $? after a command finishes.
+0  success
+1  unexpected or unclassified error
+2  invalid argument / bad input
+3  auth error (not logged in, expired session, wrong role)
+4  not found
+5  dependency conflict (for example delete without --force)
+6  local config error
+
 ID MAP
 ------
 catalog_id      coffee_catalog row; used by catalog get, inventory add --catalog-id, tasting get, roast list --catalog-id
