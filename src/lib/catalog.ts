@@ -269,11 +269,8 @@ export async function searchCatalog(
 
   // Apply offset/limit for pagination (skip when fetching specific IDs)
   if (!parsed.ids || parsed.ids.length === 0) {
-    if (parsed.offset !== undefined && parsed.offset > 0) {
-      query = query.range(parsed.offset, parsed.offset + parsed.limit - 1);
-    } else {
-      query = query.limit(parsed.limit);
-    }
+    const offset = parsed.offset ?? 0;
+    query = query.range(offset, offset + parsed.limit - 1);
   }
 
   const { data, error } = await query;
