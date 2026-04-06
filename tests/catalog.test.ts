@@ -1,10 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   computeCatalogStats,
   searchCatalogSchema,
   sanitizeFilterValue,
+  findSimilarBeansSchema,
+  findSimilarBeans,
 } from '../src/lib/catalog.js';
-import type { CatalogItem } from '../src/lib/catalog.js';
+import type { CatalogItem, SimilarBean } from '../src/lib/catalog.js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 // Minimal factory so tests are readable without full item payloads
 function makeItem(overrides: Partial<CatalogItem> = {}): CatalogItem {
@@ -349,5 +352,176 @@ describe('sanitizeFilterValue', () => {
   it('passes clean strings through unchanged', () => {
     expect(sanitizeFilterValue('Ethiopia Guji')).toBe('Ethiopia Guji');
     expect(sanitizeFilterValue('Royal Coffee')).toBe('Royal Coffee');
+  });
+});
+
+// ─── findSimilarBeansSchema ───────────────────────────────────────────────────
+
+describe('findSimilarBeansSchema', () => {
+  it('requires coffee_id', () => {
+    expect(() => findSimilarBeansSchema.parse({})).toThrow();
+  });
+
+  it('rejects coffee_id of 0', () => {
+    expect(() => findSimilarBeansSchema.parse({ coffee_id: 0 })).toThrow();
+  });
+
+  it('rejects negative coffee_id', () => {
+    expect(() => findSimilarBeansSchema.parse({ coffee_id: -5 })).toThrow();
+  });
+
+  it('rejects float coffee_id', () => {
+    expect(() => findSimilarBeansSchema.parse({ coffee_id: 1.5 })).toThrow();
+  });
+
+  it('accepts a valid positive integer coffee_id', () => {
+    const result = findSimilarBeansSchema.parse({ coffee_id: 42 });
+    expect(result.coffee_id).toBe(42);
+  });
+
+  it('applies default threshold of 0.7 when omitted', () => {
+    const result = findSimilarBeansSchema.parse({ coffee_id: 1 });
+    expect(result.threshold).toBe(0.7);
+  });
+
+  it('accepts threshold of 0 (inclusive lower bound)', () => {
+    const result = findSimilarBeansSchema.parse({ coffee_id: 1, threshold: 0 });
+    expect(result.threshold).toBe(0);
+  });
+
+  it('accepts threshold of 1 (inclusive upper bound)', () => {
+    const result = findSimilarBeansSchema.parse({ coffee_id: 1, threshold: 1 });
+    expect(result.threshold).toBe(1);
+  });
+
+  it('rejects threshold greater than 1', () => {
+    expect(() => findSimilarBeansSchema.parse({ coffee_id: 1, threshold: 1.1 })).toThrow();
+  });
+
+  it('rejects threshold less than 0', () => {
+    expect(() => findSimilarBeansSchema.parse({ coffee_id: 1, threshold: -0.1 })).toThrow();
+  });
+
+  it('applies default limit of 10 when omitted', () => {
+    const result = findSimilarBeansSchema.parse({ coffee_id: 1 });
+    expect(result.limit).toBe(10);
+  });
+
+  it('accepts limit of 1 (minimum)', () => {
+    const result = findSimilarBeansSchema.parse({ coffee_id: 1, limit: 1 });
+    expect(result.limit).toBe(1);
+  });
+
+  it('accepts limit of 50 (maximum)', () => {
+    const result = findSimilarBeansSchema.parse({ coffee_id: 1, limit: 50 });
+    expect(result.limit).toBe(50);
+  });
+
+  it('rejects limit of 0', () => {
+    expect(() => findSimilarBeansSchema.parse({ coffee_id: 1, limit: 0 })).toThrow();
+  });
+
+  it('rejects limit of 51 (exceeds maximum)', () => {
+    expect(() => findSimilarBeansSchema.parse({ coffee_id: 1, limit: 51 })).toThrow();
+  });
+
+  it('rejects non-integer limit', () => {
+    expect(() => findSimilarBeansSchema.parse({ coffee_id: 1, limit: 5.5 })).toThrow();
+  });
+
+  it('only requires coffee_id — threshold and limit are optional', () => {
+    expect(() => findSimilarBeansSchema.parse({ coffee_id: 7 })).not.toThrow();
+  });
+});
+
+// ─── findSimilarBeans (lib function) ─────────────────────────────────────────
+
+function makeSupabaseRpc(response: { data?: unknown; error?: { message: string } | null }) {
+  return {
+    rpc: vi.fn().mockResolvedValue(response),
+  } as unknown as SupabaseClient;
+}
+
+const FIXTURE_BEANS: SimilarBean[] = [
+  {
+    coffee_id: 10,
+    coffee_name: 'Ethiopian Yirgacheffe',
+    source: "Sweet Maria's",
+    origin: 'Ethiopia',
+    processing: 'washed',
+    cost_lb: 8.5,
+    price_per_lb: 8.5,
+    stocked: true,
+    avg_similarity: 0.91,
+    chunk_matches: 3,
+  },
+  {
+    coffee_id: 22,
+    coffee_name: 'Kenya Kirinyaga',
+    source: "Sweet Maria's",
+    origin: 'Kenya',
+    processing: 'washed',
+    cost_lb: 9.0,
+    price_per_lb: 9.0,
+    stocked: true,
+    avg_similarity: 0.85,
+    chunk_matches: 2,
+  },
+];
+
+describe('findSimilarBeans', () => {
+  it('returns SimilarBean[] on successful RPC call', async () => {
+    const supabase = makeSupabaseRpc({ data: FIXTURE_BEANS, error: null });
+    const result = await findSimilarBeans(supabase, { coffee_id: 5 });
+    expect(result).toHaveLength(2);
+    expect(result[0].coffee_id).toBe(10);
+    expect(result[1].coffee_name).toBe('Kenya Kirinyaga');
+  });
+
+  it('returns empty array when RPC returns null', async () => {
+    const supabase = makeSupabaseRpc({ data: null, error: null });
+    const result = await findSimilarBeans(supabase, { coffee_id: 5 });
+    expect(result).toEqual([]);
+  });
+
+  it('returns empty array when RPC returns empty array', async () => {
+    const supabase = makeSupabaseRpc({ data: [], error: null });
+    const result = await findSimilarBeans(supabase, { coffee_id: 5 });
+    expect(result).toEqual([]);
+  });
+
+  it('throws Error with "RPC error:" prefix when RPC returns an error', async () => {
+    const supabase = makeSupabaseRpc({ data: null, error: { message: 'function not found' } });
+    await expect(findSimilarBeans(supabase, { coffee_id: 5 })).rejects.toThrow(
+      'RPC error: function not found'
+    );
+  });
+
+  it('passes target_coffee_id, match_threshold, and match_count to RPC', async () => {
+    const supabase = makeSupabaseRpc({ data: [], error: null });
+    await findSimilarBeans(supabase, { coffee_id: 42, threshold: 0.8, limit: 5 });
+    expect(supabase.rpc as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
+      'find_similar_beans_aggregated',
+      { target_coffee_id: 42, match_threshold: 0.8, match_count: 5 }
+    );
+  });
+
+  it('uses schema defaults (0.7 threshold, 10 limit) when not provided', async () => {
+    const supabase = makeSupabaseRpc({ data: [], error: null });
+    await findSimilarBeans(supabase, { coffee_id: 7 });
+    expect(supabase.rpc as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
+      'find_similar_beans_aggregated',
+      { target_coffee_id: 7, match_threshold: 0.7, match_count: 10 }
+    );
+  });
+
+  it('uses provided threshold and limit when specified', async () => {
+    const supabase = makeSupabaseRpc({ data: FIXTURE_BEANS, error: null });
+    const result = await findSimilarBeans(supabase, { coffee_id: 3, threshold: 0.5, limit: 20 });
+    expect(supabase.rpc as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
+      'find_similar_beans_aggregated',
+      { target_coffee_id: 3, match_threshold: 0.5, match_count: 20 }
+    );
+    expect(result).toHaveLength(2);
   });
 });
