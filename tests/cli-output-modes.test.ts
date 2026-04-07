@@ -19,7 +19,7 @@ describe('CLI output modes', () => {
       maxBuffer: 10 * 1024 * 1024,
     });
 
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(3);
     expect(result.stdout).toContain('{"authenticated":false');
     expect(result.stdout).toContain('Not logged in. Run `purvey auth login` to authenticate.');
   }, 15000);
@@ -37,7 +37,7 @@ describe('CLI output modes', () => {
 
     const output = stripAnsi(`${result.stdout}${result.stderr}`);
 
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(3);
     expect(output).toContain('Not logged in. Run `purvey auth login` to authenticate.');
     expect(output).toContain('⚠');
     expect(output).not.toContain('{"authenticated":false');
@@ -56,7 +56,7 @@ describe('CLI output modes', () => {
 
     const output = stripAnsi(`${result.stdout}${result.stderr}`);
 
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(3);
     expect(output).toContain('{"authenticated":false');
     expect(output).not.toContain('⚠ Not logged in. Run `purvey auth login` to authenticate.');
   }, 15000);

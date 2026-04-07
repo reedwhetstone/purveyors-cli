@@ -1,6 +1,6 @@
 import { Command } from 'commander';
-import { outputData, info, warn } from '../lib/output.js';
-import { withErrorHandling } from '../lib/errors.js';
+import { outputData, info } from '../lib/output.js';
+import { withErrorHandling, PrvrsError } from '../lib/errors.js';
 import { requireAuth } from '../lib/auth-guard.js';
 import {
   searchCatalog,
@@ -88,15 +88,14 @@ Notes:
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase } = await requireAuth('viewer');
 
         // Validate --sort if provided
         const sortValue = opts.sort as string | undefined;
         if (sortValue && !catalogSortFields.includes(sortValue as CatalogSortField)) {
-          warn(
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
             `Invalid --sort value: "${sortValue}". Must be one of: ${catalogSortFields.join(', ')}`
           );
-          process.exit(1);
         }
 
         // Parse --ids: comma-separated integers
@@ -110,13 +109,17 @@ Notes:
           for (const token of raw) {
             const n = parseInt(token, 10);
             if (isNaN(n) || n <= 0) {
-              warn(`Invalid --ids value: "${token}". Each ID must be a positive integer.`);
-              process.exit(1);
+              throw new PrvrsError(
+                'INVALID_ARGUMENT',
+                `Invalid --ids value: "${token}". Each ID must be a positive integer.`
+              );
             }
             nums.push(n);
           }
           parsedIds = nums;
         }
+
+        const { supabase } = await requireAuth('viewer');
 
         const data = await searchCatalog(supabase, {
           origin: opts.origin as string | undefined,
@@ -172,9 +175,16 @@ Notes:
     .action(
       withErrorHandling(async (id: string, _opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase } = await requireAuth('viewer');
+        const catalogId = parseInt(id, 10);
+        if (isNaN(catalogId)) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid ID: "${id}". Please provide a numeric coffee_catalog ID.`
+          );
+        }
 
-        const data = await getCatalog(supabase, parseInt(id, 10));
+        const { supabase } = await requireAuth('viewer');
+        const data = await getCatalog(supabase, catalogId);
         outputData(data, globalOpts);
       })
     );
@@ -233,17 +243,19 @@ Notes:
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase } = await requireAuth('viewer');
 
         const coffeeId = parseInt(id, 10);
         if (isNaN(coffeeId)) {
-          warn(`Invalid ID: "${id}". Please provide a numeric coffee_catalog ID.`);
-          process.exit(1);
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid ID: "${id}". Please provide a numeric coffee_catalog ID.`
+          );
         }
 
         const threshold = parseFloat(opts.threshold as string);
         const limit = Math.max(1, parseInt(opts.limit as string, 10));
         const stockedOnly = Boolean(opts.stockedOnly);
+        const { supabase } = await requireAuth('viewer');
 
         // Confirm the target bean exists before running similarity lookup.
         const { data: targetBean, error: targetError } = await supabase
@@ -253,8 +265,7 @@ Notes:
           .single();
 
         if (targetError || !targetBean) {
-          warn(`Coffee ID ${coffeeId} not found in catalog.`);
-          process.exit(1);
+          throw new PrvrsError('NOT_FOUND', `Coffee ID ${coffeeId} not found in catalog.`);
         }
 
         // Call the lib function

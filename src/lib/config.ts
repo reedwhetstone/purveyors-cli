@@ -3,6 +3,7 @@ import { join } from 'path';
 import { mkdir, readFile, writeFile, unlink, access } from 'fs/promises';
 import { constants } from 'fs';
 import type { StoredCredentials } from '../types/index.js';
+import { ConfigError } from './errors.js';
 
 const CONFIG_DIR = join(homedir(), '.config', 'purvey');
 const CREDENTIALS_FILE = join(CONFIG_DIR, 'credentials.json');
@@ -90,10 +91,15 @@ export async function deleteCredentials(): Promise<void> {
 export async function readConfig(): Promise<PurveyConfig> {
   try {
     await access(CONFIG_FILE, constants.R_OK);
-    const raw = await readFile(CONFIG_FILE, 'utf-8');
-    return JSON.parse(raw) as PurveyConfig;
   } catch {
     return {};
+  }
+
+  try {
+    const raw = await readFile(CONFIG_FILE, 'utf-8');
+    return JSON.parse(raw) as PurveyConfig;
+  } catch (error) {
+    throw new ConfigError(`Config file is invalid or unreadable: ${CONFIG_FILE}.`, error);
   }
 }
 

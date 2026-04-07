@@ -3,7 +3,7 @@ import { createServer } from 'http';
 import { createAnonClient, validateSession } from '../lib/supabase.js';
 import { writeCredentials, deleteCredentials } from '../lib/config.js';
 import { outputData, shouldUseInteractiveOutput, success, info, warn } from '../lib/output.js';
-import { withErrorHandling, AuthError } from '../lib/errors.js';
+import { withErrorHandling, AuthError, exitCodeForError } from '../lib/errors.js';
 import type { OutputOptions, StoredCredentials } from '../types/index.js';
 import chalk from 'chalk';
 import ora from 'ora';
@@ -199,12 +199,15 @@ const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
       authenticated: false,
       message: 'Not logged in. Run `purvey auth login` to authenticate.',
     };
+    const error = new AuthError(result.message);
+
     if (isInteractive) {
       warn(result.message);
-      process.exit(1);
+      process.exit(exitCodeForError(error));
     }
+
     outputData(result, opts);
-    process.exit(1);
+    process.exit(exitCodeForError(error));
   }
 
   const result = {
