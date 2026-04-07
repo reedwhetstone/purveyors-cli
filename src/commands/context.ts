@@ -10,10 +10,19 @@ Official CLI for purveyors.io. Node.js 20+.
 Credentials file: ~/.config/purvey/credentials.json
 Config file: ~/.config/purvey/config.json
 
+DOCS
+----
+Full README:        https://github.com/reedwhetstone/purveyors-cli
+Live docs:          https://purveyors.io/docs
+npm package:        https://www.npmjs.com/package/@purveyors/cli
+
 ROLES
 -----
-viewer  valid authenticated session; required for catalog commands
+ALL commands require authentication. There is no unauthenticated access mode.
+viewer  valid authenticated session; required for all catalog commands
 member  required for inventory, roast, sales, and tasting commands
+
+Both roles are granted on sign-in through purveyors.io.
 
 AUTH
 ----
@@ -29,20 +38,23 @@ Headless login:
 Status:
   purvey auth status
   purvey auth status --pretty
+  purvey auth status --json
 
 Logout:
   purvey auth logout
 
-OUTPUT
-------
+OUTPUT CONTRACT
+---------------
+stdout: structured data only (JSON or CSV)
+stderr: human-readable status, spinners, errors
+
 Most commands emit compact JSON to stdout by default.
 Use --json to request compact JSON explicitly.
 Use --pretty for indented JSON.
 Use --csv for array-shaped results that support CSV output.
-User feedback goes to stderr.
 
 Important exception:
-- auth status prints human-readable output in an interactive TTY unless --json, --pretty, or --csv is passed; otherwise it emits structured output
+- auth status prints human-readable output in an interactive TTY unless --json, --pretty, or --csv is passed; when piped/redirected it emits structured JSON automatically
 
 EXIT CODES
 ----------
@@ -57,10 +69,12 @@ Check $? after a command finishes.
 
 ID MAP
 ------
-catalog_id      coffee_catalog row; used by catalog get, inventory add --catalog-id, tasting get, roast list --catalog-id
-inventory_id    green_coffee_inv row; used by inventory get/update/delete, roast --coffee-id, roast list --coffee-id, tasting rate
-roast_id        roast_data row; used by roast get/delete, roast list --roast-id, sales --roast-id
-sale_id         coffee_sales row; used by sales update/delete
+catalog_id      coffee_catalog row; used by: catalog get, inventory add --catalog-id, tasting get <catalog_id>, roast list --catalog-id
+inventory_id    green_coffee_inv row; used by: inventory get/update/delete, roast --coffee-id, roast list --coffee-id, tasting rate [inventory_id]
+roast_id        roast_data row; used by: roast get/delete, roast list --roast-id, sales --roast-id
+sale_id         coffee_sales row; used by: sales update/delete
+
+Common ID mistake: tasting get takes catalog_id; tasting rate takes inventory_id.
 
 COMMANDS
 --------
@@ -100,8 +114,8 @@ inventory (member)
     --purchase-date-start <YYYY-MM-DD>
     --purchase-date-end <YYYY-MM-DD>
     --origin <country>
-    --limit <n>
-    --offset <n>
+    --limit <n>           default 20
+    --offset <n>          default 0; use with --limit for pagination
   get <inventory_id>
   add
     --catalog-id <id>     required in flag mode
@@ -131,8 +145,8 @@ roast (member)
     --date-end <YYYY-MM-DD>
     --stocked
     --catalog-id <catalog_id>
-    --limit <n>
-    --offset <n>
+    --limit <n>           default 20
+    --offset <n>          default 0; use with --limit for pagination
   get <roast_id>
     --include-temps
     --include-events
@@ -170,8 +184,8 @@ sales (member)
     --date-start <YYYY-MM-DD>
     --date-end <YYYY-MM-DD>
     --buyer <name>
-    --limit <n>
-    --offset <n>
+    --limit <n>           default 20
+    --offset <n>          default 0; use with --limit for pagination
   record
     --roast-id <roast_id>   required in flag mode
     --oz <amount>           required in flag mode
@@ -187,9 +201,9 @@ sales (member)
   delete <sale_id> [--yes]
 
 tasting (member)
-  get <catalog_id>
+  get <catalog_id>              catalog_id = coffee_catalog.catalog_id (NOT inventory id)
     --filter <user|supplier|both>   default both
-  rate [inventory_id]
+  rate [inventory_id]           inventory_id = green_coffee_inv.id (NOT catalog_id)
     --aroma <1-5>        required in flag mode
     --body <1-5>         required in flag mode
     --acidity <1-5>      required in flag mode
@@ -229,17 +243,26 @@ Rate coffee and record a sale:
 
 ERROR PATTERNS
 --------------
-Not logged in:
+Not logged in (exit 3):
   run purvey auth login or purvey auth login --headless
+  run purvey auth status to confirm role after login
 
-Wrong ID type:
+Wrong ID type (exit 2 or 4):
   verify whether the command wants catalog_id, inventory_id, roast_id, or sale_id
+  see ID MAP section above
 
-Missing required args in write commands:
+Missing required args in write commands (exit 2):
   pass the required flags or use --form
 
-Mutually exclusive watch flags:
+Dependency conflict on delete (exit 5):
+  add --force to cascade delete dependent roast profiles and sales records
+
+Mutually exclusive watch flags (exit 2):
   roast watch forbids using --auto-match together with --coffee-id
+
+Pagination (getting only first 20 results):
+  all list commands default to --limit 20; use --offset to page
+  example: --limit 20 --offset 40 returns items 41-60
 `.trim();
 
 export function buildContextCommand(): Command {
