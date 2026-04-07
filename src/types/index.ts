@@ -30,3 +30,8 @@ export interface CliError {
   message: string;
   details?: unknown;
 }
+
+export interface CliErrorEnvelope extends CliError {
+  error: true;
+  exitCode: number;
+}

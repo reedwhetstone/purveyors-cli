@@ -46,15 +46,21 @@ Logout:
 OUTPUT CONTRACT
 ---------------
 stdout: structured data only (JSON or CSV)
-stderr: human-readable status, spinners, errors
+stderr: status + spinners are human-readable; fatal errors are human-readable in an interactive TTY with no explicit output flag, otherwise JSON
 
 Most commands emit compact JSON to stdout by default.
 Use --json to request compact JSON explicitly.
 Use --pretty for indented JSON.
 Use --csv for array-shaped results that support CSV output.
 
+Fatal error contract:
+- interactive TTY with no explicit mode: human-readable stderr
+- --json, --pretty, or --csv: JSON error envelope on stderr
+- piped or redirected with no explicit mode: compact JSON error envelope on stderr
+- JSON error envelope fields: error, code, exitCode, message
+
 Important exception:
-- auth status prints human-readable output in an interactive TTY unless --json, --pretty, or --csv is passed; when piped/redirected it emits structured JSON automatically
+- auth status prints human-readable output in an interactive TTY unless --json, --pretty, or --csv is passed; when piped/redirected it emits structured JSON automatically on stdout even when unauthenticated
 
 EXIT CODES
 ----------

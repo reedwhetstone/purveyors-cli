@@ -13,6 +13,18 @@ export function shouldUseInteractiveOutput(
 }
 
 /**
+ * Infer global output options from the current argv so process-boundary handlers
+ * (like fatal error formatting) can honor the same output contract as commands.
+ */
+export function outputOptionsFromArgv(argv: string[] = process.argv): OutputOptions {
+  return {
+    json: argv.includes('--json'),
+    pretty: argv.includes('--pretty'),
+    csv: argv.includes('--csv'),
+  };
+}
+
+/**
  * Flatten a nested object to a single-depth record for CSV output.
  */
 function flattenObject(obj: Record<string, unknown>, prefix = ''): Record<string, string> {
@@ -49,6 +61,33 @@ function toCsv(data: unknown[]): string {
 }
 
 /**
+ * Basic JSON syntax colorizer using chalk.
+ */
+function colorizeJson(json: string): string {
+  return json
+    .replace(/"([^"]+)":/g, (_, key) => chalk.cyan(`"${key}"`) + ':')
+    .replace(/: "([^"]*)"/g, (_, val) => ': ' + chalk.green(`"${val}"`))
+    .replace(/: (true|false)/g, (_, val) => ': ' + chalk.yellow(val))
+    .replace(/: (null)/g, (_, val) => ': ' + chalk.dim(val))
+    .replace(/: (-?\d+\.?\d*)/g, (_, val) => ': ' + chalk.magenta(val));
+}
+
+/**
+ * Format structured JSON output as a string so stdout and stderr can share the
+ * same JSON rendering rules.
+ */
+export function formatStructuredOutput(
+  data: unknown,
+  options: Pick<OutputOptions, 'pretty'> = {}
+): string {
+  if (options.pretty) {
+    return colorizeJson(JSON.stringify(data, null, 2));
+  }
+
+  return JSON.stringify(data);
+}
+
+/**
  * Output data to stdout in the requested format.
  *
  * Defaults to compact JSON (machine-readable, no colors).
@@ -66,26 +105,7 @@ export function outputData(data: unknown, options: OutputOptions = {}): void {
     return;
   }
 
-  if (options.pretty) {
-    const formatted = JSON.stringify(data, null, 2);
-    console.log(colorizeJson(formatted));
-    return;
-  }
-
-  // Default: compact machine-readable JSON
-  console.log(JSON.stringify(data));
-}
-
-/**
- * Basic JSON syntax colorizer using chalk.
- */
-function colorizeJson(json: string): string {
-  return json
-    .replace(/"([^"]+)":/g, (_, key) => chalk.cyan(`"${key}"`) + ':')
-    .replace(/: "([^"]*)"/g, (_, val) => ': ' + chalk.green(`"${val}"`))
-    .replace(/: (true|false)/g, (_, val) => ': ' + chalk.yellow(val))
-    .replace(/: (null)/g, (_, val) => ': ' + chalk.dim(val))
-    .replace(/: (-?\d+\.?\d*)/g, (_, val) => ': ' + chalk.magenta(val));
+  console.log(formatStructuredOutput(data, { pretty: options.pretty }));
 }
 
 /**
