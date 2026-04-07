@@ -42,7 +42,7 @@ Authentication:
   auth status       Show current login status and role
   auth logout       Clear stored credentials
 
-Catalog (authenticated viewer session required):
+Catalog (viewer role required — all catalog commands need authentication):
   catalog search    Search the coffee catalog with filters
   catalog get       Get details for a specific coffee by ID
   catalog stats     Aggregate statistics for the catalog
@@ -95,6 +95,8 @@ Examples:
   $ purvey context
 
 Documentation: https://github.com/reedwhetstone/purveyors-cli
+Live docs:      https://purveyors.io/docs
+npm package:    https://www.npmjs.com/package/@purveyors/cli
 Agent reference: purvey context
 `
   );

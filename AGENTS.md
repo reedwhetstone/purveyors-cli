@@ -18,9 +18,9 @@ Current command groups:
 
 - `auth`: `login`, `status`, `logout`
 - `catalog`: `search` (filters: origin, process, price-min/max, flavor, name, supplier, ids, stocked, variety, drying-method, stocked-days, sort, offset, limit), `get <id>`, `stats`, `similar <id>`
-- `inventory`: `list` (filters: stocked, catalog-id, purchase-date-start, purchase-date-end, origin, limit), `get <id>`, `add`, `update <id>`, `delete <id>` (--force for cascade delete)
-- `roast`: `list` (filters: coffee-id, roast-id, batch-name, coffee-name, date-start, date-end, stocked, catalog-id, limit), `get <id>`, `create`, `update <id>`, `delete <id>`, `import [file]`, `watch [directory]`
-- `sales`: `list` (filters: roast-id, date-start, date-end, buyer, limit), `record`, `update <id>`, `delete <id>`
+- `inventory`: `list` (filters: stocked, catalog-id, purchase-date-start, purchase-date-end, origin, limit, offset), `get <id>`, `add`, `update <id>`, `delete <id>` (--force for cascade delete)
+- `roast`: `list` (filters: coffee-id, roast-id, batch-name, coffee-name, date-start, date-end, stocked, catalog-id, limit, offset), `get <id>`, `create`, `update <id>`, `delete <id>`, `import [file]`, `watch [directory]`
+- `sales`: `list` (filters: roast-id, date-start, date-end, buyer, limit, offset), `record`, `update <id>`, `delete <id>`
 - `tasting`: `get <bean-id>`, `rate [bean-id]`
 - `config`: `list`, `get <key>`, `set <key> <value>`, `reset`
 - `context`: dense agent reference for the CLI
@@ -73,7 +73,9 @@ Command files:
 
 - Use `requireAuth('viewer')` for catalog commands and other viewer-level access.
 - Use `requireAuth('member')` for personal data and writes.
+- **All commands require authentication.** There is no unauthenticated access path. Catalog commands require at minimum a `viewer` session.
 - Keep docs aligned with actual handler behavior. If auth requirements change, update README, help text, and context in the same PR.
+- Exit code `3` is returned on any auth failure (not logged in, expired session, or insufficient role).
 
 ### Output contract
 
@@ -98,12 +100,14 @@ This repo has several documentation surfaces that drift easily. When changing co
 
 ## Common Gotchas
 
-- `catalog_id` is not the same as inventory `id`.
-- `tasting get <bean-id>` uses a catalog ID.
-- `tasting rate [bean-id]` uses an inventory ID.
-- `roast --coffee-id` expects an inventory ID.
-- `sales --roast-id` expects a roast ID.
+- `catalog_id` is not the same as inventory `id`. Never mix them.
+- `tasting get <bean-id>` uses a `catalog_id` (coffee_catalog row). It is NOT an inventory ID.
+- `tasting rate [bean-id]` uses an `inventory id` (green_coffee_inv.id). It is NOT a catalog ID.
+- `roast --coffee-id` expects an inventory ID, not a catalog ID.
+- `sales --roast-id` expects a roast ID, not an inventory ID or catalog ID.
 - `context.ts` is easy to forget when command flags change.
+- `inventory list`, `roast list`, and `sales list` all support `--offset` for pagination. Keep docs in sync when adding new list flags.
+- Catalog commands require viewer auth. Downstream docs (coffee-app site, etc.) that claim catalog access is unauthenticated are wrong and should align with this repo.
 
 ## Release Notes
 

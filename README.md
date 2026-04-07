@@ -25,23 +25,31 @@ purvey --version
 ## Quick Start
 
 ```bash
-# 1. Authenticate
+# 1. Authenticate (all commands require a valid session)
 purvey auth login
 
-# 2. Confirm the session
+# For agents, CI, or remote machines, use headless flow:
+# purvey auth login --headless
+
+# 2. Confirm the session and role
 purvey auth status
 
-# 3. Search the catalog
+# 3. Search the catalog (requires viewer role, granted on sign-in)
 purvey catalog search --origin "Ethiopia" --stocked --pretty
 
-# 4. Check inventory
+# 4. Check inventory (requires member role)
 purvey inventory list --stocked --pretty
 
 # 5. Import a roast from Artisan
 purvey roast import ~/artisan/my-roast.alog --coffee-id 7 --pretty
+
+# 6. (Agents) Get the full CLI reference in one command
+purvey context
 ```
 
 ## Authentication
+
+**Every `purvey` command requires a valid authenticated session.** There is no anonymous or public access mode. Sign in first.
 
 `purvey` uses Google OAuth through purveyors.io.
 
@@ -55,6 +63,9 @@ Headless login for agents, CI, and remote machines:
 
 ```bash
 purvey auth login --headless
+# CLI prints a Google OAuth URL
+# Open it in any browser and sign in
+# Paste the full callback URL back into the terminal
 ```
 
 Status:
@@ -75,14 +86,16 @@ Credentials are stored at `~/.config/purvey/credentials.json`.
 
 ### Auth roles
 
-`catalog` commands require an authenticated viewer session. Sign in before using:
+Two roles gate different command groups:
 
-- `purvey catalog search`
-- `purvey catalog get <id>`
-- `purvey catalog stats`
-- `purvey catalog similar <id>`
+| Role     | Commands                                                            |
+| -------- | ------------------------------------------------------------------- |
+| `viewer` | `catalog search`, `catalog get`, `catalog stats`, `catalog similar` |
+| `member` | All viewer commands, plus `inventory`, `roast`, `sales`, `tasting`  |
 
-`inventory`, `roast`, `sales`, and `tasting` commands require a member role.
+Both roles are granted when you sign in through purveyors.io. The `viewer` role is the minimum required for catalog access; the `member` role is required for any personal data or write operations.
+
+Commands that require a higher role will exit with code `3` (auth error) if you are not signed in or your role is insufficient. Run `purvey auth status` to confirm your current role before scripting.
 
 ## Output and Scripting
 
@@ -116,6 +129,29 @@ Operational messages go to stderr, so stdout stays script-friendly.
 
 - `purvey auth status` prints human-readable output in an interactive terminal unless you pass `--json`, `--pretty`, or `--csv`. When piped or redirected, it emits JSON.
 - `--json` is an explicit alias for the default compact JSON mode, and it forces JSON even in an interactive terminal.
+
+## Exit Codes
+
+All `purvey` commands exit with a numeric code your scripts can check with `$?`.
+
+| Code | Meaning                                                                                   |
+| ---- | ----------------------------------------------------------------------------------------- |
+| `0`  | Success                                                                                   |
+| `1`  | Unexpected or unclassified error                                                          |
+| `2`  | Invalid argument or bad input                                                             |
+| `3`  | Auth error: not logged in, expired session, or insufficient role                          |
+| `4`  | Not found                                                                                 |
+| `5`  | Dependency conflict (for example, `inventory delete` without `--force` when roasts exist) |
+| `6`  | Local config error                                                                        |
+
+Scripting pattern:
+
+```bash
+purvey catalog search --origin "Ethiopia" --stocked --json
+if [ $? -eq 3 ]; then
+  purvey auth login --headless
+fi
+```
 
 ## Command Reference
 
@@ -184,6 +220,7 @@ purvey catalog similar 1182 --json | jq '.[0]'
 - `--purchase-date-end <YYYY-MM-DD>` -- only show purchases on or before this date
 - `--origin <country>` -- filter by country of origin (partial match)
 - `--limit <n>` -- maximum results (default: 20)
+- `--offset <n>` -- skip N results for pagination (default: 0)
 
 `inventory add` flags:
 
@@ -207,6 +244,8 @@ Examples:
 
 ```bash
 purvey inventory list --stocked --pretty
+purvey inventory list --limit 20 --offset 20       # page 2
+purvey inventory list --csv > inventory.csv
 purvey inventory add --catalog-id 128 --qty 10 --cost 8.50
 purvey inventory add --catalog-id 42 --qty 5 --cost 6.25 --tax-ship 4.00
 purvey inventory update 7 --stocked false
@@ -234,6 +273,7 @@ purvey inventory delete 7 --yes
 - `--stocked` -- only show roasts for currently stocked beans
 - `--catalog-id <id>` -- filter by coffee_catalog ID
 - `--limit <n>` -- maximum results (default: 20)
+- `--offset <n>` -- skip N results for pagination (default: 0)
 
 `roast get <id>` options:
 
@@ -280,6 +320,7 @@ Examples:
 purvey roast list --catalog-id 128 --pretty
 purvey roast list --batch-name "Ethiopia Guji" --pretty
 purvey roast list --date-start 2026-03-01 --date-end 2026-03-31
+purvey roast list --limit 20 --offset 20           # page 2
 purvey roast create --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz-in 16
 purvey roast update 123 --targets "Aim for FC at 390F, 18% dev"
 purvey roast import ~/artisan/ethiopia.alog --coffee-id 7
@@ -300,6 +341,7 @@ purvey roast watch ~/artisan/ --auto-match
 - `--date-end <YYYY-MM-DD>` -- only show sales on or before this date
 - `--buyer <name>` -- filter by buyer name (partial match, case-insensitive)
 - `--limit <n>` -- maximum results (default: 20)
+- `--offset <n>` -- skip N results for pagination (default: 0)
 
 `sales record` flags:
 
@@ -322,20 +364,23 @@ Examples:
 ```bash
 purvey sales record --roast-id 123 --oz 12 --price 22.00 --buyer "Jane Smith"
 purvey sales list --pretty
+purvey sales list --limit 20 --offset 20           # page 2
 purvey sales update 5 --price 24.00
 purvey sales delete 5 --yes
 ```
 
 ### tasting
 
-- `purvey tasting get <bean-id>`
-- `purvey tasting rate [bean-id]`
+- `purvey tasting get <catalog-id>` -- retrieve tasting notes (uses `coffee_catalog.catalog_id`)
+- `purvey tasting rate [inventory-id]` -- record cupping scores (uses `green_coffee_inv.id`)
 
-`purvey tasting get <bean-id>` options:
+**ID distinction:** `tasting get` takes a `catalog_id`; `tasting rate` takes an `inventory id`. These are different numbers. Use `purvey catalog search` to find a `catalog_id` and `purvey inventory list` to find your `inventory id`.
+
+`purvey tasting get <catalog-id>` options:
 
 - `--filter <user|supplier|both>` -- which notes to show (default: both)
 
-`purvey tasting rate [bean-id]` options:
+`purvey tasting rate [inventory-id]` options:
 
 - `--aroma <1-5>` -- [REQUIRED in flag mode]
 - `--body <1-5>` -- [REQUIRED in flag mode]
@@ -349,7 +394,9 @@ purvey sales delete 5 --yes
 Examples:
 
 ```bash
+# catalog_id 128 = the bean in the catalog
 purvey tasting get 128 --filter both --pretty
+# inventory id 7 = your physical purchase from inventory
 purvey tasting rate 7 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
 purvey tasting rate 42 --aroma 3 --body 3 --acidity 3 --sweetness 3 --aftertaste 3 --notes "Underextracted"
 ```
@@ -446,6 +493,52 @@ The CLI is designed to be agent-friendly:
 - headless auth flow
 - copy-pasteable examples
 - a dedicated `context` command for onboarding
+- documented exit codes for programmatic error handling
+- `--offset` + `--limit` pagination on all list commands
+
+The scripting contract: stdout is always structured data (JSON or CSV). stderr is always human-readable status. Exit codes are stable and documented above. Never parse stderr for data.
+
+## Troubleshooting
+
+**`Error: not logged in` or exit code 3**
+
+```bash
+purvey auth login
+# or for headless environments:
+purvey auth login --headless
+```
+
+**Catalog commands fail with auth error after logging in**
+
+Run `purvey auth status` to confirm you have a `viewer` or `member` role. Both are granted automatically on sign-in. If auth status shows a stale session, run `purvey auth logout` then log in again.
+
+**Wrong ID type passed to a command**
+
+The most common mistake is mixing up ID types. Check the [ID Reference](#id-reference) section above. Use `purvey catalog search` to find `catalog_id` values; use `purvey inventory list` to find `inventory id` values.
+
+**Pagination: only seeing the first 20 results**
+
+All list commands default to 20 results. Use `--limit` and `--offset` to page through larger sets:
+
+```bash
+purvey inventory list --limit 20 --offset 0    # page 1
+purvey inventory list --limit 20 --offset 20   # page 2
+purvey inventory list --limit 20 --offset 40   # page 3
+```
+
+**`inventory delete` fails with dependency conflict (exit code 5)**
+
+The item has dependent roast profiles or sales records. Use `--force` to cascade delete:
+
+```bash
+purvey inventory delete 7 --force --yes
+```
+
+**Enable verbose error output**
+
+```bash
+PURVEY_DEBUG=1 purvey <command>
+```
 
 ## Development
 
@@ -466,6 +559,9 @@ Key files:
 - `src/lib/`: business logic and Supabase integration
 - `src/commands/context.ts`: dense agent reference
 - `AGENTS.md`: contributor guide
+
+Live documentation: [purveyors.io/docs](https://purveyors.io/docs)
+Package: [npmjs.com/package/@purveyors/cli](https://www.npmjs.com/package/@purveyors/cli)
 
 ## License
 
