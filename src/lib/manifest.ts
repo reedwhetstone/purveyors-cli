@@ -41,9 +41,18 @@ export interface CliOptionContract {
 
 export interface CliArgumentContract {
   name: string;
+  cliToken?: string;
   description: string;
   required: boolean;
   idType?: string;
+}
+
+export interface CliStructuredErrorContract {
+  channel: 'stderr';
+  guaranteedFields: string[];
+  optionalFields: string[];
+  when: string;
+  exception?: string;
 }
 
 export interface CliCommandContract {
@@ -60,7 +69,8 @@ export interface CliCommandGroupContract {
   name: string;
   summary: string;
   auth: CliAuthRequirement | 'mixed';
-  subcommands: CliCommandContract[];
+  command?: CliCommandContract;
+  subcommands?: CliCommandContract[];
 }
 
 export interface CliWorkflowContract {
@@ -92,6 +102,7 @@ export interface CliManifest {
     stdout: string;
     stderr: string;
     notes: string[];
+    structuredErrors: CliStructuredErrorContract;
   };
   exitCodes: CliExitCodeContract[];
   idTypes: CliIdContract[];
@@ -203,6 +214,7 @@ const commandGroups: CliCommandGroupContract[] = [
         name: 'status',
         summary: 'Show current login status and role',
         auth: 'none',
+        options: [{ flags: '--pretty' }, { flags: '--csv' }],
         examples: [
           'purvey auth status',
           'purvey auth status --pretty',
@@ -262,6 +274,7 @@ const commandGroups: CliCommandGroupContract[] = [
         arguments: [
           {
             name: 'catalog_id',
+            cliToken: 'id',
             description: 'coffee_catalog.catalog_id',
             required: true,
             idType: 'catalog_id',
@@ -282,6 +295,7 @@ const commandGroups: CliCommandGroupContract[] = [
         arguments: [
           {
             name: 'catalog_id',
+            cliToken: 'id',
             description: 'coffee_catalog.catalog_id',
             required: true,
             idType: 'catalog_id',
@@ -331,6 +345,7 @@ const commandGroups: CliCommandGroupContract[] = [
         arguments: [
           {
             name: 'inventory_id',
+            cliToken: 'id',
             description: 'green_coffee_inv.id',
             required: true,
             idType: 'inventory_id',
@@ -360,6 +375,7 @@ const commandGroups: CliCommandGroupContract[] = [
         arguments: [
           {
             name: 'inventory_id',
+            cliToken: 'id',
             description: 'green_coffee_inv.id',
             required: true,
             idType: 'inventory_id',
@@ -380,6 +396,7 @@ const commandGroups: CliCommandGroupContract[] = [
         arguments: [
           {
             name: 'inventory_id',
+            cliToken: 'id',
             description: 'green_coffee_inv.id',
             required: true,
             idType: 'inventory_id',
@@ -433,6 +450,7 @@ const commandGroups: CliCommandGroupContract[] = [
         arguments: [
           {
             name: 'roast_id',
+            cliToken: 'id',
             description: 'roast_data.roast_id',
             required: true,
             idType: 'roast_id',
@@ -461,6 +479,7 @@ const commandGroups: CliCommandGroupContract[] = [
         arguments: [
           {
             name: 'roast_id',
+            cliToken: 'id',
             description: 'roast_data.roast_id',
             required: true,
             idType: 'roast_id',
@@ -480,6 +499,7 @@ const commandGroups: CliCommandGroupContract[] = [
         arguments: [
           {
             name: 'roast_id',
+            cliToken: 'id',
             description: 'roast_data.roast_id',
             required: true,
             idType: 'roast_id',
@@ -495,6 +515,7 @@ const commandGroups: CliCommandGroupContract[] = [
         options: [
           { flags: '--coffee-id <id>', requiredInFlagMode: true },
           { flags: '--batch-name <name>' },
+          { flags: '--oz-in <oz>' },
           { flags: '--roast-notes <text>' },
           { flags: '--form' },
         ],
@@ -558,6 +579,7 @@ const commandGroups: CliCommandGroupContract[] = [
         arguments: [
           {
             name: 'sale_id',
+            cliToken: 'id',
             description: 'coffee_sales row id',
             required: true,
             idType: 'sale_id',
@@ -577,6 +599,7 @@ const commandGroups: CliCommandGroupContract[] = [
         arguments: [
           {
             name: 'sale_id',
+            cliToken: 'id',
             description: 'coffee_sales row id',
             required: true,
             idType: 'sale_id',
@@ -598,6 +621,7 @@ const commandGroups: CliCommandGroupContract[] = [
         arguments: [
           {
             name: 'catalog_id',
+            cliToken: 'bean-id',
             description: 'coffee_catalog.catalog_id, not inventory id',
             required: true,
             idType: 'catalog_id',
@@ -612,6 +636,7 @@ const commandGroups: CliCommandGroupContract[] = [
         arguments: [
           {
             name: 'inventory_id',
+            cliToken: 'bean-id',
             description: 'green_coffee_inv.id, not catalog_id',
             required: false,
             idType: 'inventory_id',
@@ -656,18 +681,16 @@ const commandGroups: CliCommandGroupContract[] = [
   },
   {
     name: 'context',
-    summary: 'Output full CLI reference for AI agent onboarding',
+    summary: 'Emit human-readable agent reference or JSON manifest',
     auth: 'none',
-    subcommands: [
-      {
-        name: 'context',
-        summary: 'Emit human-readable agent reference or JSON manifest',
-        auth: 'none',
-        options: [{ flags: '--json' }, { flags: '--pretty' }],
-        notes: ['Use `purvey context --json` for the machine-readable manifest contract.'],
-        examples: ['purvey context', 'purvey context --json', 'purvey context --pretty'],
-      },
-    ],
+    command: {
+      name: 'context',
+      summary: 'Emit human-readable agent reference or JSON manifest',
+      auth: 'none',
+      options: [{ flags: '--json' }, { flags: '--pretty' }],
+      notes: ['Use `purvey context --json` for the machine-readable manifest contract.'],
+      examples: ['purvey context', 'purvey context --json', 'purvey context --pretty'],
+    },
   },
 ];
 
@@ -761,15 +784,25 @@ export function getCliManifest(): CliManifest {
     globalOptions,
     outputModes,
     outputContract: {
-      stdout: 'structured data only (JSON or CSV)',
-      stderr: 'human-readable status, spinners, and errors',
+      stdout: 'structured data only (JSON or CSV, depending on mode)',
+      stderr:
+        'interactive progress and prompts, plus structured JSON error envelopes in machine-readable invocations',
       notes: [
         'Most commands emit compact JSON to stdout by default.',
         'Use --json to request compact JSON explicitly.',
         'Use --pretty for indented JSON.',
         'Use --csv for array-shaped results that support CSV output.',
+        'In interactive use, stderr may also carry prompts, spinners, and human-readable status lines.',
         'Important exception: auth status prints human-readable output in an interactive TTY unless --json, --pretty, or --csv is passed; when piped or redirected it emits structured JSON automatically.',
       ],
+      structuredErrors: {
+        channel: 'stderr',
+        guaranteedFields: ['error', 'code', 'exitCode', 'message'],
+        optionalFields: ['details'],
+        when: 'Emitted when the invocation is non-interactive or when --json, --pretty, or --csv selects a machine-readable output mode.',
+        exception:
+          '`purvey auth status` keeps its status payload on stdout even when unauthenticated; this envelope documents command failures.',
+      },
     },
     exitCodes,
     idTypes,
@@ -783,11 +816,20 @@ function renderDocs(docsLinks: CliDocLink[]): string[] {
   return ['DOCS', '----', ...docsLinks.map((link) => `${link.label.padEnd(18, ' ')} ${link.url}`)];
 }
 
-function renderRoles(roleContracts: CliRoleContract[]): string[] {
+function renderRoles(
+  roleContracts: CliRoleContract[],
+  groups: CliCommandGroupContract[]
+): string[] {
+  const unauthenticatedCommands = groups
+    .filter((group) => group.auth === 'none')
+    .map((group) => group.name)
+    .sort();
+
   return [
     'ROLES',
     '-----',
-    'ALL commands require authentication. There is no unauthenticated access mode.',
+    `No auth required for local commands: ${unauthenticatedCommands.join(', ')}.`,
+    'Commands that talk to purveyors.io require authentication.',
     ...roleContracts.map((role) => `${role.role.padEnd(7, ' ')} ${role.description}`),
     '',
     'Both roles are granted on sign-in through purveyors.io.',
@@ -818,6 +860,8 @@ function renderAuthSection(): string[] {
 }
 
 function renderOutputContract(manifest: CliManifest): string[] {
+  const { structuredErrors } = manifest.outputContract;
+
   return [
     'OUTPUT CONTRACT',
     '---------------',
@@ -825,6 +869,12 @@ function renderOutputContract(manifest: CliManifest): string[] {
     `stderr: ${manifest.outputContract.stderr}`,
     '',
     ...manifest.outputContract.notes,
+    '',
+    `Machine-mode error envelope: ${structuredErrors.channel}`,
+    `  guaranteed fields: ${structuredErrors.guaranteedFields.join(', ')}`,
+    `  optional fields: ${structuredErrors.optionalFields.join(', ')}`,
+    `  when: ${structuredErrors.when}`,
+    ...(structuredErrors.exception ? [`  exception: ${structuredErrors.exception}`] : []),
   ];
 }
 
@@ -849,33 +899,46 @@ function renderIdMap(ids: CliIdContract[]): string[] {
   return lines;
 }
 
-function renderOptions(options: CliOptionContract[] = []): string[] {
-  return options.map((option) => `    ${option.flags}`);
+function renderOptions(options: CliOptionContract[] = [], indent = '    '): string[] {
+  return options.map((option) => `${indent}${option.flags}`);
+}
+
+function renderArgumentUsage(argument: CliArgumentContract): string {
+  const token = argument.cliToken ?? argument.name;
+  return argument.required ? `<${token}>` : `[${token}]`;
+}
+
+function renderCommandEntry(
+  command: CliCommandContract,
+  indent = '  ',
+  displayName = command.name
+): string[] {
+  const args = command.arguments?.map((argument) => renderArgumentUsage(argument)).join(' ') ?? '';
+  const suffix = args ? ` ${args}` : '';
+  const optionHint = command.options && command.options.length > 0 ? ' [options]' : '';
+  const lines = [`${indent}${displayName}${suffix}${optionHint}`];
+
+  lines.push(...renderOptions(command.options, `${indent}  `));
+  if (command.notes) {
+    lines.push(...command.notes.map((note) => `${indent}  ${note}`));
+  }
+
+  return lines;
 }
 
 function renderCommandGroups(groups: CliCommandGroupContract[]): string[] {
   const lines = ['COMMANDS', '--------'];
 
   for (const group of groups) {
-    if (group.name === 'context') {
-      const contextCommand = group.subcommands[0];
-      lines.push('context');
-      lines.push('  context');
-      lines.push(...renderOptions(contextCommand?.options));
-      if (contextCommand?.notes) {
-        lines.push(...contextCommand.notes.map((note) => `    ${note}`));
-      }
+    if (group.command) {
+      lines.push(...renderCommandEntry(group.command, '', group.name));
       lines.push('');
       continue;
     }
 
     lines.push(group.name);
-    for (const subcommand of group.subcommands) {
-      const args = subcommand.arguments?.map((arg) => `<${arg.name}>`).join(' ') ?? '';
-      const suffix = args ? ` ${args}` : '';
-      const optionHint = subcommand.options && subcommand.options.length > 0 ? ' [options]' : '';
-      lines.push(`  ${subcommand.name}${suffix}${optionHint}`);
-      lines.push(...renderOptions(subcommand.options));
+    for (const subcommand of group.subcommands ?? []) {
+      lines.push(...renderCommandEntry(subcommand));
     }
     lines.push('');
   }
@@ -925,7 +988,7 @@ export function renderContextText(manifest: CliManifest = getCliManifest()): str
     '',
     ...renderDocs(manifest.docs),
     '',
-    ...renderRoles(manifest.roles),
+    ...renderRoles(manifest.roles, manifest.commandGroups),
     '',
     ...renderAuthSection(),
     '',
