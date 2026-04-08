@@ -18,9 +18,12 @@ npm package:        https://www.npmjs.com/package/@purveyors/cli
 
 ROLES
 -----
-ALL commands require authentication. There is no unauthenticated access mode.
+Remote data commands require authentication.
 viewer  valid authenticated session; required for all catalog commands
 member  required for inventory, roast, sales, and tasting commands
+
+Local-only exception:
+config  local config read/write; does not require authentication
 
 Both roles are granted on sign-in through purveyors.io.
 

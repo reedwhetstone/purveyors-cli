@@ -141,7 +141,12 @@ function buildCliErrorEnvelope(error: unknown): CliErrorEnvelope {
 
 function shouldUseStructuredErrorOutput(argv: string[] = process.argv): boolean {
   const options = outputOptionsFromArgv(argv);
-  return !shouldUseInteractiveOutput(options, process.stdout.isTTY);
+
+  // Keep human-readable errors only when the whole invocation is interactive.
+  // If either stdout or stderr is redirected, prefer the machine contract.
+  const isFullyInteractive = Boolean(process.stdout.isTTY && process.stderr.isTTY);
+
+  return !shouldUseInteractiveOutput(options, isFullyInteractive);
 }
 
 function writeStructuredError(error: unknown, argv: string[] = process.argv): void {

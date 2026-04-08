@@ -25,7 +25,7 @@ purvey --version
 ## Quick Start
 
 ```bash
-# 1. Authenticate (all commands require a valid session)
+# 1. Authenticate before using catalog, inventory, roast, sales, or tasting commands
 purvey auth login
 
 # For agents, CI, or remote machines, use headless flow:
@@ -49,7 +49,7 @@ purvey context
 
 ## Authentication
 
-**Every `purvey` command requires a valid authenticated session.** There is no anonymous or public access mode. Sign in first.
+**All remote data commands require a valid authenticated session.** `catalog`, `inventory`, `roast`, `sales`, and `tasting` all require auth. Local `config` commands do not.
 
 `purvey` uses Google OAuth through purveyors.io.
 
@@ -94,6 +94,8 @@ Two roles gate different command groups:
 | `member` | All viewer commands, plus `inventory`, `roast`, `sales`, `tasting`  |
 
 Both roles are granted when you sign in through purveyors.io. The `viewer` role is the minimum required for catalog access; the `member` role is required for any personal data or write operations.
+
+`config list/get/set/reset` are local-only commands and work without authentication.
 
 Commands that require a higher role will exit with code `3` (auth error) if you are not signed in or your role is insufficient. Run `purvey auth status` to confirm your current role before scripting.
 
