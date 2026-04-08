@@ -1,6 +1,6 @@
 {
   "name": "@purveyors/cli",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "The official CLI for purveyors.io — coffee intelligence from your terminal",
   "type": "module",
   "bin": {
@@ -14,6 +14,7 @@
     "./sales": "./dist/lib/sales.js",
     "./tasting": "./dist/lib/tasting.js",
     "./lib": "./dist/lib/index.js",
+    "./manifest": "./dist/lib/manifest.js",
     "./artisan": "./dist/lib/artisan/index.js",
     "./ai": "./dist/lib/ai.js"
   },
