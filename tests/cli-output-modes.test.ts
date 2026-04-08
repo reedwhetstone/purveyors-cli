@@ -136,4 +136,33 @@ describe('CLI output modes', () => {
     expect(output).toContain('{"authenticated":false');
     expect(output).not.toContain('⚠ Not logged in. Run `purvey auth login` to authenticate.');
   }, 15000);
+
+  it('emits JSON error envelopes when stderr is redirected from an interactive TTY', () => {
+    const result = spawnSync(
+      'script',
+      [
+        '-e',
+        '-q',
+        '-c',
+        "bash -lc 'CI=1 pnpm exec tsx src/index.ts catalog search --sort bogus 2>/tmp/purvey-redirected-stderr.json; STATUS=$?; cat /tmp/purvey-redirected-stderr.json; rm -f /tmp/purvey-redirected-stderr.json; exit $STATUS'",
+        '/dev/null',
+      ],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        maxBuffer: 10 * 1024 * 1024,
+      }
+    );
+
+    const output = stripAnsi(`${result.stdout}${result.stderr}`);
+    const stderr = JSON.parse(output.trim()) as Record<string, unknown>;
+
+    expect(result.status).toBe(2);
+    expect(stderr).toMatchObject({
+      error: true,
+      code: 'INVALID_ARGUMENT',
+      exitCode: 2,
+    });
+    expect(stderr.message).toContain('Invalid --sort value: "bogus"');
+  }, 15000);
 });

@@ -73,7 +73,7 @@ Command files:
 
 - Use `requireAuth('viewer')` for catalog commands and other viewer-level access.
 - Use `requireAuth('member')` for personal data and writes.
-- **All commands require authentication.** There is no unauthenticated access path. Catalog commands require at minimum a `viewer` session.
+- `catalog`, `inventory`, `roast`, `sales`, and `tasting` require authentication. Local `config` commands do not.
 - Keep docs aligned with actual handler behavior. If auth requirements change, update README, help text, and context in the same PR.
 - Exit code `3` is returned on any auth failure (not logged in, expired session, or insufficient role).
 
