@@ -43,6 +43,32 @@ describe('output utilities', () => {
     });
   });
 
+  describe('outputOptionsFromArgv', () => {
+    it('detects explicit output flags from argv', async () => {
+      const { outputOptionsFromArgv } = await import('../src/lib/output.js');
+      expect(outputOptionsFromArgv(['node', 'src/index.ts', '--pretty', '--csv'])).toEqual({
+        json: false,
+        pretty: true,
+        csv: true,
+      });
+    });
+  });
+
+  describe('formatStructuredOutput', () => {
+    it('returns compact JSON by default', async () => {
+      const { formatStructuredOutput } = await import('../src/lib/output.js');
+      expect(formatStructuredOutput({ coffee: 'espresso' })).toBe('{"coffee":"espresso"}');
+    });
+
+    it('returns indented JSON in pretty mode', async () => {
+      const { formatStructuredOutput } = await import('../src/lib/output.js');
+      const output = formatStructuredOutput({ coffee: 'espresso' }, { pretty: true });
+      expect(output).toContain('\n');
+      expect(output).toContain('coffee');
+      expect(output).toContain('espresso');
+    });
+  });
+
   describe('outputData — default (compact JSON)', () => {
     it('prints compact JSON with no options', async () => {
       const { outputData } = await import('../src/lib/output.js');
@@ -118,10 +144,8 @@ describe('output utilities', () => {
       const data = { coffee: 'espresso' };
       outputData(data, { pretty: true });
       const output = stdoutSpy.mock.calls[0][0] as string;
-      // Pretty output should contain newlines and indentation
       expect(output).toContain('\n');
       expect(output).toContain('  ');
-      // Should still contain the key and value
       expect(output).toContain('coffee');
       expect(output).toContain('espresso');
     });

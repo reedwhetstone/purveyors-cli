@@ -80,12 +80,17 @@ Command files:
 ### Output contract
 
 - Keep user-facing data on stdout.
-- Keep status, success, spinner, and error messaging on stderr.
-- Default to compact JSON.
+- Keep status and spinner messaging on stderr.
+- Fatal errors stay on stderr, but the format depends on mode:
+  - interactive TTY with no explicit output flag: human-readable text
+  - `--json`, `--pretty`, or `--csv`: JSON error envelope on stderr
+  - non-interactive with no explicit flag: compact JSON error envelope on stderr
+- Default success output is compact JSON.
 - Treat `--json` as an explicit alias for the default compact JSON mode.
 - Use `--pretty` for formatted JSON and `--csv` where CSV output is supported.
-- Prefer `outputData()` for structured results.
+- Prefer `outputData()` and `formatStructuredOutput()` so success/error JSON formatting shares one source of truth.
 - Avoid command-specific human-readable defaults for data commands unless there is a strong reason and the divergence is documented.
+- `auth status` is the intentional exception: in machine mode it can emit structured auth-state JSON on stdout even when unauthenticated.
 
 ### Help text
 

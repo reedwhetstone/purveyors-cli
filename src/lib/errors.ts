@@ -1,5 +1,11 @@
 import chalk from 'chalk';
 import { ZodError } from 'zod';
+import type { CliErrorEnvelope } from '../types/index.js';
+import {
+  formatStructuredOutput,
+  outputOptionsFromArgv,
+  shouldUseInteractiveOutput,
+} from './output.js';
 
 export const EXIT_CODES = {
   OK: 0,
@@ -59,6 +65,18 @@ export function exitCodeForError(error: unknown): ExitCode {
   return EXIT_CODES.GENERAL_ERROR;
 }
 
+function errorCodeLabel(error: unknown): string {
+  if (error instanceof PrvrsError) {
+    return error.code;
+  }
+
+  if (error instanceof ZodError) {
+    return 'INVALID_ARGUMENT';
+  }
+
+  return 'GENERAL_ERROR';
+}
+
 function formatZodErrorMessage(error: ZodError): string {
   const issue = error.issues[0];
   if (!issue) {
@@ -69,10 +87,81 @@ function formatZodErrorMessage(error: ZodError): string {
   return `Invalid argument${path}: ${issue.message}`;
 }
 
+function errorMessageForError(error: unknown): string {
+  if (error instanceof PrvrsError) {
+    return error.message;
+  }
+
+  if (error instanceof ZodError) {
+    return formatZodErrorMessage(error);
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return 'An unknown error occurred';
+}
+
+function errorDetailsForError(error: unknown): unknown {
+  if (!process.env.PURVEY_DEBUG) {
+    return undefined;
+  }
+
+  if (error instanceof PrvrsError) {
+    return error.details;
+  }
+
+  if (error instanceof ZodError) {
+    return error.issues;
+  }
+
+  if (error instanceof Error && error.stack) {
+    return { stack: error.stack };
+  }
+
+  return undefined;
+}
+
+function buildCliErrorEnvelope(error: unknown): CliErrorEnvelope {
+  const envelope: CliErrorEnvelope = {
+    error: true,
+    code: errorCodeLabel(error),
+    exitCode: exitCodeForError(error),
+    message: errorMessageForError(error),
+  };
+
+  const details = errorDetailsForError(error);
+  if (details !== undefined) {
+    envelope.details = details;
+  }
+
+  return envelope;
+}
+
+function shouldUseStructuredErrorOutput(argv: string[] = process.argv): boolean {
+  const options = outputOptionsFromArgv(argv);
+  return !shouldUseInteractiveOutput(options, process.stdout.isTTY);
+}
+
+function writeStructuredError(error: unknown, argv: string[] = process.argv): void {
+  const options = outputOptionsFromArgv(argv);
+  const formatted = formatStructuredOutput(buildCliErrorEnvelope(error), {
+    pretty: options.pretty,
+  });
+
+  process.stderr.write(`${formatted}\n`);
+}
+
 /**
  * Print a formatted error to stderr and exit with a structured exit code.
  */
 export function fatal(error: unknown): never {
+  if (shouldUseStructuredErrorOutput()) {
+    writeStructuredError(error);
+    process.exit(exitCodeForError(error));
+  }
+
   if (error instanceof PrvrsError) {
     console.error(chalk.red(`✖ ${error.message}`));
     if (process.env.PURVEY_DEBUG && error.details) {

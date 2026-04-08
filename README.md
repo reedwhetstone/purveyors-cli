@@ -125,10 +125,23 @@ purvey auth status 2>/dev/null | jq -r '.email'
 
 Operational messages go to stderr, so stdout stays script-friendly.
 
+Fatal errors also stay on stderr, but the payload format depends on mode:
+
+- interactive terminal with no explicit output flag: human-readable text
+- `--json`, `--pretty`, or `--csv`: JSON error envelope on stderr
+- piped or redirected with no explicit flag: compact JSON error envelope on stderr
+
+The JSON error envelope includes:
+
+```json
+{ "error": true, "code": "INVALID_ARGUMENT", "exitCode": 2, "message": "..." }
+```
+
 ### Output caveats worth knowing
 
-- `purvey auth status` prints human-readable output in an interactive terminal unless you pass `--json`, `--pretty`, or `--csv`. When piped or redirected, it emits JSON.
+- `purvey auth status` prints human-readable output in an interactive terminal unless you pass `--json`, `--pretty`, or `--csv`. When piped or redirected, it emits JSON on stdout even when unauthenticated.
 - `--json` is an explicit alias for the default compact JSON mode, and it forces JSON even in an interactive terminal.
+- `--csv` affects successful stdout output only; fatal errors still use JSON on stderr.
 
 ## Exit Codes
 
@@ -496,7 +509,7 @@ The CLI is designed to be agent-friendly:
 - documented exit codes for programmatic error handling
 - `--offset` + `--limit` pagination on all list commands
 
-The scripting contract: stdout is always structured data (JSON or CSV). stderr is always human-readable status. Exit codes are stable and documented above. Never parse stderr for data.
+The scripting contract: stdout is always structured success data (JSON or CSV). stderr carries status/spinner output plus fatal errors. In structured or non-interactive modes, fatal errors are JSON envelopes on stderr; in interactive no-flag mode, they stay human-readable. Exit codes are stable and documented above. Never expect success data on stderr.
 
 ## Troubleshooting
 
