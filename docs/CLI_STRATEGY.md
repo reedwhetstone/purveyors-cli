@@ -260,4 +260,4 @@ The real value of the CLI isn't speed; it's the unified interface pattern. A 500
 - [x] Phase 1: Read commands — complete (catalog, inventory, roast, tasting)
 - [x] Phase 2: Write commands — complete (inventory, roast, sales, tasting + rename prvrs→purvey)
 - [x] Phase 3: Artisan import, interactive forms, watch mode, AI matching — complete PRs #11-#18 Mar 15-16
-- [x] Phase 4: coffee-app chat agent integration — complete, chat agent tools imported from CLI subpath exports (PRs #108-#109 coffee-app, Mar 17). Auth gating, headless auth, auto-refresh, TTY detection complete (CLI PRs #24-#36, v0.6.2). Published: v0.6.1 on npm (v0.6.2 tag+publish pending).
+- [x] Phase 4: coffee-app chat agent integration — complete, chat agent tools imported from CLI subpath exports (PRs #108-#109 coffee-app, Mar 17). Auth gating, headless auth, auto-refresh, TTY detection complete (CLI PRs #24-#36, v0.6.2). Published: v0.9.6 on npm as of Apr 8, 2026.
