@@ -119,6 +119,61 @@ describe('CLI output modes', () => {
     expect(output).not.toContain('"code": "INVALID_ARGUMENT"');
   }, 15000);
 
+  it('keeps unknown option parse errors human-readable in a TTY with no explicit mode', () => {
+    const result = spawnSync(
+      'script',
+      ['-e', '-q', '-c', 'CI=1 pnpm exec tsx src/index.ts catalog search --bogus', '/dev/null'],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        maxBuffer: 10 * 1024 * 1024,
+      }
+    );
+
+    const output = stripAnsi(`${result.stdout}${result.stderr}`);
+
+    expect(result.status).toBe(2);
+    expect(output).toContain("✖ Unknown option '--bogus'");
+    expect(output).not.toContain('"error": true');
+  }, 15000);
+
+  it('keeps unknown command parse errors human-readable in a TTY with no explicit mode', () => {
+    const result = spawnSync(
+      'script',
+      ['-e', '-q', '-c', 'CI=1 pnpm exec tsx src/index.ts catlog', '/dev/null'],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        maxBuffer: 10 * 1024 * 1024,
+      }
+    );
+
+    const output = stripAnsi(`${result.stdout}${result.stderr}`);
+
+    expect(result.status).toBe(2);
+    expect(output).toContain("✖ Unknown command 'catlog'");
+    expect(output).toContain('Did you mean catalog?');
+    expect(output).not.toContain('"code": "INVALID_ARGUMENT"');
+  }, 15000);
+
+  it('keeps missing required argument parse errors human-readable in a TTY with no explicit mode', () => {
+    const result = spawnSync(
+      'script',
+      ['-e', '-q', '-c', 'CI=1 pnpm exec tsx src/index.ts catalog get', '/dev/null'],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        maxBuffer: 10 * 1024 * 1024,
+      }
+    );
+
+    const output = stripAnsi(`${result.stdout}${result.stderr}`);
+
+    expect(result.status).toBe(2);
+    expect(output).toContain("✖ Missing required argument 'id'");
+    expect(output).not.toContain('"error": true');
+  }, 15000);
+
   it('forces JSON for auth status --json even in a TTY', () => {
     const result = spawnSync(
       'script',
@@ -164,5 +219,34 @@ describe('CLI output modes', () => {
       exitCode: 2,
     });
     expect(stderr.message).toContain('Invalid --sort value: "bogus"');
+  }, 15000);
+
+  it('emits JSON parse-error envelopes when stderr is redirected from an interactive TTY', () => {
+    const result = spawnSync(
+      'script',
+      [
+        '-e',
+        '-q',
+        '-c',
+        "bash -lc 'CI=1 pnpm exec tsx src/index.ts catalog search --bogus 2>/tmp/purvey-parse-stderr.json; STATUS=$?; cat /tmp/purvey-parse-stderr.json; rm -f /tmp/purvey-parse-stderr.json; exit $STATUS'",
+        '/dev/null',
+      ],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        maxBuffer: 10 * 1024 * 1024,
+      }
+    );
+
+    const output = stripAnsi(`${result.stdout}${result.stderr}`);
+    const stderr = JSON.parse(output.trim()) as Record<string, unknown>;
+
+    expect(result.status).toBe(2);
+    expect(stderr).toMatchObject({
+      error: true,
+      code: 'INVALID_ARGUMENT',
+      exitCode: 2,
+      message: "Unknown option '--bogus'",
+    });
   }, 15000);
 });

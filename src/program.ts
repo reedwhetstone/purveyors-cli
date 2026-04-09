@@ -1,4 +1,4 @@
-import { Command } from 'commander';
+import { Command, type CommanderError } from 'commander';
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -14,6 +14,27 @@ import { buildTastingCommand } from './commands/tasting.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+function applyProcessBoundarySettings(command: Command): void {
+  command.configureOutput({
+    outputError: () => {
+      // Route Commander parse failures through the top-level fatal() contract
+      // instead of printing raw stderr before exitOverride throws.
+    },
+  });
+
+  command.exitOverride((error: CommanderError) => {
+    if (error.exitCode === 0) {
+      process.exit(0);
+    }
+
+    throw error;
+  });
+
+  for (const subcommand of command.commands) {
+    applyProcessBoundarySettings(subcommand);
+  }
+}
 
 export function getCliVersion(): string {
   let version = '0.0.1';
@@ -119,6 +140,8 @@ Agent reference: purvey manifest
   program.addCommand(buildRoastCommand());
   program.addCommand(buildSalesCommand());
   program.addCommand(buildTastingCommand());
+
+  applyProcessBoundarySettings(program);
 
   return program;
 }

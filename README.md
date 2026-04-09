@@ -133,6 +133,8 @@ Fatal errors also stay on stderr, but the payload format depends on mode:
 - `--json`, `--pretty`, or `--csv`: JSON error envelope on stderr
 - piped or redirected with no explicit flag: compact JSON error envelope on stderr
 
+That same contract applies to parser-level mistakes too, including unknown options, unknown commands, and missing required arguments.
+
 The JSON error envelope includes:
 
 ```json
