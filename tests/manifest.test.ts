@@ -79,11 +79,12 @@ describe('CLI manifest contract', () => {
     expect(Array.isArray(parsed.idTypes)).toBe(true);
   });
 
-  it('models context as a root command instead of a fake nested subcommand', () => {
+  it('models context and manifest as root commands instead of fake nested subcommands', () => {
     const manifest = getCliManifest();
     const contextGroup = manifest.commandGroups.find((group) => group.name === 'context');
-    const manifestKeys = [...flattenManifestCommands().keys()].filter((key) =>
-      key.startsWith('context')
+    const manifestGroup = manifest.commandGroups.find((group) => group.name === 'manifest');
+    const rootReferenceKeys = [...flattenManifestCommands().keys()].filter(
+      (key) => key === 'context' || key === 'manifest'
     );
 
     expect(contextGroup).toBeDefined();
@@ -94,7 +95,15 @@ describe('CLI manifest contract', () => {
       })
     );
     expect(contextGroup?.subcommands).toBeUndefined();
-    expect(manifestKeys).toEqual(['context']);
+    expect(manifestGroup).toBeDefined();
+    expect(manifestGroup?.command).toEqual(
+      expect.objectContaining({
+        name: 'manifest',
+        options: expect.arrayContaining([{ flags: '--json' }, { flags: '--pretty' }]),
+      })
+    );
+    expect(manifestGroup?.subcommands).toBeUndefined();
+    expect(rootReferenceKeys).toEqual(['context', 'manifest']);
   });
 
   it('keeps exhaustive manifest command, argument, and option parity with commander', () => {
@@ -160,16 +169,17 @@ describe('CLI manifest contract', () => {
     const text = renderContextText();
 
     expect(text).toContain('PURVEY CLI - Agent Reference');
-    expect(text).toContain('No auth required for local commands: auth, config, context.');
+    expect(text).toContain('No auth required for local commands: auth, config, context, manifest.');
     expect(text).not.toContain('ALL commands require authentication.');
     expect(text).toContain('Machine-mode error envelope: stderr');
     expect(text).toContain('guaranteed fields: error, code, exitCode, message');
     expect(text).toContain('context [options]');
+    expect(text).toContain('manifest [options]');
     expect(text).not.toContain('context\n  context');
     expect(text).toContain('tasting\n  get <bean-id> [options]');
     expect(text).toContain('  import [file] [options]');
     expect(text).toContain(
-      'Use `purvey context --json` for the machine-readable manifest contract.'
+      'Use `purvey manifest` or `purvey context --json` for the machine-readable manifest contract.'
     );
   });
 
@@ -198,6 +208,29 @@ describe('CLI manifest contract', () => {
     expect(contextGroup?.subcommands).toBeUndefined();
   }, 15000);
 
+  it('emits valid JSON from `purvey manifest` and keeps it in parity with `purvey context --json`', () => {
+    const manifestResult = spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', 'manifest'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    const contextResult = spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', 'context', '--json'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      maxBuffer: 10 * 1024 * 1024,
+    });
+
+    expect(manifestResult.status).toBe(0);
+    expect(manifestResult.stderr).toBe('');
+    expect(contextResult.status).toBe(0);
+    expect(contextResult.stderr).toBe('');
+
+    const manifestOutput = JSON.parse(stripAnsi(manifestResult.stdout).trim());
+    const contextOutput = JSON.parse(stripAnsi(contextResult.stdout).trim());
+
+    expect(manifestOutput).toEqual(contextOutput);
+  }, 15000);
+
   it('keeps `purvey context` human-readable by default', () => {
     const result = spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', 'context'], {
       cwd: repoRoot,
@@ -210,7 +243,9 @@ describe('CLI manifest contract', () => {
     expect(result.status).toBe(0);
     expect(output).toContain('PURVEY CLI - Agent Reference');
     expect(output).toContain('WORKFLOWS');
-    expect(output).toContain('No auth required for local commands: auth, config, context.');
+    expect(output).toContain(
+      'No auth required for local commands: auth, config, context, manifest.'
+    );
     expect(output.trim().startsWith('{')).toBe(false);
   }, 15000);
 });

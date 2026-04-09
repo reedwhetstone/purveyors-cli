@@ -688,8 +688,23 @@ const commandGroups: CliCommandGroupContract[] = [
       summary: 'Emit human-readable agent reference or JSON manifest',
       auth: 'none',
       options: [{ flags: '--json' }, { flags: '--pretty' }],
-      notes: ['Use `purvey context --json` for the machine-readable manifest contract.'],
+      notes: [
+        'Use `purvey manifest` or `purvey context --json` for the machine-readable manifest contract.',
+      ],
       examples: ['purvey context', 'purvey context --json', 'purvey context --pretty'],
+    },
+  },
+  {
+    name: 'manifest',
+    summary: 'Emit the machine-readable CLI manifest contract',
+    auth: 'none',
+    command: {
+      name: 'manifest',
+      summary: 'Emit the machine-readable CLI manifest contract',
+      auth: 'none',
+      options: [{ flags: '--json' }, { flags: '--pretty' }],
+      notes: ['`purvey manifest` emits compact JSON by default.'],
+      examples: ['purvey manifest', 'purvey manifest --pretty'],
     },
   },
 ];
