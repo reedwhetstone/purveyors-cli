@@ -79,8 +79,8 @@ Configuration:
   config set        Set a config value
   config reset      Reset config to defaults
 
-Agent Tools:
-  context           Output the dense CLI reference for agents
+Agent & Integration Tools:
+  context           Output the CLI contract for agents and integrations
 
 Global Options:
   --json            Output compact JSON explicitly
@@ -94,16 +94,18 @@ Examples:
   $ purvey catalog search --origin "Ethiopia" --process "natural" --pretty
   $ purvey catalog similar 1182 --threshold 0.85 --stocked-only --json | jq '.[0]'
   $ purvey inventory list --stocked --pretty
-  $ purvey roast import my-roast.alog --coffee-id 128
+  $ purvey roast import my-roast.alog --coffee-id 7
   $ purvey roast watch ~/artisan/ --auto-match
   $ purvey tasting rate 42 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
   $ purvey context
   $ purvey context --json
 
-Documentation: https://github.com/reedwhetstone/purveyors-cli
-Live docs:      https://purveyors.io/docs
-npm package:    https://www.npmjs.com/package/@purveyors/cli
-Agent reference: purvey context --json
+CLI docs:         https://www.purveyors.io/docs/cli/overview
+Agent guide:      https://www.purveyors.io/docs/cli/agent-integration
+GitHub README:    https://github.com/reedwhetstone/purveyors-cli
+npm package:      https://www.npmjs.com/package/@purveyors/cli
+Machine contract: purvey context --json
+JS manifest:      @purveyors/cli/manifest
 `
     );
 

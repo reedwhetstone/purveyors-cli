@@ -12,6 +12,27 @@ Use this file as the single maintained guide for humans and agents. `CLAUDE.md` 
 - Stack: TypeScript, Commander.js, Supabase JS, Vitest
 - Version source of truth: `package.json` and `purvey --version`
 
+## Docs and Contract Surfaces
+
+Live docs:
+
+- Overview: <https://www.purveyors.io/docs/cli/overview>
+- Agent integration: <https://www.purveyors.io/docs/cli/agent-integration>
+- Catalog: <https://www.purveyors.io/docs/cli/catalog>
+- Inventory: <https://www.purveyors.io/docs/cli/inventory>
+- Roast: <https://www.purveyors.io/docs/cli/roast>
+- Sales: <https://www.purveyors.io/docs/cli/sales>
+- Tasting: <https://www.purveyors.io/docs/cli/tasting>
+
+Machine-readable contract surfaces:
+
+- `purvey context` for dense human-readable onboarding text
+- `purvey context --json` for the compact manifest contract on stdout
+- `purvey context --pretty` for indented manifest inspection
+- `@purveyors/cli/manifest` for in-process `getCliManifest()` and `renderContextText()` access
+
+Keep these surfaces aligned. If a command, flag, auth rule, ID type, or output contract changes, update the docs and the manifest together.
+
 ## What the CLI Covers
 
 Current command groups:
@@ -31,7 +52,9 @@ If you change this surface, update all of these in the same PR:
 2. `AGENTS.md`
 3. `CLAUDE.md` link or pointer
 4. `src/commands/context.ts`
-5. command help text in `src/commands/*` and `src/index.ts` when affected
+5. `src/lib/manifest.ts`
+6. command help text in `src/commands/*` and `src/index.ts` when affected
+7. `tests/manifest.test.ts` when the contract surface changes
 
 ## Local Setup
 
@@ -69,6 +92,13 @@ Command files:
 
 ## Contribution Rules
 
+### Package exports and integration entry points
+
+- `@purveyors/cli/manifest` is the canonical in-process contract surface for agents and wrappers.
+- `@purveyors/cli/lib` re-exports the main library helpers.
+- Subpath exports like `@purveyors/cli/catalog` and `@purveyors/cli/inventory` should stay documented when exports change.
+- If `package.json#exports` changes, update README, AGENTS, and the manifest in the same PR.
+
 ### Auth and roles
 
 - Use `requireAuth('viewer')` for catalog commands and other viewer-level access.
@@ -101,7 +131,7 @@ Command files:
 
 ### Docs discipline
 
-This repo has several documentation surfaces that drift easily. When changing commands, options, auth behavior, or output behavior, audit the full set rather than patching one file.
+This repo has several documentation surfaces that drift easily. When changing commands, options, auth behavior, output behavior, or package exports, audit the full set rather than patching one file. Live docs on `purveyors.io/docs/cli/*` should point at the same reality as the README and manifest.
 
 ## Common Gotchas
 
@@ -110,9 +140,11 @@ This repo has several documentation surfaces that drift easily. When changing co
 - `tasting rate [bean-id]` uses an `inventory id` (green_coffee_inv.id). It is NOT a catalog ID.
 - `roast --coffee-id` expects an inventory ID, not a catalog ID.
 - `sales --roast-id` expects a roast ID, not an inventory ID or catalog ID.
-- `context.ts` is easy to forget when command flags change.
+- `context.ts` is easy to forget when command flags change, but `src/lib/manifest.ts` is the deeper source of truth for that command.
 - `inventory list`, `roast list`, and `sales list` all support `--offset` for pagination. Keep docs in sync when adding new list flags.
 - Catalog commands require viewer auth. Downstream docs (coffee-app site, etc.) that claim catalog access is unauthenticated are wrong and should align with this repo.
+- `auth status` is the one deliberate output-mode exception. It can emit structured auth-state JSON on stdout even when unauthenticated.
+- `CLAUDE.md` should remain a pointer-only symlink to this file, not a second maintained guide.
 
 ## Release Notes
 

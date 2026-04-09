@@ -8,6 +8,12 @@ export interface CliDocLink {
   url: string;
 }
 
+export interface CliPackageExportContract {
+  subpath: string;
+  target: string;
+  description: string;
+}
+
 export interface CliRoleContract {
   role: 'viewer' | 'member';
   description: string;
@@ -95,6 +101,7 @@ export interface CliManifest {
     config: string;
   };
   docs: CliDocLink[];
+  packageExports: CliPackageExportContract[];
   roles: CliRoleContract[];
   globalOptions: CliOptionContract[];
   outputModes: CliOutputModeContract[];
@@ -112,9 +119,68 @@ export interface CliManifest {
 }
 
 const docs: CliDocLink[] = [
+  { label: 'CLI overview', url: 'https://www.purveyors.io/docs/cli/overview' },
+  { label: 'Agent integration', url: 'https://www.purveyors.io/docs/cli/agent-integration' },
+  { label: 'Catalog docs', url: 'https://www.purveyors.io/docs/cli/catalog' },
+  { label: 'Inventory docs', url: 'https://www.purveyors.io/docs/cli/inventory' },
+  { label: 'Roast docs', url: 'https://www.purveyors.io/docs/cli/roast' },
+  { label: 'Sales docs', url: 'https://www.purveyors.io/docs/cli/sales' },
+  { label: 'Tasting docs', url: 'https://www.purveyors.io/docs/cli/tasting' },
   { label: 'Full README', url: 'https://github.com/reedwhetstone/purveyors-cli' },
-  { label: 'Live docs', url: 'https://purveyors.io/docs' },
   { label: 'npm package', url: 'https://www.npmjs.com/package/@purveyors/cli' },
+];
+
+const packageExports: CliPackageExportContract[] = [
+  {
+    subpath: '@purveyors/cli',
+    target: './dist/index.js',
+    description: 'package root and installed CLI distribution',
+  },
+  {
+    subpath: '@purveyors/cli/manifest',
+    target: './dist/lib/manifest.js',
+    description: 'machine-readable CLI contract helpers: getCliManifest() and renderContextText()',
+  },
+  {
+    subpath: '@purveyors/cli/lib',
+    target: './dist/lib/index.js',
+    description: 'barrel export of the main library helpers',
+  },
+  {
+    subpath: '@purveyors/cli/catalog',
+    target: './dist/lib/catalog.js',
+    description: 'catalog utilities',
+  },
+  {
+    subpath: '@purveyors/cli/inventory',
+    target: './dist/lib/inventory.js',
+    description: 'inventory utilities',
+  },
+  {
+    subpath: '@purveyors/cli/roast',
+    target: './dist/lib/roast.js',
+    description: 'roast utilities',
+  },
+  {
+    subpath: '@purveyors/cli/sales',
+    target: './dist/lib/sales.js',
+    description: 'sales utilities',
+  },
+  {
+    subpath: '@purveyors/cli/tasting',
+    target: './dist/lib/tasting.js',
+    description: 'tasting utilities',
+  },
+  {
+    subpath: '@purveyors/cli/artisan',
+    target: './dist/lib/artisan/index.js',
+    description: 'Artisan import helpers',
+  },
+  {
+    subpath: '@purveyors/cli/ai',
+    target: './dist/lib/ai.js',
+    description: 'AI-oriented helpers',
+  },
 ];
 
 const roles: CliRoleContract[] = [
@@ -688,7 +754,12 @@ const commandGroups: CliCommandGroupContract[] = [
       summary: 'Emit human-readable agent reference or JSON manifest',
       auth: 'none',
       options: [{ flags: '--json' }, { flags: '--pretty' }],
-      notes: ['Use `purvey context --json` for the machine-readable manifest contract.'],
+      notes: [
+        'Default output is dense human-readable onboarding text.',
+        'Use `purvey context --json` for the machine-readable manifest contract.',
+        'Use `purvey context --pretty` to inspect the same manifest with indentation.',
+        'The same helpers are exported for in-process integrations via `@purveyors/cli/manifest`.',
+      ],
       examples: ['purvey context', 'purvey context --json', 'purvey context --pretty'],
     },
   },
@@ -780,6 +851,7 @@ export function getCliManifest(): CliManifest {
       config: '~/.config/purvey/config.json',
     },
     docs,
+    packageExports,
     roles,
     globalOptions,
     outputModes,
@@ -794,6 +866,7 @@ export function getCliManifest(): CliManifest {
         'Use --csv for array-shaped results that support CSV output.',
         'In interactive use, stderr may also carry prompts, spinners, and human-readable status lines.',
         'Important exception: auth status prints human-readable output in an interactive TTY unless --json, --pretty, or --csv is passed; when piped or redirected it emits structured JSON automatically.',
+        'Exit codes are stable and documented below; automation should branch on exit status or the JSON error envelope, not on human-readable prose.',
       ],
       structuredErrors: {
         channel: 'stderr',
@@ -814,6 +887,16 @@ export function getCliManifest(): CliManifest {
 
 function renderDocs(docsLinks: CliDocLink[]): string[] {
   return ['DOCS', '----', ...docsLinks.map((link) => `${link.label.padEnd(18, ' ')} ${link.url}`)];
+}
+
+function renderPackageExports(exportsList: CliPackageExportContract[]): string[] {
+  return [
+    'PACKAGE EXPORTS',
+    '---------------',
+    ...exportsList.map(
+      (entry) => `${entry.subpath.padEnd(24, ' ')} ${entry.description} (${entry.target})`
+    ),
+  ];
 }
 
 function renderRoles(
@@ -987,6 +1070,8 @@ export function renderContextText(manifest: CliManifest = getCliManifest()): str
     `Config file: ${manifest.files.config}`,
     '',
     ...renderDocs(manifest.docs),
+    '',
+    ...renderPackageExports(manifest.packageExports),
     '',
     ...renderRoles(manifest.roles, manifest.commandGroups),
     '',

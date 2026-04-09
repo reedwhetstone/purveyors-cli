@@ -6,7 +6,7 @@ import type { OutputOptions } from '../types/index.js';
 
 export function buildContextCommand(): Command {
   return new Command('context')
-    .description('Output full CLI reference for AI agent onboarding')
+    .description('Output the CLI contract for agents, scripts, and integrations')
     .option('--json', 'Emit the machine-readable manifest contract as compact JSON')
     .option('--pretty', 'Emit the machine-readable manifest contract as indented JSON')
     .addHelpText(
@@ -18,6 +18,13 @@ Examples:
   purvey context --pretty
   purvey context | head -50
   purvey context --json > cli-manifest.json
+
+Notes:
+  Default output is dense human-readable onboarding text.
+  --json emits the machine-readable manifest contract on stdout.
+  --pretty emits the same manifest with indentation.
+  The same helpers are exported for in-process integrations from
+  @purveyors/cli/manifest.
 `
     )
     .action(
@@ -33,7 +40,7 @@ Examples:
         if (globalOpts.csv) {
           throw new PrvrsError(
             'INVALID_ARGUMENT',
-            'The context command does not support --csv. Use text, --json, or --pretty.'
+            'The context command does not support --csv. Use default text output, --json, or --pretty.'
           );
         }
 

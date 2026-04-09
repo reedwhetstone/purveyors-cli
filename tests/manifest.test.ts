@@ -77,6 +77,7 @@ describe('CLI manifest contract', () => {
     expect(Array.isArray(parsed.commandGroups)).toBe(true);
     expect(Array.isArray(parsed.exitCodes)).toBe(true);
     expect(Array.isArray(parsed.idTypes)).toBe(true);
+    expect(Array.isArray(parsed.packageExports)).toBe(true);
   });
 
   it('models context as a root command instead of a fake nested subcommand', () => {
@@ -125,8 +126,17 @@ describe('CLI manifest contract', () => {
     }
   });
 
-  it('describes the shared exit code and machine-mode error-envelope contracts', () => {
+  it('describes the shared exit code, package-export, and machine-mode error-envelope contracts', () => {
     const manifest = getCliManifest();
+
+    expect(manifest.packageExports).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          subpath: '@purveyors/cli/manifest',
+          target: './dist/lib/manifest.js',
+        }),
+      ])
+    );
 
     expect(manifest.exitCodes).toEqual(
       expect.arrayContaining([
@@ -163,6 +173,7 @@ describe('CLI manifest contract', () => {
     expect(text).toContain('No auth required for local commands: auth, config, context.');
     expect(text).not.toContain('ALL commands require authentication.');
     expect(text).toContain('Machine-mode error envelope: stderr');
+    expect(text).toContain('@purveyors/cli/manifest');
     expect(text).toContain('guaranteed fields: error, code, exitCode, message');
     expect(text).toContain('context [options]');
     expect(text).not.toContain('context\n  context');

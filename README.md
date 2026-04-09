@@ -6,6 +6,20 @@ Coffee intelligence from your terminal.
 
 Run `purvey context` for the dense agent reference.
 
+## Documentation Map
+
+- Live CLI overview: <https://www.purveyors.io/docs/cli/overview>
+- Live agent integration guide: <https://www.purveyors.io/docs/cli/agent-integration>
+- Live catalog docs: <https://www.purveyors.io/docs/cli/catalog>
+- Live inventory docs: <https://www.purveyors.io/docs/cli/inventory>
+- Live roast docs: <https://www.purveyors.io/docs/cli/roast>
+- Live sales docs: <https://www.purveyors.io/docs/cli/sales>
+- Live tasting docs: <https://www.purveyors.io/docs/cli/tasting>
+- GitHub source docs: <https://github.com/reedwhetstone/purveyors-cli>
+- npm package: <https://www.npmjs.com/package/@purveyors/cli>
+
+The two canonical contract surfaces for automation are `purvey context --json` and the in-process export `@purveyors/cli/manifest`.
+
 ## Installation
 
 ```bash
@@ -101,8 +115,15 @@ Commands that require a higher role will exit with code `3` (auth error) if you 
 
 ## Output and Scripting
 
-Most commands write compact JSON to stdout by default.
-Use `--json` if you want to request that mode explicitly.
+`purvey` is automation-first. Treat stdout, stderr, and exit codes as separate channels with stable roles.
+
+| Channel   | Contract                                                                                                               |
+| --------- | ---------------------------------------------------------------------------------------------------------------------- |
+| stdout    | Success data only. Compact JSON by default; pretty JSON with `--pretty`; CSV for supported array results with `--csv`. |
+| stderr    | Status lines, prompts, spinners, and fatal errors.                                                                     |
+| exit code | Stable numeric outcome contract. See [Exit Codes](#exit-codes).                                                        |
+
+Most commands write compact JSON to stdout by default. Use `--json` if you want to request that mode explicitly.
 
 Pretty JSON:
 
@@ -125,9 +146,7 @@ purvey roast list --limit 5 | jq '.[].roast_id'
 purvey auth status 2>/dev/null | jq -r '.email'
 ```
 
-Operational messages go to stderr, so stdout stays script-friendly.
-
-Fatal errors also stay on stderr, but the payload format depends on mode:
+Fatal errors stay on stderr, but the payload format depends on mode:
 
 - interactive terminal with no explicit output flag: human-readable text
 - `--json`, `--pretty`, or `--csv`: JSON error envelope on stderr
@@ -141,9 +160,33 @@ The JSON error envelope includes:
 
 ### Output caveats worth knowing
 
-- `purvey auth status` prints human-readable output in an interactive terminal unless you pass `--json`, `--pretty`, or `--csv`. When piped or redirected, it emits JSON on stdout even when unauthenticated.
+- `purvey auth status` is the intentional exception. In an interactive terminal it prints human-readable status unless you pass `--json`, `--pretty`, or `--csv`. When piped or redirected, it emits structured JSON on stdout even when unauthenticated.
 - `--json` is an explicit alias for the default compact JSON mode, and it forces JSON even in an interactive terminal.
 - `--csv` affects successful stdout output only; fatal errors still use JSON on stderr.
+- Scripts should branch on exit codes or the JSON error envelope, not on human-readable prose.
+
+## Contract Surfaces for Agents and Integrations
+
+The CLI exposes the same contract in terminal and in-process forms.
+
+| Surface                   | Use it for                                                      | Output                                               |
+| ------------------------- | --------------------------------------------------------------- | ---------------------------------------------------- |
+| `purvey context`          | quick onboarding in a terminal or chat session                  | dense human-readable reference on stdout             |
+| `purvey context --json`   | stable machine-readable contract for scripts, agents, and tests | compact JSON manifest on stdout                      |
+| `purvey context --pretty` | inspecting that contract during development                     | indented JSON manifest on stdout                     |
+| `@purveyors/cli/manifest` | in-process Node.js or TypeScript integrations                   | `getCliManifest()` and `renderContextText()` exports |
+
+Example in-process integration:
+
+```ts
+import { getCliManifest, renderContextText } from '@purveyors/cli/manifest';
+
+const manifest = getCliManifest();
+console.log(manifest.binary);
+console.log(renderContextText(manifest));
+```
+
+For browser-app and agent architecture guidance, see the live guide: <https://www.purveyors.io/docs/cli/agent-integration>.
 
 ## Exit Codes
 
@@ -437,8 +480,21 @@ purvey config get form-mode
 ### context
 
 - `purvey context`
+- `purvey context --json`
+- `purvey context --pretty`
 
-Use this when an agent needs a compact, source-aware CLI reference.
+Use `purvey context` when an agent or operator needs a dense, source-aware CLI reference in plain text.
+
+Use `purvey context --json` when you need the machine-readable manifest contract on stdout. This is the best surface for:
+
+- agent bootstrapping
+- contract tests
+- generated wrappers
+- command-surface drift audits
+
+Use `purvey context --pretty` when debugging that same manifest interactively.
+
+The same contract helpers are exported for in-process integrations from `@purveyors/cli/manifest`.
 
 ## Common Workflows
 
@@ -473,10 +529,31 @@ purvey sales list --csv > sales.csv
 
 Use the right ID for the right command.
 
-- `catalog_id`: coffee_catalog rows; used by `catalog get`, `inventory add --catalog-id`, `tasting get`, `roast list --catalog-id`
-- `inventory id`: green_coffee_inv rows; used by `inventory get/update/delete`, `roast --coffee-id`, `tasting rate`, `roast list --coffee-id`
-- `roast_id`: roast_data rows; used by `roast get/delete`, `sales --roast-id`, `roast list --roast-id`
-- `sale id`: coffee_sales rows; used by `sales update/delete`
+| ID type        | Backing row        | Common commands                                                                              |
+| -------------- | ------------------ | -------------------------------------------------------------------------------------------- |
+| `catalog_id`   | `coffee_catalog`   | `catalog get`, `inventory add --catalog-id`, `tasting get`, `roast list --catalog-id`        |
+| `inventory id` | `green_coffee_inv` | `inventory get/update/delete`, `roast --coffee-id`, `tasting rate`, `roast list --coffee-id` |
+| `roast_id`     | `roast_data`       | `roast get/delete`, `sales --roast-id`, `roast list --roast-id`                              |
+| `sale id`      | `coffee_sales`     | `sales update/delete`                                                                        |
+
+Most common mistake: `tasting get` takes a `catalog_id`, while `tasting rate` takes an inventory `id`.
+
+## Package Exports for Developers
+
+The package exposes both CLI and library-oriented entry points.
+
+| Export                     | Use it for                                                    |
+| -------------------------- | ------------------------------------------------------------- |
+| `@purveyors/cli`           | package root and installed CLI distribution                   |
+| `@purveyors/cli/manifest`  | machine-readable manifest helpers for agents and integrations |
+| `@purveyors/cli/lib`       | barrel export of the main library helpers                     |
+| `@purveyors/cli/catalog`   | catalog utilities                                             |
+| `@purveyors/cli/inventory` | inventory utilities                                           |
+| `@purveyors/cli/roast`     | roast utilities                                               |
+| `@purveyors/cli/sales`     | sales utilities                                               |
+| `@purveyors/cli/tasting`   | tasting utilities                                             |
+| `@purveyors/cli/artisan`   | Artisan import helpers                                        |
+| `@purveyors/cli/ai`        | AI-oriented helpers                                           |
 
 ## Environment Variables
 
@@ -507,7 +584,8 @@ The CLI is designed to be agent-friendly:
 - structured output on stdout
 - headless auth flow
 - copy-pasteable examples
-- a dedicated `context` command for onboarding
+- dedicated `context` text and JSON contract surfaces for onboarding
+- the same contract available in-process via `@purveyors/cli/manifest`
 - documented exit codes for programmatic error handling
 - `--offset` + `--limit` pagination on all list commands
 
