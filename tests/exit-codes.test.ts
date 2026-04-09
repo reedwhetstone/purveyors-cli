@@ -51,6 +51,58 @@ describe('CLI exit codes', () => {
     expect(stderr.message).toContain('Invalid --sort value: "bogus"');
   }, 15000);
 
+  it('exits 2 for malformed catalog search ids before auth', () => {
+    const result = runCli(['catalog', 'search', '--ids', '12x', '--json']);
+    const stderr = parseJson(result.stderr);
+
+    expect(result.status).toBe(2);
+    expect(stderr).toMatchObject({
+      error: true,
+      code: 'INVALID_ARGUMENT',
+      exitCode: 2,
+    });
+    expect(stderr.message).toContain('Invalid --ids value: "12x"');
+  }, 15000);
+
+  it('exits 2 for malformed catalog get ids before auth', () => {
+    const result = runCli(['catalog', 'get', '12x', '--json']);
+    const stderr = parseJson(result.stderr);
+
+    expect(result.status).toBe(2);
+    expect(stderr).toMatchObject({
+      error: true,
+      code: 'INVALID_ARGUMENT',
+      exitCode: 2,
+    });
+    expect(stderr.message).toContain('Invalid ID: "12x"');
+  }, 15000);
+
+  it('exits 2 for malformed catalog similar ids before auth', () => {
+    const result = runCli(['catalog', 'similar', '12x', '--json']);
+    const stderr = parseJson(result.stderr);
+
+    expect(result.status).toBe(2);
+    expect(stderr).toMatchObject({
+      error: true,
+      code: 'INVALID_ARGUMENT',
+      exitCode: 2,
+    });
+    expect(stderr.message).toContain('Invalid ID: "12x"');
+  }, 15000);
+
+  it('exits 2 for malformed catalog pagination flags before auth', () => {
+    const result = runCli(['catalog', 'search', '--limit', '10x', '--json']);
+    const stderr = parseJson(result.stderr);
+
+    expect(result.status).toBe(2);
+    expect(stderr).toMatchObject({
+      error: true,
+      code: 'INVALID_ARGUMENT',
+      exitCode: 2,
+    });
+    expect(stderr.message).toContain('Invalid --limit: "10x"');
+  }, 15000);
+
   it('exits 6 when the local config file is unreadable JSON', () => {
     const tempHome = mkdtempSync(join(tmpdir(), 'purvey-home-'));
 

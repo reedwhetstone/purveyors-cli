@@ -18,6 +18,38 @@ import type { OutputOptions } from '../types/index.js';
 export type { CatalogItem, CatalogStats };
 export { sanitizeFilterValue, computeCatalogStats };
 
+function parseFiniteNumberArg(rawValue: string, message: string): number {
+  const trimmed = rawValue.trim();
+  if (trimmed.length === 0) {
+    throw new PrvrsError('INVALID_ARGUMENT', message);
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) {
+    throw new PrvrsError('INVALID_ARGUMENT', message);
+  }
+
+  return parsed;
+}
+
+function parsePositiveIntegerArg(rawValue: string, message: string): number {
+  const parsed = parseFiniteNumberArg(rawValue, message);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new PrvrsError('INVALID_ARGUMENT', message);
+  }
+
+  return parsed;
+}
+
+function parseNonNegativeIntegerArg(rawValue: string, message: string): number {
+  const parsed = parseFiniteNumberArg(rawValue, message);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new PrvrsError('INVALID_ARGUMENT', message);
+  }
+
+  return parsed;
+}
+
 // ─── Command builder ──────────────────────────────────────────────────────────
 
 /**
@@ -107,42 +139,67 @@ Notes:
             .filter(Boolean);
           const nums: number[] = [];
           for (const token of raw) {
-            const n = parseInt(token, 10);
-            if (isNaN(n) || n <= 0) {
-              throw new PrvrsError(
-                'INVALID_ARGUMENT',
+            nums.push(
+              parsePositiveIntegerArg(
+                token,
                 `Invalid --ids value: "${token}". Each ID must be a positive integer.`
-              );
-            }
-            nums.push(n);
+              )
+            );
           }
           parsedIds = nums;
         }
+
+        const priceMin =
+          opts.priceMin !== undefined
+            ? parseFiniteNumberArg(
+                opts.priceMin as string,
+                `Invalid --price-min: "${opts.priceMin}". Must be a number.`
+              )
+            : undefined;
+        const priceMax =
+          opts.priceMax !== undefined
+            ? parseFiniteNumberArg(
+                opts.priceMax as string,
+                `Invalid --price-max: "${opts.priceMax}". Must be a number.`
+              )
+            : undefined;
+        const stockedDays =
+          opts.stockedDays !== undefined
+            ? parsePositiveIntegerArg(
+                opts.stockedDays as string,
+                `Invalid --stocked-days: "${opts.stockedDays}". Must be a positive integer.`
+              )
+            : undefined;
+        const offset =
+          opts.offset !== undefined
+            ? parseNonNegativeIntegerArg(
+                opts.offset as string,
+                `Invalid --offset: "${opts.offset}". Must be a non-negative integer.`
+              )
+            : undefined;
+        const limit = parsePositiveIntegerArg(
+          opts.limit as string,
+          `Invalid --limit: "${opts.limit}". Must be a positive integer.`
+        );
 
         const { supabase } = await requireAuth('viewer');
 
         const data = await searchCatalog(supabase, {
           origin: opts.origin as string | undefined,
           process: opts.process as string | undefined,
-          priceMin: opts.priceMin !== undefined ? parseFloat(opts.priceMin as string) : undefined,
-          priceMax: opts.priceMax !== undefined ? parseFloat(opts.priceMax as string) : undefined,
+          priceMin,
+          priceMax,
           flavor: opts.flavor as string | undefined,
           name: opts.name as string | undefined,
           supplier: opts.supplier as string | undefined,
           ids: parsedIds,
           variety: opts.variety as string | undefined,
           dryingMethod: opts.dryingMethod as string | undefined,
-          stockedDays:
-            opts.stockedDays !== undefined
-              ? Math.max(1, parseInt(opts.stockedDays as string, 10))
-              : undefined,
+          stockedDays,
           stocked: opts.stocked ? true : undefined,
           sort: sortValue as CatalogSortField | undefined,
-          offset:
-            opts.offset !== undefined
-              ? Math.max(0, parseInt(opts.offset as string, 10))
-              : undefined,
-          limit: Math.max(1, parseInt(opts.limit as string, 10)),
+          offset,
+          limit,
         });
 
         if (data.length === 0) {
@@ -175,13 +232,10 @@ Notes:
     .action(
       withErrorHandling(async (id: string, _opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const catalogId = parseInt(id, 10);
-        if (isNaN(catalogId)) {
-          throw new PrvrsError(
-            'INVALID_ARGUMENT',
-            `Invalid ID: "${id}". Please provide a numeric coffee_catalog ID.`
-          );
-        }
+        const catalogId = parsePositiveIntegerArg(
+          id,
+          `Invalid ID: "${id}". Please provide a numeric coffee_catalog ID.`
+        );
 
         const { supabase } = await requireAuth('viewer');
         const data = await getCatalog(supabase, catalogId);
@@ -244,16 +298,19 @@ Notes:
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
 
-        const coffeeId = parseInt(id, 10);
-        if (isNaN(coffeeId)) {
-          throw new PrvrsError(
-            'INVALID_ARGUMENT',
-            `Invalid ID: "${id}". Please provide a numeric coffee_catalog ID.`
-          );
-        }
+        const coffeeId = parsePositiveIntegerArg(
+          id,
+          `Invalid ID: "${id}". Please provide a numeric coffee_catalog ID.`
+        );
 
-        const threshold = parseFloat(opts.threshold as string);
-        const limit = Math.max(1, parseInt(opts.limit as string, 10));
+        const threshold = parseFiniteNumberArg(
+          opts.threshold as string,
+          `Invalid --threshold: "${opts.threshold}". Must be a number between 0 and 1.`
+        );
+        const limit = parsePositiveIntegerArg(
+          opts.limit as string,
+          `Invalid --limit: "${opts.limit}". Must be a positive integer.`
+        );
         const stockedOnly = Boolean(opts.stockedOnly);
         const { supabase } = await requireAuth('viewer');
 
