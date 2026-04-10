@@ -102,7 +102,7 @@ Configuration:
   config reset      Reset config to defaults
 
 Agent Tools:
-  context           Output the dense CLI reference for agents
+  context           Output the dense human-readable CLI reference for agents
   manifest          Output the machine-readable CLI contract for agents/scripts
 
 Global Options:
@@ -127,7 +127,8 @@ Examples:
 Documentation: https://github.com/reedwhetstone/purveyors-cli
 Live docs:      https://purveyors.io/docs
 npm package:    https://www.npmjs.com/package/@purveyors/cli
-Agent reference: purvey manifest
+Human reference:  purvey context
+JSON manifest:    purvey manifest
 `
     );
 

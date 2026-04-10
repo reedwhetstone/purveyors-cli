@@ -218,6 +218,6 @@ describe('CLI exit codes', () => {
 
     expect(versionResult.status).toBe(0);
     expect(versionResult.stderr).toBe('');
-    expect(versionResult.stdout.trim()).toBe('0.12.1');
+    expect(versionResult.stdout.trim()).toBe('0.13.1');
   }, 15000);
 });

@@ -4,7 +4,7 @@ Coffee intelligence from your terminal.
 
 `purvey` is the official CLI for [purveyors.io](https://purveyors.io). It gives coffee professionals and AI agents direct access to the Purveyors platform from the terminal: catalog search, inventory tracking, roast logging, sales records, tasting notes, and Artisan `.alog` import.
 
-Run `purvey manifest` for the machine-readable contract, or `purvey context` for the dense human-readable reference.
+Run `purvey manifest` for the machine-readable contract, `purvey context` for the dense human-readable reference, or import `@purveyors/cli/manifest` in-process.
 
 ## Installation
 
@@ -43,13 +43,16 @@ purvey inventory list --stocked --pretty
 # 5. Import a roast from Artisan
 purvey roast import ~/artisan/my-roast.alog --coffee-id 7 --pretty
 
-# 6. (Agents) Get the machine-readable CLI contract in one command
+# 6. (Agents/scripts) Get the machine-readable CLI contract in one command
 purvey manifest
+
+# 7. (Humans/agents) Get the dense readable CLI reference
+purvey context
 ```
 
 ## Authentication
 
-**All remote data commands require a valid authenticated session.** `catalog`, `inventory`, `roast`, `sales`, and `tasting` all require auth. Local `config` commands do not.
+**All remote data commands require a valid authenticated session.** `catalog`, `inventory`, `roast`, `sales`, and `tasting` all require auth. Local `config`, `context`, and `manifest` commands do not.
 
 `purvey` uses Google OAuth through purveyors.io.
 
@@ -445,8 +448,27 @@ Use this when an agent needs a dense, human-readable, source-aware CLI reference
 ### manifest
 
 - `purvey manifest`
+  <<<<<<< HEAD
 
-Use this when an agent or script needs the machine-readable contract directly. It emits compact JSON by default; add `--pretty` for indented output.
+# Use this when an agent or script needs the machine-readable contract directly. It emits compact JSON by default; add `--pretty` for indented output.
+
+- `purvey context --json`
+
+Use either when an agent or script needs the machine-readable contract directly. Both emit the same JSON manifest; `purvey manifest` defaults to that machine-readable mode.
+
+### in-process manifest
+
+- `@purveyors/cli/manifest`
+
+Use this when you need the same contract from Node.js without shelling out to the CLI.
+
+```ts
+import { getCliManifest } from '@purveyors/cli/manifest';
+
+const manifest = getCliManifest();
+```
+
+> > > > > > > 2b90fbd (fix: restore manifest command contract)
 
 ## Common Workflows
 
@@ -499,6 +521,10 @@ Start here:
 
 ```bash
 purvey manifest
+<<<<<<< HEAD
+=======
+purvey context
+>>>>>>> 2b90fbd (fix: restore manifest command contract)
 ```
 
 Recommended flow:
@@ -516,7 +542,12 @@ The CLI is designed to be agent-friendly:
 - headless auth flow
 - copy-pasteable examples
 - a dedicated `manifest` command for machine-readable onboarding
+  <<<<<<< HEAD
+- # a dedicated `context` command for dense human-readable onboarding
+- `purvey context --json` parity with `purvey manifest`
 - a dedicated `context` command for dense human-readable onboarding
+- an `@purveyors/cli/manifest` export for in-process access
+  > > > > > > > 2b90fbd (fix: restore manifest command contract)
 - documented exit codes for programmatic error handling
 - `--offset` + `--limit` pagination on all list commands
 
@@ -581,7 +612,9 @@ Key files:
 - `src/index.ts`: top-level CLI registration and global options
 - `src/commands/`: command definitions and help text
 - `src/lib/`: business logic and Supabase integration
-- `src/commands/context.ts`: dense agent reference
+- `src/commands/context.ts`: dense human-readable agent reference
+- `src/commands/manifest.ts`: machine-readable CLI manifest command
+- `src/lib/manifest.ts`: shared manifest contract and renderer
 - `AGENTS.md`: contributor guide
 
 Live documentation: [purveyors.io/docs](https://purveyors.io/docs)
