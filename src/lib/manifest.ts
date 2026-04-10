@@ -799,7 +799,8 @@ export function getCliManifest(): CliManifest {
     globalOptions,
     outputModes,
     outputContract: {
-      stdout: 'structured data only (JSON or CSV, depending on mode)',
+      stdout:
+        'Structured JSON by default for most commands, CSV when explicitly requested on supporting commands, and human-readable reference text for `purvey context` unless JSON is requested.',
       stderr:
         'interactive progress and prompts, plus structured JSON error envelopes in machine-readable invocations',
       notes: [
@@ -807,6 +808,8 @@ export function getCliManifest(): CliManifest {
         'Use --json to request compact JSON explicitly.',
         'Use --pretty for indented JSON.',
         'Use --csv for array-shaped results that support CSV output.',
+        '`purvey context` prints dense human-readable reference text unless --json or --pretty is passed.',
+        '`purvey manifest` always emits the machine-readable contract on stdout.',
         'In interactive use, stderr may also carry prompts, spinners, and human-readable status lines.',
         'Important exception: auth status prints human-readable output in an interactive TTY unless --json, --pretty, or --csv is passed; when piped or redirected it emits structured JSON automatically.',
       ],
@@ -839,12 +842,17 @@ function renderRoles(
     .filter((group) => group.auth === 'none')
     .map((group) => group.name)
     .sort();
+  const localOnlyCommands = groups
+    .filter((group) => group.auth === 'none' && group.name !== 'auth')
+    .map((group) => group.name)
+    .sort();
 
   return [
     'ROLES',
     '-----',
-    `No auth required for local commands: ${unauthenticatedCommands.join(', ')}.`,
-    'Commands that talk to purveyors.io require authentication.',
+    `No pre-existing session required for: ${unauthenticatedCommands.join(', ')}.`,
+    `Local-only commands: ${localOnlyCommands.join(', ')}.`,
+    'Commands that talk to purveyors.io require authentication, except for the auth commands that establish or inspect a session.',
     ...roleContracts.map((role) => `${role.role.padEnd(7, ' ')} ${role.description}`),
     '',
     'Both roles are granted on sign-in through purveyors.io.',

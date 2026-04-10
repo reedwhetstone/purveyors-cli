@@ -154,6 +154,15 @@ describe('CLI manifest contract', () => {
       ])
     );
 
+    expect(manifest.outputContract.stdout).toContain(
+      'Structured JSON by default for most commands'
+    );
+    expect(manifest.outputContract.notes).toContain(
+      '`purvey context` prints dense human-readable reference text unless --json or --pretty is passed.'
+    );
+    expect(manifest.outputContract.notes).toContain(
+      '`purvey manifest` always emits the machine-readable contract on stdout.'
+    );
     expect(manifest.outputContract.structuredErrors).toEqual(
       expect.objectContaining({
         channel: 'stderr',
@@ -169,7 +178,10 @@ describe('CLI manifest contract', () => {
     const text = renderContextText();
 
     expect(text).toContain('PURVEY CLI - Agent Reference');
-    expect(text).toContain('No auth required for local commands: auth, config, context, manifest.');
+    expect(text).toContain(
+      'No pre-existing session required for: auth, config, context, manifest.'
+    );
+    expect(text).toContain('Local-only commands: config, context, manifest.');
     expect(text).not.toContain('ALL commands require authentication.');
     expect(text).toContain('Machine-mode error envelope: stderr');
     expect(text).toContain('guaranteed fields: error, code, exitCode, message');
@@ -244,8 +256,9 @@ describe('CLI manifest contract', () => {
     expect(output).toContain('PURVEY CLI - Agent Reference');
     expect(output).toContain('WORKFLOWS');
     expect(output).toContain(
-      'No auth required for local commands: auth, config, context, manifest.'
+      'No pre-existing session required for: auth, config, context, manifest.'
     );
+    expect(output).toContain('Local-only commands: config, context, manifest.');
     expect(output.trim().startsWith('{')).toBe(false);
   }, 15000);
 });
