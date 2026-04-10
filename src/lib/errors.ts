@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import { CommanderError } from 'commander';
 import { ZodError } from 'zod';
 import type { CliErrorEnvelope } from '../types/index.js';
 import {
@@ -27,6 +28,16 @@ const PRVRS_ERROR_EXIT_CODES: Partial<Record<string, ExitCode>> = {
   CONFIG_ERROR: EXIT_CODES.CONFIG_ERROR,
 };
 
+const COMMANDER_INVALID_ARGUMENT_CODES = new Set([
+  'commander.invalidArgument',
+  'commander.missingArgument',
+  'commander.optionMissingArgument',
+  'commander.missingMandatoryOptionValue',
+  'commander.unknownOption',
+  'commander.unknownCommand',
+  'commander.excessArguments',
+]);
+
 export class PrvrsError extends Error {
   public readonly code: string;
   public readonly details?: unknown;
@@ -53,12 +64,39 @@ export class ConfigError extends PrvrsError {
   }
 }
 
-export function exitCodeForError(error: unknown): ExitCode {
-  if (error instanceof PrvrsError) {
-    return PRVRS_ERROR_EXIT_CODES[error.code] ?? EXIT_CODES.GENERAL_ERROR;
+function normalizeCommanderErrorMessage(message: string): string {
+  const normalized = message.replace(/^error:\s*/i, '').trim();
+  if (!normalized) {
+    return 'Commander parse error';
   }
 
-  if (error instanceof ZodError) {
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+export function normalizeCliError(error: unknown): unknown {
+  if (!(error instanceof CommanderError)) {
+    return error;
+  }
+
+  const code = COMMANDER_INVALID_ARGUMENT_CODES.has(error.code)
+    ? 'INVALID_ARGUMENT'
+    : 'GENERAL_ERROR';
+
+  return new PrvrsError(code, normalizeCommanderErrorMessage(error.message), {
+    commanderCode: error.code,
+    commanderExitCode: error.exitCode,
+    ...(error.nestedError ? { nestedError: error.nestedError } : {}),
+  });
+}
+
+export function exitCodeForError(error: unknown): ExitCode {
+  const normalized = normalizeCliError(error);
+
+  if (normalized instanceof PrvrsError) {
+    return PRVRS_ERROR_EXIT_CODES[normalized.code] ?? EXIT_CODES.GENERAL_ERROR;
+  }
+
+  if (normalized instanceof ZodError) {
     return EXIT_CODES.INVALID_ARGUMENT;
   }
 
@@ -66,11 +104,13 @@ export function exitCodeForError(error: unknown): ExitCode {
 }
 
 function errorCodeLabel(error: unknown): string {
-  if (error instanceof PrvrsError) {
-    return error.code;
+  const normalized = normalizeCliError(error);
+
+  if (normalized instanceof PrvrsError) {
+    return normalized.code;
   }
 
-  if (error instanceof ZodError) {
+  if (normalized instanceof ZodError) {
     return 'INVALID_ARGUMENT';
   }
 
@@ -88,16 +128,18 @@ function formatZodErrorMessage(error: ZodError): string {
 }
 
 function errorMessageForError(error: unknown): string {
-  if (error instanceof PrvrsError) {
-    return error.message;
+  const normalized = normalizeCliError(error);
+
+  if (normalized instanceof PrvrsError) {
+    return normalized.message;
   }
 
-  if (error instanceof ZodError) {
-    return formatZodErrorMessage(error);
+  if (normalized instanceof ZodError) {
+    return formatZodErrorMessage(normalized);
   }
 
-  if (error instanceof Error) {
-    return error.message;
+  if (normalized instanceof Error) {
+    return normalized.message;
   }
 
   return 'An unknown error occurred';
@@ -108,16 +150,18 @@ function errorDetailsForError(error: unknown): unknown {
     return undefined;
   }
 
-  if (error instanceof PrvrsError) {
-    return error.details;
+  const normalized = normalizeCliError(error);
+
+  if (normalized instanceof PrvrsError) {
+    return normalized.details;
   }
 
-  if (error instanceof ZodError) {
-    return error.issues;
+  if (normalized instanceof ZodError) {
+    return normalized.issues;
   }
 
-  if (error instanceof Error && error.stack) {
-    return { stack: error.stack };
+  if (normalized instanceof Error && normalized.stack) {
+    return { stack: normalized.stack };
   }
 
   return undefined;
@@ -162,31 +206,33 @@ function writeStructuredError(error: unknown, argv: string[] = process.argv): vo
  * Print a formatted error to stderr and exit with a structured exit code.
  */
 export function fatal(error: unknown): never {
+  const normalized = normalizeCliError(error);
+
   if (shouldUseStructuredErrorOutput()) {
-    writeStructuredError(error);
-    process.exit(exitCodeForError(error));
+    writeStructuredError(normalized);
+    process.exit(exitCodeForError(normalized));
   }
 
-  if (error instanceof PrvrsError) {
-    console.error(chalk.red(`✖ ${error.message}`));
-    if (process.env.PURVEY_DEBUG && error.details) {
-      console.error(chalk.dim('Details:'), error.details);
+  if (normalized instanceof PrvrsError) {
+    console.error(chalk.red(`✖ ${normalized.message}`));
+    if (process.env.PURVEY_DEBUG && normalized.details) {
+      console.error(chalk.dim('Details:'), normalized.details);
     }
-  } else if (error instanceof ZodError) {
-    console.error(chalk.red(`✖ ${formatZodErrorMessage(error)}`));
+  } else if (normalized instanceof ZodError) {
+    console.error(chalk.red(`✖ ${formatZodErrorMessage(normalized)}`));
     if (process.env.PURVEY_DEBUG) {
-      console.error(chalk.dim(JSON.stringify(error.issues, null, 2)));
+      console.error(chalk.dim(JSON.stringify(normalized.issues, null, 2)));
     }
-  } else if (error instanceof Error) {
-    console.error(chalk.red(`✖ ${error.message}`));
-    if (process.env.PURVEY_DEBUG && error.stack) {
-      console.error(chalk.dim(error.stack));
+  } else if (normalized instanceof Error) {
+    console.error(chalk.red(`✖ ${normalized.message}`));
+    if (process.env.PURVEY_DEBUG && normalized.stack) {
+      console.error(chalk.dim(normalized.stack));
     }
   } else {
     console.error(chalk.red('✖ An unknown error occurred'));
   }
 
-  process.exit(exitCodeForError(error));
+  process.exit(exitCodeForError(normalized));
 }
 
 /**

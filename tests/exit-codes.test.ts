@@ -38,6 +38,49 @@ function runFatalFixture(code: string, extraArgs: string[] = []) {
 }
 
 describe('CLI exit codes', () => {
+  it('exits 2 for unknown options in machine mode', () => {
+    const result = runCli(['catalog', 'search', '--bogus', '--json']);
+    const stderr = parseJson(result.stderr);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(stderr).toMatchObject({
+      error: true,
+      code: 'INVALID_ARGUMENT',
+      exitCode: 2,
+      message: "Unknown option '--bogus'",
+    });
+  }, 15000);
+
+  it('exits 2 for unknown commands in machine mode', () => {
+    const result = runCli(['catlog', '--json']);
+    const stderr = parseJson(result.stderr);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(stderr).toMatchObject({
+      error: true,
+      code: 'INVALID_ARGUMENT',
+      exitCode: 2,
+    });
+    expect(String(stderr.message)).toContain("Unknown command 'catlog'");
+    expect(String(stderr.message)).toContain('Did you mean catalog?');
+  }, 15000);
+
+  it('exits 2 for missing required arguments in machine mode', () => {
+    const result = runCli(['catalog', 'get', '--json']);
+    const stderr = parseJson(result.stderr);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(stderr).toMatchObject({
+      error: true,
+      code: 'INVALID_ARGUMENT',
+      exitCode: 2,
+      message: "Missing required argument 'id'",
+    });
+  }, 15000);
+
   it('exits 2 for invalid catalog search sort values before auth', () => {
     const result = runCli(['catalog', 'search', '--sort', 'bogus']);
     const stderr = parseJson(result.stderr);
@@ -163,5 +206,18 @@ describe('CLI exit codes', () => {
       exitCode: 5,
       message: 'Fixture error for DEPENDENCY_CONFLICT',
     });
+  }, 15000);
+
+  it('keeps help and version exits at code 0', () => {
+    const helpResult = runCli(['--help']);
+    const versionResult = runCli(['--version']);
+
+    expect(helpResult.status).toBe(0);
+    expect(helpResult.stderr).toBe('');
+    expect(helpResult.stdout).toContain('The official CLI for purveyors.io');
+
+    expect(versionResult.status).toBe(0);
+    expect(versionResult.stderr).toBe('');
+    expect(versionResult.stdout.trim()).toBe('0.13.1');
   }, 15000);
 });

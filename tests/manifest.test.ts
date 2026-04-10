@@ -170,8 +170,14 @@ describe('CLI manifest contract', () => {
         optionalFields: ['details'],
       })
     );
+    expect(manifest.outputContract.structuredErrors.when).toContain(
+      'parser and runtime command failures'
+    );
     expect(manifest.outputContract.structuredErrors.when).toContain('non-interactive');
     expect(manifest.outputContract.structuredErrors.exception).toContain('auth status');
+    expect(manifest.outputContract.notes).toContain(
+      'Parser mistakes like unknown options, unknown commands, and missing required arguments follow the same fatal-error contract as runtime command failures.'
+    );
   });
 
   it('renders human-readable context text that matches the actual CLI surface', () => {
@@ -185,6 +191,9 @@ describe('CLI manifest contract', () => {
     expect(text).not.toContain('ALL commands require authentication.');
     expect(text).toContain('Machine-mode error envelope: stderr');
     expect(text).toContain('guaranteed fields: error, code, exitCode, message');
+    expect(text).toContain(
+      'Parser mistakes like unknown options, unknown commands, and missing required arguments follow the same fatal-error contract as runtime command failures.'
+    );
     expect(text).toContain('context [options]');
     expect(text).toContain('manifest [options]');
     expect(text).not.toContain('context\n  context');

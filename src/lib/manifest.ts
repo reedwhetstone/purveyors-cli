@@ -764,6 +764,14 @@ const errorPatterns: CliErrorPatternContract[] = [
     guidance: ['Pass the required flags or use --form.'],
   },
   {
+    title: 'Parser mistakes like unknown options or commands',
+    exitCodes: [EXIT_CODES.INVALID_ARGUMENT],
+    guidance: [
+      'Unknown options, unknown commands, and missing required arguments use the same JSON error envelope contract in machine mode.',
+      'In an interactive terminal with no explicit output flag, those parser failures stay human-readable.',
+    ],
+  },
+  {
     title: 'Dependency conflict on delete',
     exitCodes: [EXIT_CODES.DEPENDENCY_CONFLICT],
     guidance: ['Add `--force` to cascade delete dependent roast profiles and sales records.'],
@@ -802,7 +810,7 @@ export function getCliManifest(): CliManifest {
       stdout:
         'Structured JSON by default for most commands, CSV when explicitly requested on supporting commands, and human-readable reference text for `purvey context` unless JSON is requested.',
       stderr:
-        'interactive progress and prompts, plus structured JSON error envelopes in machine-readable invocations',
+        'interactive progress and prompts, plus human-readable or structured fatal errors depending on mode',
       notes: [
         'Most commands emit compact JSON to stdout by default.',
         'Use --json to request compact JSON explicitly.',
@@ -811,13 +819,14 @@ export function getCliManifest(): CliManifest {
         '`purvey context` prints dense human-readable reference text unless --json or --pretty is passed.',
         '`purvey manifest` always emits the machine-readable contract on stdout.',
         'In interactive use, stderr may also carry prompts, spinners, and human-readable status lines.',
+        'Parser mistakes like unknown options, unknown commands, and missing required arguments follow the same fatal-error contract as runtime command failures.',
         'Important exception: auth status prints human-readable output in an interactive TTY unless --json, --pretty, or --csv is passed; when piped or redirected it emits structured JSON automatically.',
       ],
       structuredErrors: {
         channel: 'stderr',
         guaranteedFields: ['error', 'code', 'exitCode', 'message'],
         optionalFields: ['details'],
-        when: 'Emitted when the invocation is non-interactive or when --json, --pretty, or --csv selects a machine-readable output mode.',
+        when: 'Emitted for parser and runtime command failures when the invocation is non-interactive or when --json, --pretty, or --csv selects a machine-readable output mode.',
         exception:
           '`purvey auth status` keeps its status payload on stdout even when unauthenticated; this envelope documents command failures.',
       },
