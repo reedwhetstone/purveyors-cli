@@ -52,7 +52,9 @@ purvey context
 
 ## Authentication
 
-**All remote data commands require a valid authenticated session.** `catalog`, `inventory`, `roast`, `sales`, and `tasting` all require auth. Local `config`, `context`, and `manifest` commands do not.
+No pre-existing session is required for `auth`, `config`, `context`, or `manifest`.
+
+**All remote data commands require a valid authenticated session.** `catalog`, `inventory`, `roast`, `sales`, and `tasting` all require auth.
 
 `purvey` uses Google OAuth through purveyors.io.
 
@@ -98,7 +100,7 @@ Two roles gate different command groups:
 
 Both roles are granted when you sign in through purveyors.io. The `viewer` role is the minimum required for catalog access; the `member` role is required for any personal data or write operations.
 
-`config list/get/set/reset` are local-only commands and work without authentication.
+`auth`, `config`, `context`, and `manifest` work without a pre-existing session. `config list/get/set/reset` are local-only commands, `context` is a local reference command, and `manifest` emits the machine-readable CLI contract.
 
 Commands that require a higher role will exit with code `3` (auth error) if you are not signed in or your role is insufficient. Run `purvey auth status` to confirm your current role before scripting.
 
@@ -442,33 +444,35 @@ purvey config get form-mode
 ### context
 
 - `purvey context`
+- `purvey context --json`
+- `purvey context --pretty`
 
-Use this when an agent needs a dense, human-readable, source-aware CLI reference.
+`purvey context` defaults to dense, human-readable, source-aware CLI reference text.
+
+Use `--json` or `--pretty` when you want the same machine-readable manifest that `purvey manifest` emits.
 
 ### manifest
 
 - `purvey manifest`
-  <<<<<<< HEAD
+- `purvey manifest --pretty`
 
-# Use this when an agent or script needs the machine-readable contract directly. It emits compact JSON by default; add `--pretty` for indented output.
+Use this when an agent or script needs the machine-readable contract directly. `purvey manifest` emits compact JSON by default.
 
-- `purvey context --json`
+`purvey manifest` and `purvey context --json` emit the same JSON manifest.
 
-Use either when an agent or script needs the machine-readable contract directly. Both emit the same JSON manifest; `purvey manifest` defaults to that machine-readable mode.
+If you want indented JSON, add `--pretty` to either command.
 
 ### in-process manifest
 
 - `@purveyors/cli/manifest`
 
-Use this when you need the same contract from Node.js without shelling out to the CLI.
+Use this when you need the same contract from Node.js without shelling out to the CLI. This package subpath is exported via `./manifest` in `package.json`.
 
 ```ts
 import { getCliManifest } from '@purveyors/cli/manifest';
 
 const manifest = getCliManifest();
 ```
-
-> > > > > > > 2b90fbd (fix: restore manifest command contract)
 
 ## Common Workflows
 
@@ -521,10 +525,7 @@ Start here:
 
 ```bash
 purvey manifest
-<<<<<<< HEAD
-=======
 purvey context
->>>>>>> 2b90fbd (fix: restore manifest command contract)
 ```
 
 Recommended flow:
@@ -542,12 +543,9 @@ The CLI is designed to be agent-friendly:
 - headless auth flow
 - copy-pasteable examples
 - a dedicated `manifest` command for machine-readable onboarding
-  <<<<<<< HEAD
-- # a dedicated `context` command for dense human-readable onboarding
-- `purvey context --json` parity with `purvey manifest`
 - a dedicated `context` command for dense human-readable onboarding
+- `purvey context --json` parity with `purvey manifest`
 - an `@purveyors/cli/manifest` export for in-process access
-  > > > > > > > 2b90fbd (fix: restore manifest command contract)
 - documented exit codes for programmatic error handling
 - `--offset` + `--limit` pagination on all list commands
 
@@ -609,12 +607,14 @@ npm test
 
 Key files:
 
-- `src/index.ts`: top-level CLI registration and global options
+- `src/index.ts`: executable entrypoint
+- `src/program.ts`: top-level CLI registration and global options
 - `src/commands/`: command definitions and help text
 - `src/lib/`: business logic and Supabase integration
 - `src/commands/context.ts`: dense human-readable agent reference
 - `src/commands/manifest.ts`: machine-readable CLI manifest command
 - `src/lib/manifest.ts`: shared manifest contract and renderer
+- `package.json`: package metadata and export surface, including `./manifest`
 - `AGENTS.md`: contributor guide
 
 Live documentation: [purveyors.io/docs](https://purveyors.io/docs)

@@ -11,6 +11,7 @@ Use this file as the single maintained guide for humans and agents. `CLAUDE.md` 
 - Runtime: Node.js 20+
 - Stack: TypeScript, Commander.js, Supabase JS, Vitest
 - Version source of truth: `package.json` and `purvey --version`
+- In-process manifest export: `@purveyors/cli/manifest` via package export `./manifest`
 
 ## What the CLI Covers
 
@@ -23,7 +24,8 @@ Current command groups:
 - `sales`: `list` (filters: roast-id, date-start, date-end, buyer, limit, offset), `record`, `update <id>`, `delete <id>`
 - `tasting`: `get <bean-id>`, `rate [bean-id]`
 - `config`: `list`, `get <key>`, `set <key> <value>`, `reset`
-- `context`: dense agent reference for the CLI
+- `context`: dense human-readable agent reference for the CLI, or JSON manifest with `--json`/`--pretty`
+- `manifest`: machine-readable CLI manifest contract
 
 If you change this surface, update all of these in the same PR:
 
@@ -31,7 +33,8 @@ If you change this surface, update all of these in the same PR:
 2. `AGENTS.md`
 3. `CLAUDE.md` link or pointer
 4. `src/commands/context.ts`
-5. command help text in `src/commands/*` and `src/index.ts` when affected
+5. `src/commands/manifest.ts`
+6. command help text in `src/commands/*` and `src/program.ts` when affected
 
 ## Local Setup
 
@@ -49,7 +52,8 @@ Use `pnpm install` for local setup. Use the package scripts for validation.
 
 ```text
 src/
-  index.ts            top-level program, global options, command registration
+  index.ts            executable entrypoint
+  program.ts          top-level program, global options, command registration
   commands/           Commander command trees and help text
   lib/                Supabase access, output, auth guards, business logic
   types/              shared TypeScript types
@@ -65,7 +69,8 @@ Command files:
 - `sales.ts`: sales CRUD
 - `tasting.ts`: tasting lookup and cupping scores
 - `config.ts`: local CLI config
-- `context.ts`: dense agent-oriented reference output
+- `context.ts`: dense agent-oriented reference output, with optional JSON manifest mode
+- `manifest.ts`: machine-readable CLI manifest command
 
 ## Contribution Rules
 
@@ -73,7 +78,8 @@ Command files:
 
 - Use `requireAuth('viewer')` for catalog commands and other viewer-level access.
 - Use `requireAuth('member')` for personal data and writes.
-- `catalog`, `inventory`, `roast`, `sales`, and `tasting` require authentication. Local `config` commands do not.
+- `auth`, `config`, `context`, and `manifest` do not require a pre-existing authenticated session.
+- `catalog`, `inventory`, `roast`, `sales`, and `tasting` require authentication.
 - Keep docs aligned with actual handler behavior. If auth requirements change, update README, help text, and context in the same PR.
 - Exit code `3` is returned on any auth failure (not logged in, expired session, or insufficient role).
 
@@ -110,7 +116,7 @@ This repo has several documentation surfaces that drift easily. When changing co
 - `tasting rate [bean-id]` uses an `inventory id` (green_coffee_inv.id). It is NOT a catalog ID.
 - `roast --coffee-id` expects an inventory ID, not a catalog ID.
 - `sales --roast-id` expects a roast ID, not an inventory ID or catalog ID.
-- `context.ts` is easy to forget when command flags change.
+- `context.ts` and `manifest.ts` are easy to forget when command flags or output behavior change.
 - `inventory list`, `roast list`, and `sales list` all support `--offset` for pagination. Keep docs in sync when adding new list flags.
 - Catalog commands require viewer auth. Downstream docs (coffee-app site, etc.) that claim catalog access is unauthenticated are wrong and should align with this repo.
 
