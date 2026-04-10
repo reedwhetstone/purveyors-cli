@@ -7,6 +7,7 @@ import { buildCatalogCommand } from './commands/catalog.js';
 import { buildConfigCommand } from './commands/config.js';
 import { buildContextCommand } from './commands/context.js';
 import { buildInventoryCommand } from './commands/inventory.js';
+import { buildManifestCommand } from './commands/manifest.js';
 import { buildRoastCommand } from './commands/roast.js';
 import { buildSalesCommand } from './commands/sales.js';
 import { buildTastingCommand } from './commands/tasting.js';
@@ -81,6 +82,7 @@ Configuration:
 
 Agent Tools:
   context           Output the dense CLI reference for agents
+  manifest          Output the machine-readable CLI contract for agents/scripts
 
 Global Options:
   --json            Output compact JSON explicitly
@@ -98,12 +100,13 @@ Examples:
   $ purvey roast watch ~/artisan/ --auto-match
   $ purvey tasting rate 42 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
   $ purvey context
-  $ purvey context --json
+  $ purvey manifest
+  $ purvey manifest --pretty
 
 Documentation: https://github.com/reedwhetstone/purveyors-cli
 Live docs:      https://purveyors.io/docs
 npm package:    https://www.npmjs.com/package/@purveyors/cli
-Agent reference: purvey context --json
+Agent reference: purvey manifest
 `
     );
 
@@ -112,6 +115,7 @@ Agent reference: purvey context --json
   program.addCommand(buildConfigCommand());
   program.addCommand(buildContextCommand());
   program.addCommand(buildInventoryCommand());
+  program.addCommand(buildManifestCommand());
   program.addCommand(buildRoastCommand());
   program.addCommand(buildSalesCommand());
   program.addCommand(buildTastingCommand());

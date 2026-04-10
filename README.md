@@ -4,7 +4,7 @@ Coffee intelligence from your terminal.
 
 `purvey` is the official CLI for [purveyors.io](https://purveyors.io). It gives coffee professionals and AI agents direct access to the Purveyors platform from the terminal: catalog search, inventory tracking, roast logging, sales records, tasting notes, and Artisan `.alog` import.
 
-Run `purvey context` for the dense agent reference.
+Run `purvey manifest` for the machine-readable contract, or `purvey context` for the dense human-readable reference.
 
 ## Installation
 
@@ -43,8 +43,8 @@ purvey inventory list --stocked --pretty
 # 5. Import a roast from Artisan
 purvey roast import ~/artisan/my-roast.alog --coffee-id 7 --pretty
 
-# 6. (Agents) Get the full CLI reference in one command
-purvey context
+# 6. (Agents) Get the machine-readable CLI contract in one command
+purvey manifest
 ```
 
 ## Authentication
@@ -438,7 +438,13 @@ purvey config get form-mode
 
 - `purvey context`
 
-Use this when an agent needs a compact, source-aware CLI reference.
+Use this when an agent needs a dense, human-readable, source-aware CLI reference.
+
+### manifest
+
+- `purvey manifest`
+
+Use this when an agent or script needs the machine-readable contract directly. It emits compact JSON by default; add `--pretty` for indented output.
 
 ## Common Workflows
 
@@ -490,7 +496,7 @@ Use the right ID for the right command.
 Start here:
 
 ```bash
-purvey context
+purvey manifest
 ```
 
 Recommended flow:
@@ -507,7 +513,8 @@ The CLI is designed to be agent-friendly:
 - structured output on stdout
 - headless auth flow
 - copy-pasteable examples
-- a dedicated `context` command for onboarding
+- a dedicated `manifest` command for machine-readable onboarding
+- a dedicated `context` command for dense human-readable onboarding
 - documented exit codes for programmatic error handling
 - `--offset` + `--limit` pagination on all list commands
 

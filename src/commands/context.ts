@@ -16,6 +16,7 @@ Examples:
   purvey context
   purvey context --json
   purvey context --pretty
+  purvey manifest
   purvey context | head -50
   purvey context --json > cli-manifest.json
 `
