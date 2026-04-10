@@ -69,7 +69,7 @@ Authentication:
   auth status       Show current login status and role
   auth logout       Clear stored credentials
 
-Catalog (viewer role required — all catalog commands need authentication):
+Catalog (viewer role required, authentication needed):
   catalog search    Search the coffee catalog with filters
   catalog get       Get details for a specific coffee by ID
   catalog stats     Aggregate statistics for the catalog
@@ -95,14 +95,12 @@ Personal Data (member role required):
   tasting get       Get tasting notes for a coffee
   tasting rate      Rate a coffee bean with cupping scores
 
-Configuration:
+Local and reference commands (no pre-existing session required):
   config list       Show all config values
   config get        Get a config value
   config set        Set a config value
   config reset      Reset config to defaults
-
-Agent Tools:
-  context           Output the dense human-readable CLI reference for agents
+  context           Output dense human-readable reference text, or JSON with --json/--pretty
   manifest          Output the machine-readable CLI contract for agents/scripts
 
 Global Options:
@@ -117,10 +115,11 @@ Examples:
   $ purvey catalog search --origin "Ethiopia" --process "natural" --pretty
   $ purvey catalog similar 1182 --threshold 0.85 --stocked-only --json | jq '.[0]'
   $ purvey inventory list --stocked --pretty
-  $ purvey roast import my-roast.alog --coffee-id 128
+  $ purvey roast import my-roast.alog --coffee-id 7
   $ purvey roast watch ~/artisan/ --auto-match
   $ purvey tasting rate 42 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
   $ purvey context
+  $ purvey context --json > cli-manifest.json
   $ purvey manifest
   $ purvey manifest --pretty
 

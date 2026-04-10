@@ -6,19 +6,24 @@ import type { OutputOptions } from '../types/index.js';
 
 export function buildContextCommand(): Command {
   return new Command('context')
-    .description('Output full CLI reference for AI agent onboarding')
+    .description(
+      'Output the dense human-readable CLI reference, or the JSON manifest with --json/--pretty'
+    )
     .option('--json', 'Emit the machine-readable manifest contract as compact JSON')
     .option('--pretty', 'Emit the machine-readable manifest contract as indented JSON')
     .addHelpText(
       'after',
       `
+Default output is dense human-readable reference text.
+Use --json or --pretty for the same machine-readable manifest emitted by \`purvey manifest\`.
+
 Examples:
   purvey context
+  purvey context | head -50
   purvey context --json
   purvey context --pretty
-  purvey manifest
-  purvey context | head -50
   purvey context --json > cli-manifest.json
+  purvey manifest
 `
     )
     .action(
