@@ -465,7 +465,7 @@ Use `--json` or `--pretty` when you want the same machine-readable manifest that
 - `purvey manifest`
 - `purvey manifest --pretty`
 
-Use this when an agent or script needs the machine-readable contract directly. `purvey manifest` emits compact JSON by default.
+Use this when an agent or script needs the machine-readable contract directly. `purvey manifest` emits compact JSON by default; add `--pretty` for indented output.
 
 `purvey manifest` and `purvey context --json` emit the same JSON manifest.
 
@@ -609,6 +609,7 @@ git clone https://github.com/reedwhetstone/purveyors-cli
 cd purveyors-cli
 pnpm install
 npm run build
+npm run verify:dist
 npm run check
 npm run lint
 npm test
@@ -624,6 +625,7 @@ Key files:
 - `src/commands/manifest.ts`: machine-readable CLI manifest command
 - `src/lib/manifest.ts`: shared manifest contract and renderer
 - `package.json`: package metadata and export surface, including `./manifest`
+- `tests/dist-contract.test.ts`: compiled artifact parity guardrails
 - `AGENTS.md`: contributor guide
 
 Live documentation: [purveyors.io/docs](https://purveyors.io/docs)
