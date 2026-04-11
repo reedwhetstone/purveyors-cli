@@ -660,12 +660,28 @@ const commandGroups: CliCommandGroupContract[] = [
     summary: 'Manage purvey CLI settings',
     auth: 'none',
     subcommands: [
-      { name: 'list', summary: 'Show all config values', auth: 'none' },
+      {
+        name: 'list',
+        summary: 'Show all config values',
+        auth: 'none',
+        notes: [
+          'Interactive terminals print human-readable key = value lines.',
+          'Machine mode emits the full config object as JSON.',
+          '--csv is not supported on config commands.',
+        ],
+        examples: ['purvey config list', 'purvey config list --json'],
+      },
       {
         name: 'get',
         summary: 'Get a config value',
         auth: 'none',
         arguments: [{ name: 'key', description: 'Config key', required: true }],
+        notes: [
+          'Interactive terminals print the raw value with no decorators.',
+          'Machine mode emits {"<key>": value|null}.',
+          '--csv is not supported on config commands.',
+        ],
+        examples: ['purvey config get form-mode', 'purvey config get form-mode --json'],
       },
       {
         name: 'set',
@@ -675,8 +691,24 @@ const commandGroups: CliCommandGroupContract[] = [
           { name: 'key', description: 'Config key', required: true },
           { name: 'value', description: 'Config value', required: true },
         ],
+        notes: [
+          'Interactive terminals print a human-readable success line.',
+          'Machine mode emits the updated config value as JSON.',
+          '--csv is not supported on config commands.',
+        ],
+        examples: ['purvey config set form-mode true', 'purvey config set form-mode true --json'],
       },
-      { name: 'reset', summary: 'Reset config to defaults', auth: 'none' },
+      {
+        name: 'reset',
+        summary: 'Reset config to defaults',
+        auth: 'none',
+        notes: [
+          'Interactive terminals print a human-readable success line.',
+          'Machine mode emits {}.',
+          '--csv is not supported on config commands.',
+        ],
+        examples: ['purvey config reset', 'purvey config reset --json'],
+      },
     ],
   },
   {
@@ -818,6 +850,7 @@ export function getCliManifest(): CliManifest {
         'Use --csv for array-shaped results that support CSV output.',
         '`purvey context` prints dense human-readable reference text unless --json or --pretty is passed.',
         '`purvey manifest` always emits the machine-readable contract on stdout.',
+        '`purvey config list/get/set/reset` stay human-readable in an interactive TTY, but emit JSON on stdout in machine mode and reject --csv.',
         'In interactive use, stderr may also carry prompts, spinners, and human-readable status lines.',
         'Parser mistakes like unknown options, unknown commands, and missing required arguments follow the same fatal-error contract as runtime command failures.',
         'Important exception: auth status prints human-readable output in an interactive TTY unless --json, --pretty, or --csv is passed; when piped or redirected it emits structured JSON automatically.',

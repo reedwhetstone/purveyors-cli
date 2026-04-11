@@ -163,6 +163,9 @@ describe('CLI manifest contract', () => {
     expect(manifest.outputContract.notes).toContain(
       '`purvey manifest` always emits the machine-readable contract on stdout.'
     );
+    expect(manifest.outputContract.notes).toContain(
+      '`purvey config list/get/set/reset` stay human-readable in an interactive TTY, but emit JSON on stdout in machine mode and reject --csv.'
+    );
     expect(manifest.outputContract.structuredErrors).toEqual(
       expect.objectContaining({
         channel: 'stderr',
@@ -196,6 +199,7 @@ describe('CLI manifest contract', () => {
     );
     expect(text).toContain('context [options]');
     expect(text).toContain('manifest [options]');
+    expect(text).toContain('Machine mode emits the full config object as JSON.');
     expect(text).not.toContain('context\n  context');
     expect(text).toContain('tasting\n  get <bean-id> [options]');
     expect(text).toContain('  import [file] [options]');

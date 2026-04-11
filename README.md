@@ -149,6 +149,7 @@ The JSON error envelope includes:
 ### Output caveats worth knowing
 
 - `purvey auth status` prints human-readable output in an interactive terminal unless you pass `--json`, `--pretty`, or `--csv`. When piped or redirected, it emits JSON on stdout even when unauthenticated.
+- `purvey config list/get/set/reset` stay human-readable in an interactive terminal, but emit JSON on stdout when you pass `--json` or `--pretty`, or when stdout is non-interactive. `--csv` is not supported for config commands.
 - `--json` is an explicit alias for the default compact JSON mode, and it forces JSON even in an interactive terminal.
 - `--csv` affects successful stdout output only; fatal errors still use JSON on stderr.
 
@@ -434,11 +435,19 @@ Current config key:
 
 - `form-mode`: when set to `true`, write commands enter interactive mode when required args are missing
 
+Output behavior:
+
+- Interactive terminals keep config commands human-readable by default
+- `--json` or `--pretty`, or any non-interactive stdout, emits JSON on stdout
+- `--csv` is not supported for config commands
+
 Examples:
 
 ```bash
 purvey config set form-mode true
 purvey config get form-mode
+purvey config get form-mode --json
+purvey config reset --json
 ```
 
 ### context
