@@ -60,9 +60,9 @@ Notes:
     )
     .action(
       withErrorHandling(async (_: unknown, cmd: Command) => {
+        const { outputOptions, isInteractive } = resolveConfigOutput(cmd);
         const cfg = await readConfig();
         const keys = Object.keys(cfg) as Array<keyof typeof cfg>;
-        const { outputOptions, isInteractive } = resolveConfigOutput(cmd);
 
         if (!isInteractive) {
           outputData(cfg, outputOptions);
@@ -111,9 +111,9 @@ Notes:
           );
         }
 
+        const { outputOptions, isInteractive } = resolveConfigOutput(cmd);
         const cfg = await readConfig();
         const value = cfg[key];
-        const { outputOptions, isInteractive } = resolveConfigOutput(cmd);
 
         if (!isInteractive) {
           outputData(configValuePayload(key, value), outputOptions);
@@ -161,6 +161,8 @@ Notes:
             );
           }
 
+          const { outputOptions, isInteractive } = resolveConfigOutput(cmd);
+
           try {
             await setConfigValue(key, value);
           } catch (err) {
@@ -171,7 +173,6 @@ Notes:
           }
 
           const cfg = await readConfig();
-          const { outputOptions, isInteractive } = resolveConfigOutput(cmd);
 
           if (!isInteractive) {
             outputData(configValuePayload(key, cfg[key]), outputOptions);
@@ -202,8 +203,8 @@ Notes:
     )
     .action(
       withErrorHandling(async (_: unknown, cmd: Command) => {
-        await writeConfig({});
         const { outputOptions, isInteractive } = resolveConfigOutput(cmd);
+        await writeConfig({});
 
         if (!isInteractive) {
           outputData({}, outputOptions);

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { rmSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,25 @@ function stripAnsi(text: string): string {
 
 function parseJson(text: string) {
   return JSON.parse(stripAnsi(text).trim()) as Record<string, unknown>;
+}
+
+function runCliWithHome(args: string[], home: string) {
+  return spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', ...args], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    env: { ...process.env, HOME: home },
+    maxBuffer: 10 * 1024 * 1024,
+  });
+}
+
+function configFilePath(home: string) {
+  return join(home, '.config', 'purvey', 'config.json');
+}
+
+function writeConfigFixture(home: string, raw: string) {
+  const configDir = join(home, '.config', 'purvey');
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(configFilePath(home), raw, 'utf8');
 }
 
 describe('CLI output modes', () => {
@@ -224,6 +243,94 @@ describe('CLI output modes', () => {
         exitCode: 2,
       });
       expect(stderr.message).toContain('The config commands do not support --csv');
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it('rejects config set --csv without mutating config', () => {
+    const tempHome = mkdtempSync(join(tmpdir(), 'purvey-config-set-csv-'));
+
+    try {
+      const originalConfig = `{
+  "form-mode": false
+}
+`;
+      writeConfigFixture(tempHome, originalConfig);
+
+      const result = runCliWithHome(['config', 'set', 'form-mode', 'true', '--csv'], tempHome);
+      const stderr = parseJson(result.stderr);
+
+      expect(result.status).toBe(2);
+      expect(result.stdout).toBe('');
+      expect(stderr).toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        exitCode: 2,
+      });
+      expect(stderr.message).toContain('The config commands do not support --csv');
+      expect(readFileSync(configFilePath(tempHome), 'utf8')).toBe(originalConfig);
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it('rejects config reset --csv without mutating config', () => {
+    const tempHome = mkdtempSync(join(tmpdir(), 'purvey-config-reset-csv-'));
+
+    try {
+      const originalConfig = `{
+  "form-mode": true
+}
+`;
+      writeConfigFixture(tempHome, originalConfig);
+
+      const result = runCliWithHome(['config', 'reset', '--csv'], tempHome);
+      const stderr = parseJson(result.stderr);
+
+      expect(result.status).toBe(2);
+      expect(result.stdout).toBe('');
+      expect(stderr).toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        exitCode: 2,
+      });
+      expect(stderr.message).toContain('The config commands do not support --csv');
+      expect(readFileSync(configFilePath(tempHome), 'utf8')).toBe(originalConfig);
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it('rejects --csv before unreadable-config errors for config list/get/set', () => {
+    const tempHome = mkdtempSync(join(tmpdir(), 'purvey-config-unreadable-csv-'));
+
+    try {
+      const unreadableConfig = '{bad json\n';
+      writeConfigFixture(tempHome, unreadableConfig);
+
+      for (const args of [
+        ['config', 'list', '--csv'],
+        ['config', 'get', 'form-mode', '--csv'],
+        ['config', 'set', 'form-mode', 'true', '--csv'],
+      ]) {
+        const result = runCliWithHome(args, tempHome);
+        const stderr = parseJson(result.stderr);
+
+        expect(result.status, args.join(' ')).toBe(2);
+        expect(result.stdout, args.join(' ')).toBe('');
+        expect(stderr, args.join(' ')).toMatchObject({
+          error: true,
+          code: 'INVALID_ARGUMENT',
+          exitCode: 2,
+        });
+        expect(String(stderr.message), args.join(' ')).toContain(
+          'The config commands do not support --csv'
+        );
+        expect(readFileSync(configFilePath(tempHome), 'utf8'), args.join(' ')).toBe(
+          unreadableConfig
+        );
+      }
     } finally {
       rmSync(tempHome, { recursive: true, force: true });
     }
