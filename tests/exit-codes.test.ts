@@ -2,12 +2,15 @@ import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const repoRoot = resolve(__dirname, '..');
+const packageVersion = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')) as {
+  version: string;
+};
 
 function stripAnsi(text: string): string {
   return text.replace(/\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '').replace(/\r/g, '');
@@ -218,6 +221,6 @@ describe('CLI exit codes', () => {
 
     expect(versionResult.status).toBe(0);
     expect(versionResult.stderr).toBe('');
-    expect(versionResult.stdout.trim()).toBe('0.13.1');
+    expect(versionResult.stdout.trim()).toBe(packageVersion.version);
   }, 15000);
 });

@@ -96,7 +96,8 @@ Command files:
 - Use `--pretty` for formatted JSON and `--csv` where CSV output is supported.
 - Prefer `outputData()` and `formatStructuredOutput()` so success/error JSON formatting shares one source of truth.
 - Avoid command-specific human-readable defaults for data commands unless there is a strong reason and the divergence is documented.
-- `auth status` is the intentional exception: in machine mode it can emit structured auth-state JSON on stdout even when unauthenticated.
+- `auth status` is the intentional auth exception: in machine mode it can emit structured auth-state JSON on stdout even when unauthenticated.
+- `config list/get/set/reset` are the intentional local-command exception: interactive TTYs stay human-readable, but `--json` / `--pretty` and non-interactive use emit structured JSON on stdout. `--csv` is not supported.
 
 ### Help text
 

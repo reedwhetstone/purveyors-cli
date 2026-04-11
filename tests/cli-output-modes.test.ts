@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { dirname, resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -15,6 +17,25 @@ function parseJson(text: string) {
   return JSON.parse(stripAnsi(text).trim()) as Record<string, unknown>;
 }
 
+function runCliWithHome(args: string[], home: string) {
+  return spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', ...args], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    env: { ...process.env, HOME: home },
+    maxBuffer: 10 * 1024 * 1024,
+  });
+}
+
+function configFilePath(home: string) {
+  return join(home, '.config', 'purvey', 'config.json');
+}
+
+function writeConfigFixture(home: string, raw: string) {
+  const configDir = join(home, '.config', 'purvey');
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(configFilePath(home), raw, 'utf8');
+}
+
 describe('CLI output modes', () => {
   it('emits JSON for auth status --json in non-interactive mode', () => {
     const result = spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', 'auth', 'status', '--json'], {
@@ -26,6 +47,293 @@ describe('CLI output modes', () => {
     expect(result.status).toBe(3);
     expect(result.stdout).toContain('{"authenticated":false');
     expect(result.stdout).toContain('Not logged in. Run `purvey auth login` to authenticate.');
+  }, 15000);
+
+  it('emits JSON for config list --json in non-interactive mode', () => {
+    const tempHome = mkdtempSync(join(tmpdir(), 'purvey-config-output-'));
+
+    try {
+      const result = spawnSync(
+        'pnpm',
+        ['exec', 'tsx', 'src/index.ts', 'config', 'list', '--json'],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env: { ...process.env, HOME: tempHome },
+          maxBuffer: 10 * 1024 * 1024,
+        }
+      );
+
+      expect(result.status).toBe(0);
+      expect(stripAnsi(result.stdout).trim()).toBe('{}');
+      expect(stripAnsi(result.stderr).trim()).toBe('');
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it('emits null JSON payloads for unset config keys in machine mode', () => {
+    const tempHome = mkdtempSync(join(tmpdir(), 'purvey-config-unset-'));
+
+    try {
+      const result = spawnSync(
+        'pnpm',
+        ['exec', 'tsx', 'src/index.ts', 'config', 'get', 'form-mode', '--json'],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env: { ...process.env, HOME: tempHome },
+          maxBuffer: 10 * 1024 * 1024,
+        }
+      );
+
+      expect(result.status).toBe(0);
+      expect(stripAnsi(result.stdout).trim()).toBe('{"form-mode":null}');
+      expect(stripAnsi(result.stderr).trim()).toBe('');
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it('emits JSON for config get/set/reset in non-interactive mode without explicit flags', () => {
+    const tempHome = mkdtempSync(join(tmpdir(), 'purvey-config-noninteractive-'));
+
+    try {
+      const setResult = spawnSync(
+        'pnpm',
+        ['exec', 'tsx', 'src/index.ts', 'config', 'set', 'form-mode', 'true'],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env: { ...process.env, HOME: tempHome },
+          maxBuffer: 10 * 1024 * 1024,
+        }
+      );
+      expect(setResult.status).toBe(0);
+      expect(stripAnsi(setResult.stdout).trim()).toBe('{"form-mode":true}');
+      expect(stripAnsi(setResult.stderr).trim()).toBe('');
+
+      const getResult = spawnSync(
+        'pnpm',
+        ['exec', 'tsx', 'src/index.ts', 'config', 'get', 'form-mode'],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env: { ...process.env, HOME: tempHome },
+          maxBuffer: 10 * 1024 * 1024,
+        }
+      );
+      expect(getResult.status).toBe(0);
+      expect(stripAnsi(getResult.stdout).trim()).toBe('{"form-mode":true}');
+      expect(stripAnsi(getResult.stderr).trim()).toBe('');
+
+      const resetResult = spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', 'config', 'reset'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        env: { ...process.env, HOME: tempHome },
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      expect(resetResult.status).toBe(0);
+      expect(stripAnsi(resetResult.stdout).trim()).toBe('{}');
+      expect(stripAnsi(resetResult.stderr).trim()).toBe('');
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it('emits JSON for config get/set/reset in machine mode', () => {
+    const tempHome = mkdtempSync(join(tmpdir(), 'purvey-config-machine-'));
+
+    try {
+      const setResult = spawnSync(
+        'pnpm',
+        ['exec', 'tsx', 'src/index.ts', 'config', 'set', 'form-mode', 'true', '--json'],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env: { ...process.env, HOME: tempHome },
+          maxBuffer: 10 * 1024 * 1024,
+        }
+      );
+      expect(setResult.status).toBe(0);
+      expect(stripAnsi(setResult.stdout).trim()).toBe('{"form-mode":true}');
+      expect(stripAnsi(setResult.stderr).trim()).toBe('');
+
+      const getResult = spawnSync(
+        'pnpm',
+        ['exec', 'tsx', 'src/index.ts', 'config', 'get', 'form-mode', '--json'],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env: { ...process.env, HOME: tempHome },
+          maxBuffer: 10 * 1024 * 1024,
+        }
+      );
+      expect(getResult.status).toBe(0);
+      expect(stripAnsi(getResult.stdout).trim()).toBe('{"form-mode":true}');
+      expect(stripAnsi(getResult.stderr).trim()).toBe('');
+
+      const resetResult = spawnSync(
+        'pnpm',
+        ['exec', 'tsx', 'src/index.ts', 'config', 'reset', '--json'],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env: { ...process.env, HOME: tempHome },
+          maxBuffer: 10 * 1024 * 1024,
+        }
+      );
+      expect(resetResult.status).toBe(0);
+      expect(stripAnsi(resetResult.stdout).trim()).toBe('{}');
+      expect(stripAnsi(resetResult.stderr).trim()).toBe('');
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it('keeps config list human-readable in a TTY when no explicit mode is passed', () => {
+    const tempHome = mkdtempSync(join(tmpdir(), 'purvey-config-tty-'));
+
+    try {
+      const shellHome = tempHome.replace(/'/g, "'\\''");
+      const result = spawnSync(
+        'script',
+        [
+          '-e',
+          '-q',
+          '-c',
+          `bash -lc 'HOME='\''${shellHome}'\'' CI=1 pnpm exec tsx src/index.ts config set form-mode true >/dev/null 2>/dev/null && HOME='\''${shellHome}'\'' CI=1 pnpm exec tsx src/index.ts config list'`,
+          '/dev/null',
+        ],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          maxBuffer: 10 * 1024 * 1024,
+        }
+      );
+
+      const output = stripAnsi(`${result.stdout}${result.stderr}`);
+
+      expect(result.status).toBe(0);
+      expect(output).toContain('form-mode = true');
+      expect(output).not.toContain('{"form-mode":true}');
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it('rejects --csv for config commands with a JSON error envelope', () => {
+    const tempHome = mkdtempSync(join(tmpdir(), 'purvey-config-csv-'));
+
+    try {
+      const result = spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', 'config', 'list', '--csv'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        env: { ...process.env, HOME: tempHome },
+        maxBuffer: 10 * 1024 * 1024,
+      });
+
+      const stderr = parseJson(result.stderr);
+
+      expect(result.status).toBe(2);
+      expect(result.stdout).toBe('');
+      expect(stderr).toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        exitCode: 2,
+      });
+      expect(stderr.message).toContain('The config commands do not support --csv');
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it('rejects config set --csv without mutating config', () => {
+    const tempHome = mkdtempSync(join(tmpdir(), 'purvey-config-set-csv-'));
+
+    try {
+      const originalConfig = `{
+  "form-mode": false
+}
+`;
+      writeConfigFixture(tempHome, originalConfig);
+
+      const result = runCliWithHome(['config', 'set', 'form-mode', 'true', '--csv'], tempHome);
+      const stderr = parseJson(result.stderr);
+
+      expect(result.status).toBe(2);
+      expect(result.stdout).toBe('');
+      expect(stderr).toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        exitCode: 2,
+      });
+      expect(stderr.message).toContain('The config commands do not support --csv');
+      expect(readFileSync(configFilePath(tempHome), 'utf8')).toBe(originalConfig);
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it('rejects config reset --csv without mutating config', () => {
+    const tempHome = mkdtempSync(join(tmpdir(), 'purvey-config-reset-csv-'));
+
+    try {
+      const originalConfig = `{
+  "form-mode": true
+}
+`;
+      writeConfigFixture(tempHome, originalConfig);
+
+      const result = runCliWithHome(['config', 'reset', '--csv'], tempHome);
+      const stderr = parseJson(result.stderr);
+
+      expect(result.status).toBe(2);
+      expect(result.stdout).toBe('');
+      expect(stderr).toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        exitCode: 2,
+      });
+      expect(stderr.message).toContain('The config commands do not support --csv');
+      expect(readFileSync(configFilePath(tempHome), 'utf8')).toBe(originalConfig);
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it('rejects --csv before unreadable-config errors for config list/get/set', () => {
+    const tempHome = mkdtempSync(join(tmpdir(), 'purvey-config-unreadable-csv-'));
+
+    try {
+      const unreadableConfig = '{bad json\n';
+      writeConfigFixture(tempHome, unreadableConfig);
+
+      for (const args of [
+        ['config', 'list', '--csv'],
+        ['config', 'get', 'form-mode', '--csv'],
+        ['config', 'set', 'form-mode', 'true', '--csv'],
+      ]) {
+        const result = runCliWithHome(args, tempHome);
+        const stderr = parseJson(result.stderr);
+
+        expect(result.status, args.join(' ')).toBe(2);
+        expect(result.stdout, args.join(' ')).toBe('');
+        expect(stderr, args.join(' ')).toMatchObject({
+          error: true,
+          code: 'INVALID_ARGUMENT',
+          exitCode: 2,
+        });
+        expect(String(stderr.message), args.join(' ')).toContain(
+          'The config commands do not support --csv'
+        );
+        expect(readFileSync(configFilePath(tempHome), 'utf8'), args.join(' ')).toBe(
+          unreadableConfig
+        );
+      }
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
   }, 15000);
 
   it('emits JSON error envelopes for invalid sort with --json', () => {
