@@ -3,6 +3,7 @@ import { writeFile, mkdir, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
+  buildManualImportRecoveryCommand,
   generateBatchName,
   isAlogFile,
   printVerificationTable,
@@ -28,6 +29,26 @@ describe('generateBatchName', () => {
 
   it('preserves prefix with special characters', () => {
     expect(generateBatchName('Ethiopia — Guji', 1)).toBe('Ethiopia — Guji #1');
+  });
+});
+
+// ── buildManualImportRecoveryCommand ────────────────────────────────────────
+
+describe('buildManualImportRecoveryCommand', () => {
+  it('includes watch metadata that can be preserved manually', () => {
+    expect(
+      buildManualImportRecoveryCommand({
+        ozIn: 16,
+        roastNotes: 'Drop 15s sooner next time',
+        roastTargets: 'Aim for 18% development',
+      })
+    ).toBe(
+      'purvey roast import <file> --coffee-id <id> --oz-in 16 --roast-notes "Drop 15s sooner next time" --roast-targets "Aim for 18% development"'
+    );
+  });
+
+  it('omits unset optional metadata', () => {
+    expect(buildManualImportRecoveryCommand()).toBe('purvey roast import <file> --coffee-id <id>');
   });
 });
 

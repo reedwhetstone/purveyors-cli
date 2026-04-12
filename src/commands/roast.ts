@@ -448,6 +448,7 @@ Notes:
     .option('--batch-name <name>', 'Batch name (auto-generated from coffee name + date if omitted)')
     .option('--oz-in <oz>', 'Green weight in ounces (extracted from .alog if omitted)')
     .option('--roast-notes <notes>', 'Additional roast notes')
+    .option('--roast-targets <targets>', 'Roast targets to store with the import')
     .option('--form', 'Interactive form mode (browse and select bean)')
     .addHelpText(
       'after',
@@ -456,6 +457,7 @@ Examples:
   purvey roast import ~/artisan/ethiopia-guji.alog --coffee-id 7 --pretty
   purvey roast import roast.alog --coffee-id 42 --oz-in 16
   purvey roast import roast.alog --coffee-id 7 --batch-name "Ethiopia Guji #3" --roast-notes "Faster development"
+  purvey roast import roast.alog --coffee-id 7 --roast-targets "Aim for 18% development"
   purvey roast import --form     # interactive wizard (browse files + select bean)
 
 Required: <file> path and --coffee-id (unless using --form)
@@ -529,6 +531,12 @@ Required: <file> path and --coffee-id (unless using --form)
             });
             guardCancel(roastNotesRaw);
 
+            const roastTargetsRaw = await p.text({
+              message: 'Roast targets',
+              placeholder: 'optional',
+            });
+            guardCancel(roastTargetsRaw);
+
             const confirmed = await p.confirm({ message: 'Import this roast?' });
             guardCancel(confirmed);
 
@@ -544,6 +552,7 @@ Required: <file> path and --coffee-id (unless using --form)
             const ozIn = ozInStr !== '' ? parseFloat(ozInStr) : undefined;
             const batchName = String(batchNameRaw).trim() || defaultBatch;
             const notesStr = String(roastNotesRaw).trim();
+            const targetsStr = String(roastTargetsRaw).trim();
 
             const spin = p.spinner();
             spin.start('Importing roast data...');
@@ -554,6 +563,7 @@ Required: <file> path and --coffee-id (unless using --form)
               batchName,
               ozIn,
               roastNotes: notesStr !== '' ? notesStr : undefined,
+              roastTargets: targetsStr !== '' ? targetsStr : undefined,
             });
             spin.stop('Done');
 
@@ -606,6 +616,11 @@ Required: <file> path and --coffee-id (unless using --form)
             }
           }
 
+          const roastTargets =
+            typeof opts.roastTargets === 'string' && opts.roastTargets.trim() !== ''
+              ? opts.roastTargets.trim()
+              : undefined;
+
           // 6. Run the import
           const result = await importRoastFromFile(supabase, userId, {
             fileContent,
@@ -614,6 +629,7 @@ Required: <file> path and --coffee-id (unless using --form)
             batchName: opts.batchName as string | undefined,
             ozIn,
             roastNotes: opts.roastNotes as string | undefined,
+            roastTargets,
           });
 
           // 7. Output
@@ -721,7 +737,7 @@ Notes:
             coffeeId: saved.coffeeId,
             coffeeName: saved.coffeeName,
             batchPrefix: saved.batchPrefix,
-            commitMode: saved.commitMode ?? 'individual',
+            commitMode: saved.commitMode ?? 'batch',
             startedAt: saved.startedAt,
             resumeImports: saved.imports,
             startSequence: saved.imports.length,

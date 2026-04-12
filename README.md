@@ -326,6 +326,7 @@ purvey inventory delete 7 --yes
 - `--batch-name <name>` -- batch name (auto-generated if omitted)
 - `--oz-in <oz>` -- green weight (extracted from .alog if present, overridden here)
 - `--roast-notes <text>` -- additional roast notes
+- `--roast-targets <text>` -- roast targets to store with the import
 - `--form` -- interactive form mode
 
 `roast watch [directory]` options:
@@ -350,7 +351,7 @@ purvey roast list --date-start 2026-03-01 --date-end 2026-03-31
 purvey roast list --limit 20 --offset 20           # page 2
 purvey roast create --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz-in 16
 purvey roast update 123 --targets "Aim for FC at 390F, 18% dev"
-purvey roast import ~/artisan/ethiopia.alog --coffee-id 7
+purvey roast import ~/artisan/ethiopia.alog --coffee-id 7 --roast-targets "Aim for 18% development"
 purvey roast watch ~/artisan/ --auto-match
 ```
 

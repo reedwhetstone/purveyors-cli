@@ -517,6 +517,7 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--batch-name <name>' },
           { flags: '--oz-in <oz>' },
           { flags: '--roast-notes <text>' },
+          { flags: '--roast-targets <text>' },
           { flags: '--form' },
         ],
       },
