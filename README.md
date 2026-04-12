@@ -609,11 +609,15 @@ git clone https://github.com/reedwhetstone/purveyors-cli
 cd purveyors-cli
 pnpm install
 npm run build
+npm run verify:contract
 npm run verify:dist
+npm run verify:prepublish
 npm run check
 npm run lint
 npm test
 ```
+
+`npm run verify:prepublish` is the release guardrail. It rebuilds first, re-runs the targeted manifest and output-contract suites, checks the compiled `dist/` artifact, verifies the `npm pack --dry-run` publish surface, and smoke-tests `package.json`, `README.md`, `purvey manifest`, `purvey context --json`, and `@purveyors/cli/manifest`.
 
 Key files:
 

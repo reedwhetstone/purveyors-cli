@@ -40,8 +40,8 @@ jobs:
           PURVEYORS_SUPABASE_URL: https://placeholder.supabase.co
           PURVEYORS_SUPABASE_ANON_KEY: placeholder-anon-key
 
-      - name: Build
-        run: pnpm build
+      - name: Verify prepublish parity
+        run: pnpm verify:prepublish
 
       - name: Publish with provenance
         run: npm publish --access public --provenance

@@ -44,7 +44,9 @@ If you change this surface, update all of these in the same PR:
 ```bash
 pnpm install
 npm run build
+npm run verify:contract
 npm run verify:dist
+npm run verify:prepublish
 npm run check
 npm run lint
 npm test
@@ -119,9 +121,11 @@ This repo has several documentation surfaces that drift easily. When changing co
 The published package and binary run from `dist/`, not `src/`. Any command-surface or manifest change must keep the compiled artifact in parity with source.
 
 - Run `npm run build` before opening or updating a PR.
+- Run `npm run verify:contract` when command contracts or machine-mode behavior change.
 - Run `npm run verify:dist` to check compiled-artifact parity.
-- Smoke-check `node dist/index.js --help`, `node dist/index.js manifest`, and `node dist/index.js context --json` when the machine-readable surface changes.
-- Do not assume source-level tests cover the built artifact.
+- Run `npm run verify:prepublish` before release work or when touching package/docs/manifest/help surfaces.
+- `verify:prepublish` rebuilds first, then smoke-checks `package.json`, `npm pack --dry-run`, `README.md`, `node dist/index.js --help`, `node dist/index.js manifest`, `node dist/index.js context --json`, and `@purveyors/cli/manifest` self-import parity.
+- Do not assume source-level tests cover the built artifact or the packaged export surface.
 
 ## Common Gotchas
 
@@ -139,14 +143,16 @@ The published package and binary run from `dist/`, not `src/`. Any command-surfa
 - Keep the version in `package.json` authoritative.
 - After merge, tag `vX.Y.Z` to publish to npm through GitHub Actions.
 - Do not rely on hardcoded version strings in docs when they can drift.
-- `prepack` runs `npm run build && npm run verify:dist` so release artifacts fail fast if `dist/` drifts.
+- `prepack` runs `npm run verify:prepublish`, which rebuilds first, so release artifacts fail fast if command contracts, dist parity, docs, or package exports drift.
 
 ## PR Checklist
 
 Before opening or updating a PR:
 
 - `npm run build`
+- `npm run verify:contract`
 - `npm run verify:dist`
+- `npm run verify:prepublish`
 - `npm run check`
 - `npm run lint`
 - `npm test`
