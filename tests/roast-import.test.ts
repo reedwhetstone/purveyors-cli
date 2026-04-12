@@ -21,12 +21,14 @@ describe('importRoastSchema', () => {
       batchName: 'My Special Batch',
       ozIn: 16.5,
       roastNotes: 'Light roast, nice and fruity',
+      roastTargets: 'Aim for first crack at 390F',
     });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.batchName).toBe('My Special Batch');
       expect(result.data.ozIn).toBe(16.5);
       expect(result.data.roastNotes).toBe('Light roast, nice and fruity');
+      expect(result.data.roastTargets).toBe('Aim for first crack at 390F');
     }
   });
 
