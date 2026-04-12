@@ -22,12 +22,46 @@ interface CallbackServer {
   tokenPromise: Promise<CallbackResult>;
 }
 
+export function extractCallbackResult(callbackInput: string): CallbackResult {
+  const trimmed = callbackInput.trim();
+
+  if (!trimmed) {
+    throw new AuthError('No URL provided.');
+  }
+
+  let tokenStr = trimmed;
+  if (trimmed.includes('#')) {
+    tokenStr = trimmed.split('#').slice(1).join('#');
+  } else if (trimmed.includes('?')) {
+    tokenStr = trimmed.split('?').slice(1).join('?');
+  }
+
+  const params = new URLSearchParams(tokenStr);
+  const accessToken = params.get('access_token');
+  const refreshToken = params.get('refresh_token');
+  const expiresIn = params.get('expires_in');
+
+  if (!accessToken || !refreshToken) {
+    throw new AuthError(
+      'Could not extract tokens from the callback URL.\n' +
+        '  Make sure you copied the full callback URL including the access_token and refresh_token.'
+    );
+  }
+
+  return {
+    accessToken,
+    refreshToken,
+    expiresIn: parseInt(expiresIn ?? '3600', 10),
+  };
+}
+
 /**
  * Start a one-shot local HTTP server to receive the Supabase OAuth callback.
  *
- * Supabase delivers tokens in the URL fragment (#access_token=...) which is
- * client-side only. We serve a minimal HTML page that extracts the fragment
- * values and POSTs them back to the local server, then resolves the promise.
+ * OAuth providers may deliver session tokens in the callback URL fragment or
+ * query string, both of which are only available client-side. We serve a
+ * minimal HTML page that POSTs the full callback URL back to the local server,
+ * which parses and validates the returned tokens before resolving the promise.
  */
 function startCallbackServer(): Promise<CallbackServer> {
   return new Promise((resolve, reject) => {
@@ -50,15 +84,11 @@ function startCallbackServer(): Promise<CallbackServer> {
 <body>
 <p>Completing authentication, please wait...</p>
 <script>
-  const hash = window.location.hash.substring(1);
-  const params = new URLSearchParams(hash);
   fetch('/auth/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      access_token: params.get('access_token'),
-      refresh_token: params.get('refresh_token'),
-      expires_in: params.get('expires_in'),
+      callback_url: window.location.href,
     })
   }).then(() => {
     document.body.innerHTML =
@@ -79,11 +109,17 @@ function startCallbackServer(): Promise<CallbackServer> {
           server.close();
 
           try {
-            const { access_token, refresh_token, expires_in } = JSON.parse(body) as {
+            const { callback_url, access_token, refresh_token, expires_in } = JSON.parse(body) as {
+              callback_url?: string;
               access_token?: string;
               refresh_token?: string;
               expires_in?: string;
             };
+
+            if (callback_url) {
+              tokenResolve(extractCallbackResult(callback_url));
+              return;
+            }
 
             if (!access_token || !refresh_token) {
               tokenReject(new AuthError('OAuth callback did not include tokens. Try again.'));
@@ -264,30 +300,7 @@ const headlessLoginAction = withErrorHandling(async () => {
   if (!callbackUrl) {
     throw new AuthError('No URL provided.');
   }
-
-  // Extract tokens from the URL fragment or query params
-  // Supabase puts them in the fragment: #access_token=...&refresh_token=...
-  let tokenStr = '';
-  if (callbackUrl.includes('#')) {
-    tokenStr = callbackUrl.split('#')[1];
-  } else if (callbackUrl.includes('?')) {
-    tokenStr = callbackUrl.split('?').slice(1).join('?');
-  } else {
-    // Maybe they pasted just the fragment part
-    tokenStr = callbackUrl;
-  }
-
-  const params = new URLSearchParams(tokenStr);
-  const accessToken = params.get('access_token');
-  const refreshToken = params.get('refresh_token');
-  const expiresIn = params.get('expires_in');
-
-  if (!accessToken || !refreshToken) {
-    throw new AuthError(
-      'Could not extract tokens from the URL.\n' +
-        '  Make sure you copied the full callback URL including the #access_token=... part.'
-    );
-  }
+  const { accessToken, refreshToken, expiresIn } = extractCallbackResult(callbackUrl);
 
   const spinner = ora({ text: 'Validating session...', stream: process.stderr }).start();
   const client = createAnonClient();
@@ -304,7 +317,7 @@ const headlessLoginAction = withErrorHandling(async () => {
   const creds: StoredCredentials = {
     accessToken,
     refreshToken,
-    expiresAt: Date.now() + parseInt(expiresIn ?? '3600', 10) * 1000,
+    expiresAt: Date.now() + expiresIn * 1000,
     user: {
       id: user.id,
       email: user.email ?? 'unknown',
