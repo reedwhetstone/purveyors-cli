@@ -22,6 +22,8 @@ export interface WatchSession {
   coffeeId: number;
   coffeeName: string;
   batchPrefix: string;
+  promptEach?: boolean;
+  autoMatch?: boolean;
   commitMode?: 'batch' | 'individual';
   ozIn?: number;
   roastNotes?: string;
@@ -390,6 +392,8 @@ export async function startWatch(
     coffeeId: opts.coffeeId,
     coffeeName: opts.coffeeName,
     batchPrefix: opts.batchPrefix,
+    promptEach: opts.promptEach ?? false,
+    autoMatch: opts.autoMatch ?? false,
     commitMode,
     ...(opts.ozIn !== undefined ? { ozIn: opts.ozIn } : {}),
     ...(opts.roastNotes !== undefined ? { roastNotes: opts.roastNotes } : {}),

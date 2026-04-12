@@ -737,6 +737,8 @@ Notes:
             coffeeId: saved.coffeeId,
             coffeeName: saved.coffeeName,
             batchPrefix: saved.batchPrefix,
+            promptEach: Boolean(saved.promptEach),
+            autoMatch: Boolean(saved.autoMatch),
             commitMode: saved.commitMode ?? 'batch',
             startedAt: saved.startedAt,
             resumeImports: saved.imports,
