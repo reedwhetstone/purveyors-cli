@@ -334,6 +334,10 @@ purvey inventory delete 7 --yes
 - `--batch-prefix <name>` -- batch name prefix for auto-named batches
 - `--prompt-each` -- prompt for bean selection on each new file
 - `--auto-match` -- auto-match beans per file (mutually exclusive with --coffee-id)
+- `--commit-mode <batch|individual>` -- queue commits until Ctrl+C, or import immediately
+- `--oz-in <oz>` -- green weight to apply to watched imports
+- `--roast-notes <text>` -- roast notes to apply to watched imports
+- `--roast-targets <text>` -- roast targets to apply to watched imports
 - `--resume` -- resume a previous watch session
 - `--form` -- interactive setup wizard
 

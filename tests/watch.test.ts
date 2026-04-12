@@ -359,6 +359,38 @@ describe('printVerificationTable', () => {
     spy.mockRestore();
   });
 
+  it('includes queued counts for batch sessions', () => {
+    const session: WatchSession = {
+      directory: '/tmp/roasts',
+      coffeeId: 1,
+      coffeeName: 'Test',
+      batchPrefix: 'Test',
+      startedAt: new Date().toISOString(),
+      imports: [
+        {
+          fileName: 'queued.alog',
+          roastId: null,
+          batchName: 'Test #1',
+          status: 'pending',
+          importedAt: new Date().toISOString(),
+        },
+      ],
+    };
+
+    const written: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+
+    printVerificationTable(session);
+    const combined = written.join('');
+    expect(combined).toContain('1 queued');
+    expect(combined).toContain('queued.alog');
+
+    spy.mockRestore();
+  });
+
   it('shows roast IDs for successful imports', () => {
     const session: WatchSession = {
       directory: '/tmp/roasts',

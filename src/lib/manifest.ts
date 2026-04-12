@@ -530,10 +530,17 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--batch-prefix <name>' },
           { flags: '--prompt-each' },
           { flags: '--auto-match' },
+          { flags: '--commit-mode <batch|individual>', defaultValue: 'batch' },
+          { flags: '--oz-in <oz>' },
+          { flags: '--roast-notes <text>' },
+          { flags: '--roast-targets <text>' },
           { flags: '--resume' },
           { flags: '--form' },
         ],
-        notes: ['--auto-match is mutually exclusive with --coffee-id.'],
+        notes: [
+          '--auto-match is mutually exclusive with --coffee-id.',
+          '--commit-mode defaults to batch so new roasts are queued until the session ends.',
+        ],
       },
     ],
   },
@@ -759,7 +766,8 @@ const workflows: CliWorkflowContract[] = [
   {
     title: 'Watch a folder for new roasts',
     commands: [
-      'purvey roast watch ~/artisan/ --coffee-id 7',
+      'purvey roast watch ~/artisan/ --coffee-id 7 --commit-mode batch',
+      'purvey roast watch ~/artisan/ --coffee-id 7 --commit-mode individual',
       'purvey roast watch ~/artisan/ --auto-match',
       'purvey roast watch --resume',
     ],

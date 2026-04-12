@@ -2,7 +2,7 @@
  * Watch module for `purvey roast watch`.
  * CLI-only — not exported via package.json subpaths.
  *
- * Monitors a directory for new .alog files, imports them automatically,
+ * Monitors a directory for new .alog files, queues or imports them,
  * and shows a verification table when the session ends (Ctrl+C).
  */
 
@@ -22,6 +22,10 @@ export interface WatchSession {
   coffeeId: number;
   coffeeName: string;
   batchPrefix: string;
+  commitMode?: 'batch' | 'individual';
+  ozIn?: number;
+  roastNotes?: string;
+  roastTargets?: string;
   startedAt: string;
   imports: ImportRecord[];
 }
@@ -30,11 +34,13 @@ export interface ImportRecord {
   fileName: string;
   roastId: number | null;
   batchName: string;
-  status: 'success' | 'failed' | 'needs-review';
+  status: 'pending' | 'success' | 'failed' | 'needs-review';
   error?: string;
   milestones?: MilestoneData;
   phases?: ProcessedRoastData['phases'];
   importedAt: string;
+  selectedCoffeeId?: number;
+  selectedCoffeeName?: string;
   // AI matching fields
   aiMatch?: {
     coffeeName: string;
@@ -47,9 +53,22 @@ interface StartWatchOpts {
   coffeeId: number;
   coffeeName: string;
   batchPrefix: string;
+  commitMode?: 'batch' | 'individual';
+  startedAt?: string;
+  resumeImports?: ImportRecord[];
   promptEach?: boolean;
   startSequence?: number;
   autoMatch?: boolean;
+  ozIn?: number;
+  roastNotes?: string;
+  roastTargets?: string;
+}
+
+interface QueuedImport {
+  record: ImportRecord;
+  coffeeId: number;
+  coffeeName: string;
+  fileContent?: string;
 }
 
 // ─── Session persistence ──────────────────────────────────────────────────────
@@ -156,7 +175,12 @@ function printVerificationTableStandard(imports: ImportRecord[]): void {
         rec.batchName.length > COL_BATCH
           ? rec.batchName.slice(0, COL_BATCH - 1) + '…'
           : rec.batchName;
-      const status = rec.status === 'success' ? '✓' : `✗ ${rec.error?.slice(0, 5) ?? 'Error'}`;
+      const status =
+        rec.status === 'success'
+          ? '✓'
+          : rec.status === 'pending'
+            ? '… queued'
+            : `✗ ${rec.error?.slice(0, 5) ?? 'Error'}`;
       lines.push(row(file, id, batch, status));
     }
   }
@@ -165,10 +189,13 @@ function printVerificationTableStandard(imports: ImportRecord[]): void {
 
   const succeeded = imports.filter((r) => r.status === 'success').length;
   const failed = imports.filter((r) => r.status === 'failed').length;
+  const pending = imports.filter((r) => r.status === 'pending').length;
   lines.push('');
-  lines.push(
-    `Session: ${imports.length} file${imports.length !== 1 ? 's' : ''} processed, ${succeeded} succeeded, ${failed} failed`
-  );
+  let summary = `Session: ${imports.length} file${imports.length !== 1 ? 's' : ''} processed, ${succeeded} succeeded, ${failed} failed`;
+  if (pending > 0) {
+    summary += `, ${pending} queued`;
+  }
+  lines.push(summary);
   lines.push('');
 
   process.stderr.write(lines.join('\n') + '\n');
@@ -235,6 +262,8 @@ function printVerificationTableAutoMatch(imports: ImportRecord[]): void {
       const status =
         rec.status === 'success'
           ? '✓'
+          : rec.status === 'pending'
+            ? '…'
           : rec.status === 'needs-review'
             ? '⚠'
             : `✗ ${rec.error?.slice(0, 4) ?? 'Err'}`;
@@ -247,10 +276,14 @@ function printVerificationTableAutoMatch(imports: ImportRecord[]): void {
   const succeeded = imports.filter((r) => r.status === 'success').length;
   const failed = imports.filter((r) => r.status === 'failed').length;
   const needsReview = imports.filter((r) => r.status === 'needs-review').length;
+  const pending = imports.filter((r) => r.status === 'pending').length;
   lines.push('');
   let summary = `Session: ${imports.length} file${imports.length !== 1 ? 's' : ''} processed, ${succeeded} succeeded, ${failed} failed`;
   if (needsReview > 0) {
     summary += `, ${needsReview} need${needsReview !== 1 ? '' : 's'} review`;
+  }
+  if (pending > 0) {
+    summary += `, ${pending} queued`;
   }
   lines.push(summary);
   lines.push('');
@@ -297,14 +330,20 @@ export async function startWatch(
     // Non-fatal — if readdir fails we just won't filter pre-existing files
   }
 
+  const commitMode = opts.commitMode ?? 'batch';
+
   // 3. Create session state
   const session: WatchSession = {
     directory,
     coffeeId: opts.coffeeId,
     coffeeName: opts.coffeeName,
     batchPrefix: opts.batchPrefix,
-    startedAt: new Date().toISOString(),
-    imports: [],
+    commitMode,
+    ...(opts.ozIn !== undefined ? { ozIn: opts.ozIn } : {}),
+    ...(opts.roastNotes !== undefined ? { roastNotes: opts.roastNotes } : {}),
+    ...(opts.roastTargets !== undefined ? { roastTargets: opts.roastTargets } : {}),
+    startedAt: opts.startedAt ?? new Date().toISOString(),
+    imports: opts.resumeImports ? [...opts.resumeImports] : [],
   };
 
   const startSequence = opts.startSequence ?? 0;
@@ -314,13 +353,89 @@ export async function startWatch(
 
   // Track in-progress files to avoid double-processing
   const processing = new Set<string>();
+  const activeTasks = new Set<Promise<void>>();
+  const queuedImports = new Map<string, QueuedImport>();
+  let shuttingDown = false;
+
+  for (const record of session.imports) {
+    if (record.status === 'pending' && record.selectedCoffeeId && record.selectedCoffeeName) {
+      queuedImports.set(record.fileName, {
+        record,
+        coffeeId: record.selectedCoffeeId,
+        coffeeName: record.selectedCoffeeName,
+      });
+    }
+  }
+
+  async function commitQueuedImport(queued: QueuedImport): Promise<void> {
+    const { record, coffeeId, coffeeName } = queued;
+
+    let fileContent = queued.fileContent;
+    if (!fileContent) {
+      const filePath = join(directory, record.fileName);
+      try {
+        await access(filePath, constants.R_OK);
+        fileContent = await readFile(filePath, 'utf-8');
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : 'Unreadable';
+        record.status = 'failed';
+        record.error = errMsg;
+        record.importedAt = new Date().toISOString();
+        queuedImports.delete(record.fileName);
+        await saveWatchSession(session);
+        process.stderr.write(`✗ Failed to read ${record.fileName}: ${errMsg}\n`);
+        return;
+      }
+    }
+
+    try {
+      const result = await importRoastFromFile(supabase, userId, {
+        fileContent,
+        fileName: record.fileName,
+        coffeeId,
+        batchName: record.batchName,
+        ozIn: opts.ozIn,
+        roastNotes: opts.roastNotes,
+        roastTargets: opts.roastTargets,
+      });
+
+      const milestoneCount = Object.values(result.milestones).filter(
+        (v) => v !== undefined && (v as number) > 0
+      ).length;
+      const tempCount = result.message.match(/(\d+) data points/)?.[1] ?? '?';
+
+      record.roastId = result.roast_id;
+      record.status = 'success';
+      record.error = undefined;
+      record.milestones = result.milestones;
+      record.phases = result.phases;
+      record.importedAt = new Date().toISOString();
+      record.selectedCoffeeId = coffeeId;
+      record.selectedCoffeeName = coffeeName;
+      queuedImports.delete(record.fileName);
+      await saveWatchSession(session);
+
+      process.stderr.write(
+        `✓ Imported: ${record.fileName} → Roast #${result.roast_id} (${tempCount} temps, ${milestoneCount} milestones)` +
+          (coffeeName !== opts.coffeeName ? ` [${coffeeName}]` : '') +
+          '\n'
+      );
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      record.status = 'failed';
+      record.error = errMsg;
+      record.importedAt = new Date().toISOString();
+      queuedImports.delete(record.fileName);
+      await saveWatchSession(session);
+      process.stderr.write(`✗ Failed to import ${record.fileName}: ${errMsg}\n`);
+    }
+  }
 
   // processFile: read, import, record result
   async function processFile(filename: string): Promise<void> {
-    if (processing.has(filename)) return;
+    if (processing.has(filename) || shuttingDown) return;
     processing.add(filename);
 
-    const filePath = join(directory, filename);
     const sequence = startSequence + session.imports.length + 1;
     const batchName = generateBatchName(opts.batchPrefix, sequence);
 
@@ -335,6 +450,8 @@ export async function startWatch(
       effectiveCoffeeId = bean.id;
       effectiveCoffeeName = bean.name;
     }
+
+    const filePath = join(directory, filename);
 
     let fileContent: string;
     try {
@@ -387,54 +504,41 @@ export async function startWatch(
       );
     }
 
+    const aiMatchField: ImportRecord['aiMatch'] | undefined =
+      opts.autoMatch && !opts.promptEach && aiResult?.aiMatch ? aiResult.aiMatch : undefined;
+
+    const record: ImportRecord = {
+      fileName: filename,
+      roastId: null,
+      batchName,
+      status: 'pending',
+      importedAt: new Date().toISOString(),
+      selectedCoffeeId: effectiveCoffeeId,
+      selectedCoffeeName: effectiveCoffeeName,
+      ...(aiMatchField !== undefined ? { aiMatch: aiMatchField } : {}),
+    };
+    session.imports.push(record);
+
+    const queued: QueuedImport = {
+      record,
+      coffeeId: effectiveCoffeeId,
+      coffeeName: effectiveCoffeeName,
+      fileContent,
+    };
+
     try {
-      const result = await importRoastFromFile(supabase, userId, {
-        fileContent,
-        fileName: filename,
-        coffeeId: effectiveCoffeeId,
-        batchName,
-      });
+      if (commitMode === 'batch') {
+        queuedImports.set(filename, queued);
+        await saveWatchSession(session);
+        process.stderr.write(
+          `… Queued: ${filename} → ${batchName}` +
+            (effectiveCoffeeName !== opts.coffeeName ? ` [${effectiveCoffeeName}]` : '') +
+            '\n'
+        );
+        return;
+      }
 
-      const milestoneCount = Object.values(result.milestones).filter(
-        (v) => v !== undefined && (v as number) > 0
-      ).length;
-
-      // Carry aiMatch from the local aiResult (threaded as a local variable, not module state)
-      const aiMatchField: ImportRecord['aiMatch'] | undefined =
-        opts.autoMatch && !opts.promptEach && aiResult?.aiMatch ? aiResult.aiMatch : undefined;
-
-      const record: ImportRecord = {
-        fileName: filename,
-        roastId: result.roast_id,
-        batchName,
-        status: 'success',
-        milestones: result.milestones,
-        phases: result.phases,
-        importedAt: new Date().toISOString(),
-        ...(aiMatchField !== undefined ? { aiMatch: aiMatchField } : {}),
-      };
-      session.imports.push(record);
-      await saveWatchSession(session);
-
-      const tempCount = result.message.match(/(\d+) data points/)?.[1] ?? '?';
-      process.stderr.write(
-        `✓ Imported: ${filename} → Roast #${result.roast_id} (${tempCount} temps, ${milestoneCount} milestones)` +
-          (effectiveCoffeeName !== opts.coffeeName ? ` [${effectiveCoffeeName}]` : '') +
-          '\n'
-      );
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      const record: ImportRecord = {
-        fileName: filename,
-        roastId: null,
-        batchName,
-        status: 'failed',
-        error: errMsg,
-        importedAt: new Date().toISOString(),
-      };
-      session.imports.push(record);
-      await saveWatchSession(session);
-      process.stderr.write(`✗ Failed to import ${filename}: ${errMsg}\n`);
+      await commitQueuedImport(queued);
     } finally {
       processing.delete(filename);
     }
@@ -442,7 +546,7 @@ export async function startWatch(
 
   // debounced handler
   function onFileEvent(filename: string): void {
-    if (!isAlogFile(filename)) return;
+    if (!isAlogFile(filename) || shuttingDown) return;
     // Skip files that were present when we started
     if (existingFiles.has(filename)) return;
 
@@ -453,11 +557,16 @@ export async function startWatch(
       filename,
       setTimeout(() => {
         debounceTimers.delete(filename);
-        processFile(filename).catch((err: unknown) => {
-          process.stderr.write(
-            `✗ Unexpected error processing ${filename}: ${err instanceof Error ? err.message : String(err)}\n`
-          );
-        });
+        const task = processFile(filename)
+          .catch((err: unknown) => {
+            process.stderr.write(
+              `✗ Unexpected error processing ${filename}: ${err instanceof Error ? err.message : String(err)}\n`
+            );
+          })
+          .finally(() => {
+            activeTasks.delete(task);
+          });
+        activeTasks.add(task);
       }, 2000)
     );
   }
@@ -480,13 +589,16 @@ export async function startWatch(
       ? 'prompt-each mode'
       : `coffee: ${opts.coffeeName}`;
   process.stderr.write(
-    `👁  Watching ${directory} for new .alog files (${modeLabel}, prefix: "${opts.batchPrefix}")...\n`
+    `👁  Watching ${directory} for new .alog files (${modeLabel}, ${commitMode} commit mode, prefix: "${opts.batchPrefix}")...\n`
   );
   process.stderr.write(`    Press Ctrl+C to stop and view summary.\n\n`);
 
   // 6. Block until SIGINT, then cleanup and return
-  await new Promise<void>((resolve) => {
-    process.once('SIGINT', () => {
+  await new Promise<void>((resolve, reject) => {
+    const shutdown = async (): Promise<void> => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+
       // Cancel all pending debounce timers
       for (const timer of debounceTimers.values()) {
         clearTimeout(timer);
@@ -494,25 +606,55 @@ export async function startWatch(
       debounceTimers.clear();
 
       watcher.close();
-      process.stderr.write('\n');
-      printVerificationTable(session, opts.autoMatch);
+      process.removeListener('SIGINT', onSigint);
+      process.removeListener('SIGTERM', onSigterm);
 
-      // Prompt about unmatched files if in auto-match mode
-      const needsReview = session.imports.filter((r) => r.status === 'needs-review');
-      if (opts.autoMatch && needsReview.length > 0) {
-        process.stderr.write(
-          `⚠  ${needsReview.length} file${needsReview.length !== 1 ? 's need' : ' needs'} manual bean assignment:\n`
-        );
-        for (const rec of needsReview) {
-          process.stderr.write(`   - ${rec.fileName}\n`);
+      try {
+        await Promise.allSettled([...activeTasks]);
+
+        process.stderr.write('\n');
+        printVerificationTable(session, opts.autoMatch);
+
+        if (commitMode === 'batch' && queuedImports.size > 0) {
+          process.stderr.write(
+            `🗂  Committing ${queuedImports.size} queued roast${queuedImports.size !== 1 ? 's' : ''}...\n`
+          );
+          for (const queued of [...queuedImports.values()]) {
+            await commitQueuedImport(queued);
+          }
+          process.stderr.write('\n');
+          printVerificationTable(session, opts.autoMatch);
         }
-        process.stderr.write(
-          `   Use \`purvey roast import <file> --coffee-id <id>\` to import them manually.\n\n`
-        );
-      }
 
-      resolve();
-    });
+        // Prompt about unmatched files if in auto-match mode
+        const needsReview = session.imports.filter((r) => r.status === 'needs-review');
+        if (opts.autoMatch && needsReview.length > 0) {
+          process.stderr.write(
+            `⚠  ${needsReview.length} file${needsReview.length !== 1 ? 's need' : ' needs'} manual bean assignment:\n`
+          );
+          for (const rec of needsReview) {
+            process.stderr.write(`   - ${rec.fileName}\n`);
+          }
+          process.stderr.write(
+            `   Use \`purvey roast import <file> --coffee-id <id>\` to import them manually.\n\n`
+          );
+        }
+
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    const onSigint = (): void => {
+      void shutdown();
+    };
+    const onSigterm = (): void => {
+      void shutdown();
+    };
+
+    process.once('SIGINT', onSigint);
+    process.once('SIGTERM', onSigterm);
   });
 
   return session;
