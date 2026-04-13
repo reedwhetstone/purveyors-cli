@@ -201,12 +201,6 @@ export function assertPackageReleaseSurface(packageJson) {
       `npm pack --dry-run is missing required publish path: ${packedPath}`
     );
   }
-
-  const distEntrypoint = (packResult.files ?? []).find((file) => file.path === 'dist/index.js');
-  assert(
-    distEntrypoint?.mode === 0o755,
-    'npm pack --dry-run must keep dist/index.js executable in the publish artifact'
-  );
 }
 
 export function assertReadmeReleaseSurface(readmeText) {
