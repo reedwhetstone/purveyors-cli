@@ -101,10 +101,10 @@ Credentials are stored at `~/.config/purvey/credentials.json`.
 
 ### Auth roles
 
-| Role | Access |
-| --- | --- |
+| Role     | Access                                                              |
+| -------- | ------------------------------------------------------------------- |
 | `viewer` | `catalog search`, `catalog get`, `catalog stats`, `catalog similar` |
-| `member` | All viewer commands, plus `inventory`, `roast`, `sales`, `tasting` |
+| `member` | All viewer commands, plus `inventory`, `roast`, `sales`, `tasting`  |
 
 `auth`, `config`, `context`, and `manifest` remain available without a pre-existing session.
 
@@ -164,15 +164,15 @@ The JSON error envelope includes:
 
 All `purvey` commands exit with a numeric code your scripts can check with `$?`.
 
-| Code | Meaning |
-| --- | --- |
-| `0` | Success |
-| `1` | Unexpected or unclassified error |
-| `2` | Invalid argument or bad input |
-| `3` | Auth error: not logged in, expired session, or insufficient role |
-| `4` | Not found |
-| `5` | Dependency conflict |
-| `6` | Local config error |
+| Code | Meaning                                                          |
+| ---- | ---------------------------------------------------------------- |
+| `0`  | Success                                                          |
+| `1`  | Unexpected or unclassified error                                 |
+| `2`  | Invalid argument or bad input                                    |
+| `3`  | Auth error: not logged in, expired session, or insufficient role |
+| `4`  | Not found                                                        |
+| `5`  | Dependency conflict                                              |
+| `6`  | Local config error                                               |
 
 Scripting pattern:
 
