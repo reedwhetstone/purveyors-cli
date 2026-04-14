@@ -215,7 +215,7 @@ const commandGroups: CliCommandGroupContract[] = [
         name: 'status',
         summary: 'Show current login status and role',
         auth: 'none',
-        options: [{ flags: '--json' }, { flags: '--pretty' }, { flags: '--csv' }],
+        options: [{ flags: '--pretty' }, { flags: '--csv' }],
         examples: [
           'purvey auth status',
           'purvey auth status --pretty',
