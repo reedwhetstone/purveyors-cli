@@ -4,7 +4,7 @@ Coffee intelligence from your terminal.
 
 `purvey` is the official CLI for [purveyors.io](https://purveyors.io). It gives coffee professionals and AI agents direct access to the Purveyors platform from the terminal: catalog search, inventory tracking, roast logging, sales records, tasting notes, and Artisan `.alog` import.
 
-Run `purvey manifest` for the machine-readable contract, `purvey context` for the dense human-readable reference, or import `@purveyors/cli/manifest` in-process.
+Use `purvey --help` for quick command discovery, `purvey context` for the dense human-readable operator reference, `purvey manifest` for the preferred machine-readable contract, or `@purveyors/cli/manifest` in-process.
 
 ## Installation
 
@@ -459,13 +459,14 @@ purvey config reset --json
 `purvey context` defaults to dense, human-readable, source-aware CLI reference text.
 
 Use `--json` or `--pretty` when you want the same machine-readable manifest that `purvey manifest` emits.
+Use `@purveyors/cli/manifest` when you need that same contract in-process from Node.js or an agent runtime.
 
 ### manifest
 
 - `purvey manifest`
 - `purvey manifest --pretty`
 
-Use this when an agent or script needs the machine-readable contract directly. `purvey manifest` emits compact JSON by default; add `--pretty` for indented output.
+Use this when an agent or script needs the stable machine-readable contract directly from the CLI. `purvey manifest` emits compact JSON by default; add `--pretty` for indented output.
 
 `purvey manifest` and `purvey context --json` emit the same JSON manifest.
 
@@ -475,7 +476,7 @@ If you want indented JSON, add `--pretty` to either command.
 
 - `@purveyors/cli/manifest`
 
-Use this when you need the same contract from Node.js without shelling out to the CLI. This package subpath is exported via `./manifest` in `package.json`.
+Use this when you need the same stable contract from Node.js without shelling out to the CLI. This package subpath is exported via `./manifest` in `package.json` and is part of the supported public machine surface for agents and scripts.
 
 ```ts
 import { getCliManifest } from '@purveyors/cli/manifest';
@@ -617,7 +618,7 @@ npm run lint
 npm test
 ```
 
-`npm run verify:prepublish` is the release guardrail. It rebuilds first, re-runs the targeted manifest and output-contract suites, checks the compiled `dist/` artifact, verifies the `npm pack --dry-run` publish surface, and smoke-tests `package.json`, `README.md`, `purvey manifest`, `purvey context --json`, and `@purveyors/cli/manifest`.
+`npm run verify:prepublish` is the release guardrail. It cleans `dist/`, rebuilds from current source, re-runs the targeted manifest and output-contract suites, checks the compiled `dist/` artifact, verifies the `npm pack --dry-run` publish surface, and smoke-tests the packed artifact plus the supported `@purveyors/cli/*` subpath exports.
 
 Key files:
 

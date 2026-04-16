@@ -39,6 +39,7 @@
   "author": "Reed Whetstone",
   "license": "SEE LICENSE IN LICENSE.md",
   "scripts": {
+    "clean:dist": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "tsc",
     "dev": "tsx src/index.ts",
     "lint": "prettier --check . && eslint .",
@@ -46,7 +47,7 @@
     "check": "tsc --noEmit",
     "verify:contract": "vitest run tests/manifest.test.ts tests/cli-output-modes.test.ts",
     "verify:dist": "vitest run tests/dist-contract.test.ts",
-    "verify:prepublish": "pnpm build && pnpm verify:contract && pnpm verify:dist && node scripts/verify-prepublish-parity.mjs",
+    "verify:prepublish": "pnpm clean:dist && pnpm build && pnpm verify:contract && pnpm verify:dist && node scripts/verify-prepublish-parity.mjs",
     "prepack": "pnpm verify:prepublish",
     "test": "vitest run",
     "test:watch": "vitest"

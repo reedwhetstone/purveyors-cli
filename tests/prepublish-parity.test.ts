@@ -1,5 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   REQUIRED_HELP_SNIPPETS,
@@ -9,8 +11,54 @@ import {
   assertPackageReleaseSurface,
   assertReadmeReleaseSurface,
   repoRoot,
+  stripAnsi,
   verifyPrepublishParity,
 } from '../scripts/verify-prepublish-parity.mjs';
+
+function createTempRepoFixture() {
+  const tempRepo = mkdtempSync(join(tmpdir(), 'purvey-prepublish-fixture-'));
+
+  cpSync(repoRoot, tempRepo, {
+    recursive: true,
+    filter: (source) => {
+      const relativePath = source.slice(repoRoot.length + 1);
+
+      if (!relativePath) {
+        return true;
+      }
+
+      return !['.git', 'node_modules', '.verify-pr', 'notes/pr-audits'].some(
+        (blockedPath) => relativePath === blockedPath || relativePath.startsWith(`${blockedPath}/`)
+      );
+    },
+  });
+
+  symlinkSync(resolve(repoRoot, 'node_modules'), join(tempRepo, 'node_modules'), 'dir');
+
+  return {
+    tempRepo,
+    cleanup() {
+      rmSync(tempRepo, { recursive: true, force: true });
+    },
+  };
+}
+
+function runFixtureGuardrail(tempRepo: string) {
+  return spawnSync(
+    'bash',
+    ['-lc', 'pnpm clean:dist && pnpm build && node scripts/verify-prepublish-parity.mjs'],
+    {
+      cwd: tempRepo,
+      encoding: 'utf8',
+      maxBuffer: 10 * 1024 * 1024,
+      env: {
+        ...process.env,
+        PURVEYORS_SUPABASE_URL: 'https://placeholder.supabase.co',
+        PURVEYORS_SUPABASE_ANON_KEY: 'placeholder-anon-key',
+      },
+    }
+  );
+}
 
 describe('prepublish parity guardrail', () => {
   const packageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
@@ -72,6 +120,47 @@ describe('prepublish parity guardrail', () => {
     expect(wrongAiError).toContain('"./ai": "./dist/lib/not-ai.js"');
     expect(wrongAiError).toContain('"./ai": "./dist/lib/ai.js"');
   });
+
+  it('fails when a clean rebuild no longer emits a required published subpath artifact', () => {
+    const fixture = createTempRepoFixture();
+
+    try {
+      rmSync(join(fixture.tempRepo, 'src', 'lib', 'artisan', 'index.ts'));
+
+      const result = runFixtureGuardrail(fixture.tempRepo);
+      const output = stripAnsi(`${result.stdout}\n${result.stderr}`);
+
+      expect(result.status).toBe(1);
+      expect(output).toContain('package export ./artisan is missing from the release surface');
+    } finally {
+      fixture.cleanup();
+    }
+  }, 30000);
+
+  it('fails when a stable published subpath loses a required named export', () => {
+    const fixture = createTempRepoFixture();
+
+    try {
+      const artisanIndexPath = join(fixture.tempRepo, 'src', 'lib', 'artisan', 'index.ts');
+      const original = readFileSync(artisanIndexPath, 'utf8');
+      writeFileSync(
+        artisanIndexPath,
+        original.replace(
+          "export { parseAlogFile } from './parser.js'; // renamed from processAlogFile\n",
+          ''
+        ),
+        'utf8'
+      );
+
+      const result = runFixtureGuardrail(fixture.tempRepo);
+      const output = stripAnsi(`${result.stdout}\n${result.stderr}`);
+
+      expect(result.status).toBe(1);
+      expect(output).toContain('@purveyors/cli/artisan is missing required export parseAlogFile');
+    } finally {
+      fixture.cleanup();
+    }
+  }, 30000);
 
   it('passes the end-to-end prepublish smoke/parity checks', () => {
     expect(() => verifyPrepublishParity()).not.toThrow();

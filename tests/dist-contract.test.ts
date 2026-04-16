@@ -42,6 +42,7 @@ describe('compiled dist artifact parity', () => {
       'manifest',
       'Human reference:  purvey context',
       'JSON manifest:    purvey manifest',
+      'Module import:    @purveyors/cli/manifest',
     ]) {
       expect(distHelp).toContain(snippet);
       expect(sourceHelp).toContain(snippet);
@@ -60,6 +61,14 @@ describe('compiled dist artifact parity', () => {
         expect.objectContaining({ name: 'context' }),
         expect.objectContaining({ name: 'manifest' }),
       ])
+    );
+    expect(distManifest.importPath).toBe('@purveyors/cli/manifest');
+    expect(distManifest.machineSurfaces).toEqual(
+      expect.objectContaining({
+        humanReference: 'purvey context',
+        shellManifest: 'purvey manifest',
+        moduleImport: '@purveyors/cli/manifest',
+      })
     );
   }, 15000);
 

@@ -6,17 +6,23 @@ import type { OutputOptions } from '../types/index.js';
 
 export function buildManifestCommand(): Command {
   return new Command('manifest')
-    .description('Output the machine-readable CLI manifest contract')
+    .description(
+      'Output the preferred stable machine-readable CLI manifest contract for shells and agents'
+    )
     .option('--json', 'Emit the manifest as compact JSON (default)')
     .option('--pretty', 'Emit the manifest as indented JSON')
     .addHelpText(
       'after',
       `
+Preferred machine-readable entrypoint for shells, scripts, and agents.
+Use \`purvey context --json\` only for compatibility with existing context-based callers.
+
 Examples:
   purvey manifest
   purvey manifest --pretty
   purvey manifest > cli-manifest.json
   purvey manifest | jq '.commandGroups[].name'
+  node --input-type=module -e "import { getCliManifest } from '@purveyors/cli/manifest'; console.log(JSON.stringify(getCliManifest()))"
 `
     )
     .action(
