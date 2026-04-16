@@ -113,7 +113,8 @@ export interface CliManifest {
 
 const docs: CliDocLink[] = [
   { label: 'Full README', url: 'https://github.com/reedwhetstone/purveyors-cli' },
-  { label: 'Live docs', url: 'https://purveyors.io/docs' },
+  { label: 'CLI docs', url: 'https://purveyors.io/docs/cli/overview' },
+  { label: 'API docs', url: 'https://purveyors.io/docs/api/overview' },
   { label: 'npm package', url: 'https://www.npmjs.com/package/@purveyors/cli' },
 ];
 
@@ -862,7 +863,7 @@ export function getCliManifest(): CliManifest {
         '`purvey config list/get/set/reset` stay human-readable in an interactive TTY, but emit JSON on stdout in machine mode and reject --csv.',
         'In interactive use, stderr may also carry prompts, spinners, and human-readable status lines.',
         'Parser mistakes like unknown options, unknown commands, and missing required arguments follow the same fatal-error contract as runtime command failures.',
-        'Important exception: auth status prints human-readable output in an interactive TTY unless --json, --pretty, or --csv is passed; when piped or redirected it emits structured JSON automatically.',
+        'Important exception: auth status prints human-readable output in an interactive TTY unless --json, --pretty, or --csv is passed; when piped or redirected it emits structured JSON automatically, even when unauthenticated.',
       ],
       structuredErrors: {
         channel: 'stderr',

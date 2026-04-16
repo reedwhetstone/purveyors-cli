@@ -12,6 +12,7 @@ Use this file as the single maintained guide for humans and agents. `CLAUDE.md` 
 - Stack: TypeScript, Commander.js, Supabase JS, Vitest
 - Version source of truth: `package.json` and `purvey --version`
 - In-process manifest export: `@purveyors/cli/manifest` via package export `./manifest`
+- Live docs: `/docs/cli/*` and `/docs/api/*` on `https://purveyors.io`
 
 ## What the CLI Covers
 
@@ -53,6 +54,23 @@ npm test
 ```
 
 Use `pnpm install` for local setup. Use the package scripts for validation.
+
+## Documentation Sources of Truth
+
+When documentation changes, verify against these files first:
+
+- `src/commands/*` for command names, flags, examples, and auth expectations
+- `src/program.ts` for global help text and docs links
+- `src/lib/manifest.ts` for the machine-readable contract and rendered context text
+- `package.json` for package metadata, Node engine, and exported subpaths
+- `README.md` for GitHub and npm landing-page coverage
+
+Docs links should prefer the current site structure:
+
+- CLI docs: `https://purveyors.io/docs/cli/overview`
+- API docs: `https://purveyors.io/docs/api/overview`
+
+Avoid stale references to the old generic `https://purveyors.io/docs` root when a more specific docs target exists.
 
 ## Architecture
 
