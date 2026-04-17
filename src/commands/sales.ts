@@ -57,6 +57,13 @@ function parseNonNegativeNumberOption(flag: string, value: string): number {
   return parsed;
 }
 
+function hasCompleteRecordSaleFlagInput(opts: SalesRecordOptions): boolean {
+  const hasResolvedSelector = opts.coffeeId !== undefined && Boolean(opts.batchName?.trim());
+  const hasSelector = opts.roastId !== undefined || hasResolvedSelector;
+
+  return hasSelector && opts.oz !== undefined && opts.price !== undefined;
+}
+
 function parseRecordSaleFlagInput(opts: SalesRecordOptions): RecordSaleInput {
   if (!opts.oz) {
     throw new PrvrsError('INVALID_ARGUMENT', 'Missing --oz. Use --form for interactive mode.');
@@ -225,8 +232,7 @@ Required flags: selector mode, --oz, --price
 
         const formMode =
           opts.form ||
-          (!(opts.roastId && opts.oz && opts.price) &&
-            (await getConfigValue('form-mode')) === 'true');
+          (!hasCompleteRecordSaleFlagInput(opts) && (await getConfigValue('form-mode')) === 'true');
         if (formMode) {
           const { supabase, userId } = await requireAuth('member');
           p.intro('Record Sale');

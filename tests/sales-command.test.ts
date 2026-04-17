@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,13 +17,24 @@ function parseJson(text: string) {
   return JSON.parse(stripAnsi(text).trim()) as Record<string, unknown>;
 }
 
-function runCli(args: string[]) {
+function runCli(args: string[], options: { formMode?: boolean; timeout?: number } = {}) {
   const home = mkdtempSync(resolve(tmpdir(), 'purvey-sales-command-home-'));
+
+  if (options.formMode !== undefined) {
+    const configDir = resolve(home, '.config', 'purvey');
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      resolve(configDir, 'config.json'),
+      JSON.stringify({ 'form-mode': options.formMode }) + '\n',
+      'utf8'
+    );
+  }
 
   return spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', ...args], {
     cwd: repoRoot,
     encoding: 'utf8',
     maxBuffer: 10 * 1024 * 1024,
+    timeout: options.timeout ?? 15000,
     env: {
       ...process.env,
       HOME: home,
@@ -113,5 +124,29 @@ describe('sales record command', () => {
 
     expect(result.status).toBe(2);
     expect(stderr.message).toContain('Use either --roast-id or --coffee-id + --batch-name');
+  }, 15000);
+
+  it('does not auto-enter form mode for complete resolved selectors when form-mode=true', () => {
+    const result = runCli(
+      [
+        'sales',
+        'record',
+        '--coffee-id',
+        '7',
+        '--batch-name',
+        'Batch A',
+        '--oz',
+        '12',
+        '--price',
+        '18',
+        '--json',
+      ],
+      { formMode: true }
+    );
+
+    expect(result.error).toBeUndefined();
+    const stderr = parseJson(result.stderr);
+    expect(result.status).toBe(3);
+    expect(stderr.code).toBe('AUTH_ERROR');
   }, 15000);
 });
