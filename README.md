@@ -34,14 +34,14 @@ purvey --version
 
 ## Documentation map
 
-| Surface | Use it for |
-| --- | --- |
-| <https://purveyors.io/docs/cli/overview> | Live CLI docs |
-| <https://purveyors.io/docs/api/overview> | Live API docs |
-| [AGENTS.md](./AGENTS.md) | Canonical contributor and agent guidance |
-| [docs/CLI_STRATEGY.md](./docs/CLI_STRATEGY.md) | Historical architecture and shipped-surface retrospective |
-| <https://github.com/reedwhetstone/purveyors-cli> | Repository, issues, and source |
-| <https://www.npmjs.com/package/@purveyors/cli> | Package installation and release metadata |
+| Surface                                          | Use it for                                                |
+| ------------------------------------------------ | --------------------------------------------------------- |
+| <https://purveyors.io/docs/cli/overview>         | Live CLI docs                                             |
+| <https://purveyors.io/docs/api/overview>         | Live API docs                                             |
+| [AGENTS.md](./AGENTS.md)                         | Canonical contributor and agent guidance                  |
+| [docs/CLI_STRATEGY.md](./docs/CLI_STRATEGY.md)   | Historical architecture and shipped-surface retrospective |
+| <https://github.com/reedwhetstone/purveyors-cli> | Repository, issues, and source                            |
+| <https://www.npmjs.com/package/@purveyors/cli>   | Package installation and release metadata                 |
 
 Use the live docs on purveyors.io as the primary external reference. Use this README and `AGENTS.md` for repo-specific contributor detail.
 
