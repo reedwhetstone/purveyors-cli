@@ -126,6 +126,26 @@ describe('sales record command', () => {
     expect(stderr.message).toContain('Use either --roast-id or --coffee-id + --batch-name');
   }, 15000);
 
+  it('rejects partially numeric resolved selector IDs before auth', () => {
+    const result = runCli([
+      'sales',
+      'record',
+      '--coffee-id',
+      '7abc',
+      '--batch-name',
+      'Batch A',
+      '--oz',
+      '12',
+      '--price',
+      '18',
+      '--json',
+    ]);
+    const stderr = parseJson(result.stderr);
+
+    expect(result.status).toBe(2);
+    expect(stderr.message).toContain('Invalid --coffee-id');
+  }, 15000);
+
   it('does not auto-enter form mode for complete resolved selectors when form-mode=true', () => {
     const result = runCli(
       [

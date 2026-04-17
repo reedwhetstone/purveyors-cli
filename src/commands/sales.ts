@@ -25,8 +25,15 @@ type SalesRecordOptions = {
 };
 
 function parsePositiveIntegerOption(flag: string, value: string): number {
-  const parsed = parseInt(value, 10);
-  if (isNaN(parsed) || parsed <= 0) {
+  if (!/^\d+$/.test(value)) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `Invalid ${flag}: "${value}". Must be a positive integer.`
+    );
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
     throw new PrvrsError(
       'INVALID_ARGUMENT',
       `Invalid ${flag}: "${value}". Must be a positive integer.`

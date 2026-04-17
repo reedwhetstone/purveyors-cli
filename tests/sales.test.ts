@@ -407,8 +407,39 @@ describe('recordSale', () => {
     });
     expect(harness.roastCalls).toContainEqual({ method: 'eq', args: ['user', 'user-123'] });
     expect(harness.roastCalls).toContainEqual({ method: 'eq', args: ['coffee_id', 7] });
-    expect(harness.roastCalls).toContainEqual({ method: 'ilike', args: ['batch_name', 'Batch A'] });
+    expect(harness.roastCalls).toContainEqual({ method: 'eq', args: ['batch_name', 'Batch A'] });
+    expect(harness.roastCalls.find((call) => call.method === 'ilike')).toBeUndefined();
     expect(harness.roastCalls).toContainEqual({ method: 'limit', args: [2] });
+  });
+
+  it('preserves literal batch names during resolved selector lookup', async () => {
+    const literalBatchName = 'Batch_(Light).100%';
+    const harness = makeRecordSaleSupabase({
+      roastLookup: { data: [{ roast_id: 99, batch_name: literalBatchName }], error: null },
+      saleRefetch: {
+        data: {
+          id: 55,
+          roast_id: 99,
+          oz_sold: 12,
+          sale_price: 18.5,
+          buyer: null,
+          sell_date: '2026-04-17',
+          user: 'user-123',
+          last_updated: '2026-04-17T00:00:00.000Z',
+        },
+        error: null,
+      },
+    });
+
+    await recordSale(harness.supabase, 'user-123', {
+      coffeeId: 7,
+      batchName: literalBatchName,
+      oz: 12,
+      price: 18.5,
+    });
+
+    expect(harness.roastCalls).toContainEqual({ method: 'eq', args: ['batch_name', literalBatchName] });
+    expect(harness.roastCalls.find((call) => call.method === 'ilike')).toBeUndefined();
   });
 
   it('throws NOT_FOUND when resolved selector mode matches no roasts', async () => {

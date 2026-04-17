@@ -183,13 +183,12 @@ export async function resolveSaleRoast(
     return { roastId: parsed.roastId, mode: 'exact' };
   }
 
-  const safeBatchName = sanitizeFilterValue(parsed.batchName ?? '');
   const { data: matches, error: lookupError } = await supabase
     .from('roast_profiles')
     .select('roast_id, batch_name')
     .eq('user', userId)
     .eq('coffee_id', parsed.coffeeId!)
-    .ilike('batch_name', safeBatchName)
+    .eq('batch_name', parsed.batchName!)
     .limit(2);
 
   if (lookupError) throw lookupError;
