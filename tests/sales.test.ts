@@ -1,10 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   listSalesSchema,
+  saleTargetSelectorSchema,
   recordSaleSchema,
   updateSaleSchema,
   deleteSaleSchema,
+  recordSale,
 } from '../src/lib/sales.js';
+import { AuthError } from '../src/lib/errors.js';
 
 // ─── listSalesSchema ──────────────────────────────────────────────────────────
 
@@ -105,25 +108,82 @@ describe('listSalesSchema', () => {
   });
 });
 
+// ─── saleTargetSelectorSchema ────────────────────────────────────────────────
+
+describe('saleTargetSelectorSchema', () => {
+  it('accepts exact selector mode', () => {
+    const parsed = saleTargetSelectorSchema.parse({ roastId: 42 });
+    expect(parsed.roastId).toBe(42);
+    expect(parsed.coffeeId).toBeUndefined();
+  });
+
+  it('accepts resolved selector mode', () => {
+    const parsed = saleTargetSelectorSchema.parse({
+      coffeeId: 7,
+      batchName: 'Ethiopia Guji Light',
+    });
+    expect(parsed.coffeeId).toBe(7);
+    expect(parsed.batchName).toBe('Ethiopia Guji Light');
+  });
+
+  it('rejects missing all selectors', () => {
+    const result = saleTargetSelectorSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects incomplete resolved selector mode', () => {
+    expect(
+      saleTargetSelectorSchema.safeParse({
+        coffeeId: 7,
+      }).success
+    ).toBe(false);
+    expect(
+      saleTargetSelectorSchema.safeParse({
+        batchName: 'Batch A',
+      }).success
+    ).toBe(false);
+  });
+
+  it('rejects mixing exact and resolved selectors', () => {
+    const result = saleTargetSelectorSchema.safeParse({
+      roastId: 42,
+      coffeeId: 7,
+      batchName: 'Batch A',
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
 // ─── recordSaleSchema ─────────────────────────────────────────────────────────
 
 describe('recordSaleSchema', () => {
-  const validInput = {
+  const validExactInput = {
     roastId: 42,
     oz: 12,
     price: 18.5,
   };
 
-  it('accepts valid required fields', () => {
-    const parsed = recordSaleSchema.parse(validInput);
+  it('accepts valid exact required fields', () => {
+    const parsed = recordSaleSchema.parse(validExactInput);
     expect(parsed.roastId).toBe(42);
     expect(parsed.oz).toBe(12);
     expect(parsed.price).toBe(18.5);
   });
 
+  it('accepts resolved selector mode', () => {
+    const parsed = recordSaleSchema.parse({
+      coffeeId: 7,
+      batchName: 'Ethiopia Guji Light',
+      oz: 12,
+      price: 18.5,
+    });
+    expect(parsed.coffeeId).toBe(7);
+    expect(parsed.batchName).toBe('Ethiopia Guji Light');
+  });
+
   it('accepts optional buyer and sellDate', () => {
     const parsed = recordSaleSchema.parse({
-      ...validInput,
+      ...validExactInput,
       buyer: 'Alice',
       sellDate: '2026-03-23',
     });
@@ -131,7 +191,7 @@ describe('recordSaleSchema', () => {
     expect(parsed.sellDate).toBe('2026-03-23');
   });
 
-  it('rejects missing roastId', () => {
+  it('rejects missing selector', () => {
     const result = recordSaleSchema.safeParse({ oz: 12, price: 18 });
     expect(result.success).toBe(false);
   });
@@ -147,26 +207,262 @@ describe('recordSaleSchema', () => {
   });
 
   it('rejects non-positive roastId', () => {
-    expect(() => recordSaleSchema.parse({ ...validInput, roastId: 0 })).toThrow();
-    expect(() => recordSaleSchema.parse({ ...validInput, roastId: -1 })).toThrow();
+    expect(() => recordSaleSchema.parse({ ...validExactInput, roastId: 0 })).toThrow();
+    expect(() => recordSaleSchema.parse({ ...validExactInput, roastId: -1 })).toThrow();
+  });
+
+  it('rejects non-positive coffeeId', () => {
+    expect(() =>
+      recordSaleSchema.parse({
+        coffeeId: 0,
+        batchName: 'Batch A',
+        oz: 12,
+        price: 18,
+      })
+    ).toThrow();
   });
 
   it('rejects non-positive oz', () => {
-    expect(() => recordSaleSchema.parse({ ...validInput, oz: 0 })).toThrow();
-    expect(() => recordSaleSchema.parse({ ...validInput, oz: -5 })).toThrow();
+    expect(() => recordSaleSchema.parse({ ...validExactInput, oz: 0 })).toThrow();
+    expect(() => recordSaleSchema.parse({ ...validExactInput, oz: -5 })).toThrow();
   });
 
   it('rejects negative price', () => {
-    expect(() => recordSaleSchema.parse({ ...validInput, price: -1 })).toThrow();
+    expect(() => recordSaleSchema.parse({ ...validExactInput, price: -1 })).toThrow();
   });
 
   it('accepts zero price (free/gift)', () => {
-    const parsed = recordSaleSchema.parse({ ...validInput, price: 0 });
+    const parsed = recordSaleSchema.parse({ ...validExactInput, price: 0 });
     expect(parsed.price).toBe(0);
   });
 
   it('rejects non-integer roastId', () => {
-    expect(() => recordSaleSchema.parse({ ...validInput, roastId: 3.5 })).toThrow();
+    expect(() => recordSaleSchema.parse({ ...validExactInput, roastId: 3.5 })).toThrow();
+  });
+
+  it('rejects mixing exact and resolved selectors', () => {
+    expect(() =>
+      recordSaleSchema.parse({
+        roastId: 42,
+        coffeeId: 7,
+        batchName: 'Batch A',
+        oz: 12,
+        price: 18,
+      })
+    ).toThrow();
+  });
+});
+
+// ─── recordSale behavior ─────────────────────────────────────────────────────
+
+type QueryCall = {
+  method: string;
+  args: unknown[];
+};
+
+function makeRecordSaleSupabase(
+  overrides: {
+    roastSingle?: { data?: unknown; error?: unknown };
+    roastLookup?: { data?: unknown; error?: unknown };
+    insertResult?: { data?: unknown; error?: unknown };
+    saleRefetch?: { data?: unknown; error?: unknown };
+  } = {}
+) {
+  const roastCalls: QueryCall[] = [];
+  let insertedPayload: Record<string, unknown> | null = null;
+
+  const roastProfilesQuery = {
+    eq(field: string, value: unknown) {
+      roastCalls.push({ method: 'eq', args: [field, value] });
+      return roastProfilesQuery;
+    },
+    ilike(field: string, value: unknown) {
+      roastCalls.push({ method: 'ilike', args: [field, value] });
+      return roastProfilesQuery;
+    },
+    limit(limitValue: number) {
+      roastCalls.push({ method: 'limit', args: [limitValue] });
+      return Promise.resolve(overrides.roastLookup ?? { data: [{ roast_id: 42 }], error: null });
+    },
+    single: vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(overrides.roastSingle ?? { data: { roast_id: 42 }, error: null })
+      ),
+  };
+
+  const salesSelectQuery = {
+    eq: vi.fn().mockReturnThis(),
+    single: vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        overrides.saleRefetch ?? {
+          data: {
+            id: 55,
+            roast_id: 42,
+            oz_sold: 12,
+            sale_price: 18.5,
+            buyer: null,
+            sell_date: '2026-04-17',
+            user: 'user-123',
+            last_updated: '2026-04-17T00:00:00.000Z',
+          },
+          error: null,
+        }
+      )
+    ),
+  };
+
+  const salesTable = {
+    insert: vi.fn().mockImplementation((payload: Record<string, unknown>) => {
+      insertedPayload = payload;
+      return {
+        select: vi.fn().mockReturnValue({
+          single: vi
+            .fn()
+            .mockImplementation(() =>
+              Promise.resolve(overrides.insertResult ?? { data: { id: 55 }, error: null })
+            ),
+        }),
+      };
+    }),
+    select: vi.fn().mockReturnValue(salesSelectQuery),
+  };
+
+  const supabase = {
+    from: vi.fn().mockImplementation((table: string) => {
+      if (table === 'roast_profiles') {
+        return {
+          select: vi.fn().mockReturnValue(roastProfilesQuery),
+        };
+      }
+
+      if (table === 'sales') {
+        return salesTable;
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    }),
+  };
+
+  return {
+    supabase: supabase as never,
+    roastCalls,
+    salesSelectQuery,
+    getInsertedPayload: () => insertedPayload,
+  };
+}
+
+describe('recordSale', () => {
+  it('records a sale via exact roastId selector mode', async () => {
+    const harness = makeRecordSaleSupabase();
+
+    const result = await recordSale(harness.supabase, 'user-123', {
+      roastId: 42,
+      oz: 12,
+      price: 18.5,
+    });
+
+    expect(result.id).toBe(55);
+    expect(harness.getInsertedPayload()).toMatchObject({
+      user: 'user-123',
+      roast_id: 42,
+      oz_sold: 12,
+      sale_price: 18.5,
+    });
+    expect(harness.roastCalls).toContainEqual({ method: 'eq', args: ['roast_id', 42] });
+    expect(harness.roastCalls).toContainEqual({ method: 'eq', args: ['user', 'user-123'] });
+    expect(harness.roastCalls.find((call) => call.method === 'ilike')).toBeUndefined();
+  });
+
+  it('records a sale via resolved coffeeId + batchName selector mode', async () => {
+    const harness = makeRecordSaleSupabase({
+      roastLookup: { data: [{ roast_id: 99, batch_name: 'Batch A' }], error: null },
+      saleRefetch: {
+        data: {
+          id: 55,
+          roast_id: 99,
+          oz_sold: 12,
+          sale_price: 18.5,
+          buyer: 'Alice',
+          sell_date: '2026-04-17',
+          user: 'user-123',
+          last_updated: '2026-04-17T00:00:00.000Z',
+        },
+        error: null,
+      },
+    });
+
+    const result = await recordSale(harness.supabase, 'user-123', {
+      coffeeId: 7,
+      batchName: 'Batch A',
+      oz: 12,
+      price: 18.5,
+      buyer: 'Alice',
+    });
+
+    expect(result.roast_id).toBe(99);
+    expect(harness.getInsertedPayload()).toMatchObject({
+      roast_id: 99,
+      buyer: 'Alice',
+    });
+    expect(harness.roastCalls).toContainEqual({ method: 'eq', args: ['user', 'user-123'] });
+    expect(harness.roastCalls).toContainEqual({ method: 'eq', args: ['coffee_id', 7] });
+    expect(harness.roastCalls).toContainEqual({ method: 'ilike', args: ['batch_name', 'Batch A'] });
+    expect(harness.roastCalls).toContainEqual({ method: 'limit', args: [2] });
+  });
+
+  it('throws NOT_FOUND when resolved selector mode matches no roasts', async () => {
+    const harness = makeRecordSaleSupabase({
+      roastLookup: { data: [], error: null },
+    });
+
+    await expect(
+      recordSale(harness.supabase, 'user-123', {
+        coffeeId: 7,
+        batchName: 'Missing Batch',
+        oz: 12,
+        price: 18.5,
+      })
+    ).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+
+  it('throws INVALID_ARGUMENT when resolved selector mode is ambiguous', async () => {
+    const harness = makeRecordSaleSupabase({
+      roastLookup: {
+        data: [
+          { roast_id: 91, batch_name: 'Batch A' },
+          { roast_id: 92, batch_name: 'Batch A' },
+        ],
+        error: null,
+      },
+    });
+
+    await expect(
+      recordSale(harness.supabase, 'user-123', {
+        coffeeId: 7,
+        batchName: 'Batch A',
+        oz: 12,
+        price: 18.5,
+      })
+    ).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+    });
+  });
+
+  it('throws AuthError when exact roastId does not belong to the user', async () => {
+    const harness = makeRecordSaleSupabase({
+      roastSingle: { data: null, error: { message: 'not found' } },
+    });
+
+    await expect(
+      recordSale(harness.supabase, 'user-123', {
+        roastId: 42,
+        oz: 12,
+        price: 18.5,
+      })
+    ).rejects.toThrow(AuthError);
   });
 });
 
