@@ -4,7 +4,17 @@ Coffee intelligence from your terminal.
 
 `purvey` is the official CLI for [purveyors.io](https://purveyors.io). It gives coffee professionals, developers, and AI agents direct access to the Purveyors platform from the terminal: catalog search, inventory tracking, roast logging, sales records, tasting notes, and Artisan `.alog` import.
 
-Run `purvey manifest` for the machine-readable contract, `purvey context` for the dense human-readable reference, or import `@purveyors/cli/manifest` in-process.
+## At a glance
+
+- Official binary: `purvey`
+- Package: `@purveyors/cli`
+- Runtime: Node.js 20+
+- No pre-existing session required: `auth`, `config`, `context`, `manifest`
+- Viewer role required: `catalog`
+- Member role required: `inventory`, `roast`, `sales`, `tasting`
+- Preferred machine-readable contract: `purvey manifest`
+- Dense human-readable reference: `purvey context`
+- Compatibility JSON alias: `purvey context --json`
 
 ## Installation
 
@@ -24,10 +34,16 @@ purvey --version
 
 ## Documentation map
 
-- CLI overview: <https://purveyors.io/docs/cli/overview>
-- API overview: <https://purveyors.io/docs/api/overview>
-- GitHub repository: <https://github.com/reedwhetstone/purveyors-cli>
-- npm package: <https://www.npmjs.com/package/@purveyors/cli>
+| Surface | Use it for |
+| --- | --- |
+| <https://purveyors.io/docs/cli/overview> | Live CLI docs |
+| <https://purveyors.io/docs/api/overview> | Live API docs |
+| [AGENTS.md](./AGENTS.md) | Canonical contributor and agent guidance |
+| [docs/CLI_STRATEGY.md](./docs/CLI_STRATEGY.md) | Historical architecture and shipped-surface retrospective |
+| <https://github.com/reedwhetstone/purveyors-cli> | Repository, issues, and source |
+| <https://www.npmjs.com/package/@purveyors/cli> | Package installation and release metadata |
+
+Use the live docs on purveyors.io as the primary external reference. Use this README and `AGENTS.md` for repo-specific contributor detail.
 
 ## Quick Start
 
@@ -56,6 +72,15 @@ purvey manifest
 # 7. Get the dense readable CLI reference
 purvey context
 ```
+
+## Reference surfaces
+
+Use the right reference surface for the job:
+
+- `purvey manifest` is the preferred machine-readable contract for agents, scripts, generated tooling, and parity checks.
+- `purvey context` is the dense human-readable reference for operators and reviewers.
+- `purvey context --json` and `purvey context --pretty` emit the same JSON payload as `purvey manifest`, but exist mainly for compatibility with tooling that already shells out to `context`.
+- `@purveyors/cli/manifest` exposes the same contract in-process for Node.js consumers.
 
 ## Authentication and access model
 
@@ -523,6 +548,7 @@ Notes:
 
 - Default output is dense human-readable reference text.
 - `--json` and `--pretty` emit the same machine-readable manifest as `purvey manifest`.
+- Prefer `purvey manifest` for new machine integrations. Use `purvey context --json` when you need compatibility with an existing `context`-based workflow.
 - `--csv` is not supported.
 
 ### manifest
@@ -532,8 +558,9 @@ Notes:
 
 Notes:
 
-- `purvey manifest` emits the machine-readable CLI contract on stdout.
+- `purvey manifest` emits the preferred machine-readable CLI contract on stdout.
 - `purvey manifest` and `purvey context --json` emit the same JSON payload.
+- Use `purvey manifest` for new automation and treat `purvey context --json` as a compatibility alias.
 - `--csv` is not supported.
 
 ### In-process manifest export
@@ -610,6 +637,8 @@ purvey manifest
 purvey context
 purvey auth login --headless
 ```
+
+Use `purvey manifest` as the authoritative machine-readable entry point. Keep `purvey context` for dense operator context, or use `purvey context --json` only when you need compatibility with an existing wrapper.
 
 Why this CLI works well for agents:
 

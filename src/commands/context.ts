@@ -7,7 +7,7 @@ import type { OutputOptions } from '../types/index.js';
 export function buildContextCommand(): Command {
   return new Command('context')
     .description(
-      'Output the dense human-readable CLI reference, or the JSON manifest with --json/--pretty'
+      'Output the dense human-readable CLI reference, or the manifest JSON for compatibility with --json/--pretty'
     )
     .option('--json', 'Emit the machine-readable manifest contract as compact JSON')
     .option('--pretty', 'Emit the machine-readable manifest contract as indented JSON')
@@ -16,6 +16,7 @@ export function buildContextCommand(): Command {
       `
 Default output is dense human-readable reference text.
 Use --json or --pretty for the same machine-readable manifest emitted by \`purvey manifest\`.
+Prefer \`purvey manifest\` for new machine integrations, and keep \`purvey context --json\` for compatibility with existing context-based tooling.
 
 Examples:
   purvey context
