@@ -230,6 +230,21 @@ describe('CLI manifest contract', () => {
     expect(text).toContain('Quick discovery:  purvey --help');
   });
 
+  it('falls back to legacy machine surfaces when rendering older schema version 1 manifests', () => {
+    const legacyManifest = JSON.parse(JSON.stringify(getCliManifest())) as {
+      machineSurfaces?: unknown;
+    } & ReturnType<typeof getCliManifest>;
+
+    delete legacyManifest.machineSurfaces;
+
+    const text = renderContextText(legacyManifest);
+
+    expect(text).toContain('Quick discovery:  purvey --help');
+    expect(text).toContain('Human reference:  purvey context');
+    expect(text).toContain('JSON manifest:    purvey manifest');
+    expect(text).toContain('Module import:    @purveyors/cli/manifest');
+  });
+
   it('describes `purvey --help` as quick discovery and keeps machine surfaces distinct', () => {
     const result = spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', '--help'], {
       cwd: repoRoot,

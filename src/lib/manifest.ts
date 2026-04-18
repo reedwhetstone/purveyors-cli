@@ -118,6 +118,13 @@ export interface CliManifest {
   errorPatterns: CliErrorPatternContract[];
 }
 
+const legacyMachineSurfaces: CliManifest['machineSurfaces'] = {
+  humanReference: 'purvey context',
+  shellManifest: 'purvey manifest',
+  moduleImport: '@purveyors/cli/manifest',
+  notes: [],
+};
+
 const docs: CliDocLink[] = [
   { label: 'CLI docs', url: 'https://purveyors.io/docs/cli/overview' },
   { label: 'API docs', url: 'https://purveyors.io/docs/api/overview' },
@@ -1081,7 +1088,24 @@ function renderErrorPatterns(patterns: CliErrorPatternContract[]): string[] {
   return lines;
 }
 
+function resolveMachineSurfaces(manifest: CliManifest): CliManifest['machineSurfaces'] {
+  const machineSurfaces = (
+    manifest as CliManifest & {
+      machineSurfaces?: Partial<CliManifest['machineSurfaces']>;
+    }
+  ).machineSurfaces;
+
+  return {
+    humanReference: machineSurfaces?.humanReference ?? legacyMachineSurfaces.humanReference,
+    shellManifest: machineSurfaces?.shellManifest ?? legacyMachineSurfaces.shellManifest,
+    moduleImport: machineSurfaces?.moduleImport ?? legacyMachineSurfaces.moduleImport,
+    notes: machineSurfaces?.notes ?? legacyMachineSurfaces.notes,
+  };
+}
+
 export function renderContextText(manifest: CliManifest = getCliManifest()): string {
+  const machineSurfaces = resolveMachineSurfaces(manifest);
+
   return [
     'PURVEY CLI - Agent Reference',
     '============================',
@@ -1089,9 +1113,9 @@ export function renderContextText(manifest: CliManifest = getCliManifest()): str
     `Credentials file: ${manifest.files.credentials}`,
     `Config file: ${manifest.files.config}`,
     `Quick discovery:  purvey --help`,
-    `Human reference:  ${manifest.machineSurfaces.humanReference}`,
-    `JSON manifest:    ${manifest.machineSurfaces.shellManifest}`,
-    `Module import:    ${manifest.machineSurfaces.moduleImport}`,
+    `Human reference:  ${machineSurfaces.humanReference}`,
+    `JSON manifest:    ${machineSurfaces.shellManifest}`,
+    `Module import:    ${machineSurfaces.moduleImport}`,
     '',
     ...renderDocs(manifest.docs),
     '',
