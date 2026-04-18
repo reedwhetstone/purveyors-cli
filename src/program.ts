@@ -124,9 +124,10 @@ Examples:
   $ purvey manifest --pretty
   $ purvey context --json > cli-manifest.json
 
-Documentation: https://github.com/reedwhetstone/purveyors-cli
-Live docs:      https://purveyors.io/docs
-npm package:    https://www.npmjs.com/package/@purveyors/cli
+CLI docs:            https://purveyors.io/docs/cli/overview
+API docs:            https://purveyors.io/docs/api/overview
+Repository:          https://github.com/reedwhetstone/purveyors-cli
+npm package:         https://www.npmjs.com/package/@purveyors/cli
 Quick discovery:  purvey --help
 Human reference:  purvey context
 JSON manifest:    purvey manifest

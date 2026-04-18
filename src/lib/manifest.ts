@@ -119,8 +119,9 @@ export interface CliManifest {
 }
 
 const docs: CliDocLink[] = [
-  { label: 'Full README', url: 'https://github.com/reedwhetstone/purveyors-cli' },
-  { label: 'Live docs', url: 'https://purveyors.io/docs' },
+  { label: 'CLI docs', url: 'https://purveyors.io/docs/cli/overview' },
+  { label: 'API docs', url: 'https://purveyors.io/docs/api/overview' },
+  { label: 'Repository', url: 'https://github.com/reedwhetstone/purveyors-cli' },
   { label: 'npm package', url: 'https://www.npmjs.com/package/@purveyors/cli' },
 ];
 
@@ -524,6 +525,7 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--batch-name <name>' },
           { flags: '--oz-in <oz>' },
           { flags: '--roast-notes <text>' },
+          { flags: '--roast-targets <text>' },
           { flags: '--form' },
         ],
       },
@@ -537,10 +539,17 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--batch-prefix <name>' },
           { flags: '--prompt-each' },
           { flags: '--auto-match' },
+          { flags: '--commit-mode <batch|individual>', defaultValue: 'batch' },
+          { flags: '--oz-in <oz>' },
+          { flags: '--roast-notes <text>' },
+          { flags: '--roast-targets <text>' },
           { flags: '--resume' },
           { flags: '--form' },
         ],
-        notes: ['--auto-match is mutually exclusive with --coffee-id.'],
+        notes: [
+          '--auto-match is mutually exclusive with --coffee-id.',
+          '--commit-mode defaults to batch so new roasts are queued until the session ends.',
+        ],
       },
     ],
   },
@@ -738,11 +747,11 @@ const commandGroups: CliCommandGroupContract[] = [
   },
   {
     name: 'manifest',
-    summary: 'Emit the preferred machine-readable CLI manifest contract',
+    summary: 'Emit the preferred stable machine-readable CLI manifest contract',
     auth: 'none',
     command: {
       name: 'manifest',
-      summary: 'Emit the preferred machine-readable CLI manifest contract',
+      summary: 'Emit the preferred stable machine-readable CLI manifest contract',
       auth: 'none',
       options: [{ flags: '--json' }, { flags: '--pretty' }],
       notes: [

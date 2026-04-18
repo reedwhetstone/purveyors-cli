@@ -448,6 +448,7 @@ Notes:
     .option('--batch-name <name>', 'Batch name (auto-generated from coffee name + date if omitted)')
     .option('--oz-in <oz>', 'Green weight in ounces (extracted from .alog if omitted)')
     .option('--roast-notes <notes>', 'Additional roast notes')
+    .option('--roast-targets <targets>', 'Roast targets to store with the import')
     .option('--form', 'Interactive form mode (browse and select bean)')
     .addHelpText(
       'after',
@@ -456,6 +457,7 @@ Examples:
   purvey roast import ~/artisan/ethiopia-guji.alog --coffee-id 7 --pretty
   purvey roast import roast.alog --coffee-id 42 --oz-in 16
   purvey roast import roast.alog --coffee-id 7 --batch-name "Ethiopia Guji #3" --roast-notes "Faster development"
+  purvey roast import roast.alog --coffee-id 7 --roast-targets "Aim for 18% development"
   purvey roast import --form     # interactive wizard (browse files + select bean)
 
 Required: <file> path and --coffee-id (unless using --form)
@@ -529,6 +531,12 @@ Required: <file> path and --coffee-id (unless using --form)
             });
             guardCancel(roastNotesRaw);
 
+            const roastTargetsRaw = await p.text({
+              message: 'Roast targets',
+              placeholder: 'optional',
+            });
+            guardCancel(roastTargetsRaw);
+
             const confirmed = await p.confirm({ message: 'Import this roast?' });
             guardCancel(confirmed);
 
@@ -544,6 +552,7 @@ Required: <file> path and --coffee-id (unless using --form)
             const ozIn = ozInStr !== '' ? parseFloat(ozInStr) : undefined;
             const batchName = String(batchNameRaw).trim() || defaultBatch;
             const notesStr = String(roastNotesRaw).trim();
+            const targetsStr = String(roastTargetsRaw).trim();
 
             const spin = p.spinner();
             spin.start('Importing roast data...');
@@ -554,6 +563,7 @@ Required: <file> path and --coffee-id (unless using --form)
               batchName,
               ozIn,
               roastNotes: notesStr !== '' ? notesStr : undefined,
+              roastTargets: targetsStr !== '' ? targetsStr : undefined,
             });
             spin.stop('Done');
 
@@ -606,6 +616,11 @@ Required: <file> path and --coffee-id (unless using --form)
             }
           }
 
+          const roastTargets =
+            typeof opts.roastTargets === 'string' && opts.roastTargets.trim() !== ''
+              ? opts.roastTargets.trim()
+              : undefined;
+
           // 6. Run the import
           const result = await importRoastFromFile(supabase, userId, {
             fileContent,
@@ -614,6 +629,7 @@ Required: <file> path and --coffee-id (unless using --form)
             batchName: opts.batchName as string | undefined,
             ozIn,
             roastNotes: opts.roastNotes as string | undefined,
+            roastTargets,
           });
 
           // 7. Output
@@ -630,7 +646,7 @@ Required: <file> path and --coffee-id (unless using --form)
   // ── roast watch <directory> ───────────────────────────────────────────────
   roast
     .command('watch')
-    .description('Watch a directory for new .alog files and auto-import them')
+    .description('Watch a directory for new .alog files and queue or auto-import them')
     .argument('[directory]', 'Directory to watch for .alog files')
     .option(
       '--coffee-id <id>',
@@ -648,6 +664,10 @@ Required: <file> path and --coffee-id (unless using --form)
       '--auto-match',
       'Use AI to auto-match beans per file (mutually exclusive with --coffee-id)'
     )
+    .option('--commit-mode <mode>', 'Commit mode: batch (default) or individual')
+    .option('--oz-in <oz>', 'Green weight in ounces for watched imports')
+    .option('--roast-notes <notes>', 'Roast notes to apply to watched imports')
+    .option('--roast-targets <targets>', 'Roast targets to apply to watched imports')
     .option('--resume', 'Resume a previous watch session from where it left off')
     .option('--form', 'Interactive form mode (prompts for directory + bean selection)')
     .addHelpText(
@@ -657,14 +677,16 @@ Examples:
   purvey roast watch ~/artisan/ --coffee-id 7
   purvey roast watch ~/artisan/ --coffee-id 42 --batch-prefix "Colombia Huila"
   purvey roast watch ~/artisan/ --auto-match
+  purvey roast watch ~/artisan/ --coffee-id 7 --commit-mode individual
   purvey roast watch ~/artisan/ --prompt-each
   purvey roast watch --resume      # continue a previous session
   purvey roast watch --form        # interactive setup wizard
 
 Notes:
   Runs continuously until Ctrl+C. New .alog files detected in the directory
-  are automatically imported as roast profiles.
+  are queued or imported as roast profiles depending on commit mode.
   --auto-match and --coffee-id are mutually exclusive.
+  --commit-mode defaults to batch.
   Session state is saved for --resume.
   Requires authentication (member role).
 `
@@ -672,6 +694,35 @@ Notes:
     .action(
       withErrorHandling(async (directory: string | undefined, opts: Record<string, unknown>) => {
         const { supabase, userId } = await requireAuth('member');
+
+        const parseCommitMode = (value: unknown, fallback: 'batch' | 'individual' = 'batch') => {
+          if (value === undefined || value === null || String(value).trim() === '') {
+            return fallback;
+          }
+
+          const normalized = String(value).trim().toLowerCase();
+          if (normalized === 'batch' || normalized === 'individual') {
+            return normalized;
+          }
+
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid --commit-mode: "${value}". Use "batch" or "individual".`
+          );
+        };
+
+        const parseOptionalPositiveNumber = (value: unknown, flagName: string) => {
+          if (value === undefined || value === null || String(value).trim() === '') {
+            return undefined;
+          }
+
+          const parsed = parseFloat(String(value));
+          if (isNaN(parsed) || parsed <= 0) {
+            throw new PrvrsError('INVALID_ARGUMENT', `Invalid ${flagName}: "${value}".`);
+          }
+
+          return parsed;
+        };
 
         // ── Resume mode ──────────────────────────────────────────────────────
         if (opts.resume) {
@@ -686,7 +737,15 @@ Notes:
             coffeeId: saved.coffeeId,
             coffeeName: saved.coffeeName,
             batchPrefix: saved.batchPrefix,
+            promptEach: Boolean(saved.promptEach),
+            autoMatch: Boolean(saved.autoMatch),
+            commitMode: saved.commitMode ?? 'batch',
+            startedAt: saved.startedAt,
+            resumeImports: saved.imports,
             startSequence: saved.imports.length,
+            ozIn: saved.ozIn,
+            roastNotes: saved.roastNotes,
+            roastTargets: saved.roastTargets,
           });
           return;
         }
@@ -759,12 +818,60 @@ Notes:
               });
           if (typeof promptEachRaw !== 'boolean') guardCancel(promptEachRaw);
 
+          const commitModeRaw = await p.select({
+            message: 'Commit mode',
+            initialValue: 'batch',
+            options: [
+              {
+                value: 'batch',
+                label: 'Batch commit on Ctrl+C',
+                hint: 'Default. Queue imports and commit them together when the session ends.',
+              },
+              {
+                value: 'individual',
+                label: 'Commit each roast immediately',
+                hint: 'Import each new file as soon as it appears.',
+              },
+            ],
+          });
+          guardCancel(commitModeRaw);
+          const commitMode = parseCommitMode(commitModeRaw);
+
+          const ozInRaw = await p.text({
+            message: 'Green weight (oz)',
+            placeholder: 'optional',
+            validate: (v) => {
+              if (!v || v.trim() === '') return;
+              const n = parseFloat(v);
+              if (isNaN(n) || n <= 0) return 'Must be a positive number.';
+            },
+          });
+          guardCancel(ozInRaw);
+
+          const roastTargetsRaw = await p.text({
+            message: 'Roast targets',
+            placeholder: 'optional',
+          });
+          guardCancel(roastTargetsRaw);
+
+          const roastNotesRaw = await p.text({
+            message: 'Roast notes',
+            placeholder: 'optional',
+          });
+          guardCancel(roastNotesRaw);
+
           await startWatch(supabase, userId, watchDir, {
             coffeeId: watchCoffeeId,
             coffeeName: watchCoffeeName,
             batchPrefix,
+            commitMode,
             promptEach: useAutoMatch ? false : Boolean(promptEachRaw),
             autoMatch: useAutoMatch,
+            ozIn: parseOptionalPositiveNumber(ozInRaw, 'green weight'),
+            roastTargets:
+              String(roastTargetsRaw).trim() !== '' ? String(roastTargetsRaw).trim() : undefined,
+            roastNotes:
+              String(roastNotesRaw).trim() !== '' ? String(roastNotesRaw).trim() : undefined,
           });
           return;
         }
@@ -778,6 +885,16 @@ Notes:
         }
 
         const autoMatch = Boolean(opts.autoMatch);
+        const commitMode = parseCommitMode(opts.commitMode);
+        const ozIn = parseOptionalPositiveNumber(opts.ozIn, '--oz-in');
+        const roastNotes =
+          typeof opts.roastNotes === 'string' && opts.roastNotes.trim() !== ''
+            ? opts.roastNotes.trim()
+            : undefined;
+        const roastTargets =
+          typeof opts.roastTargets === 'string' && opts.roastTargets.trim() !== ''
+            ? opts.roastTargets.trim()
+            : undefined;
 
         // --auto-match and --coffee-id are mutually exclusive (auto-match picks the bean)
         if (autoMatch && opts.coffeeId) {
@@ -836,8 +953,12 @@ Notes:
           coffeeId,
           coffeeName,
           batchPrefix,
+          commitMode,
           promptEach: Boolean(opts.promptEach),
           autoMatch,
+          ozIn,
+          roastNotes,
+          roastTargets,
         });
       })
     );

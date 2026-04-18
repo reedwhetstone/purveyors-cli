@@ -17,6 +17,7 @@ export interface RoastProfile {
   oz_out: number | null;
   weight_loss_percent: number | null;
   roast_notes: string | null;
+  roast_targets?: string | null;
   user: string;
   last_updated: string;
   roaster_type: string | null;
@@ -67,9 +68,9 @@ export interface RoastEventEntry {
 const MILESTONE_FIELDS =
   'fc_start_time, fc_start_temp, fc_end_time, fc_end_temp, drop_time, drop_temp, charge_temp, charge_time, tp_time, tp_temp, total_ror, dry_percent, maillard_percent, auc, dry_phase_ror, mid_phase_ror, finish_phase_ror, dry_phase_delta_temp';
 
-const ROAST_LIST_SELECT = `roast_id, batch_name, coffee_id, coffee_name, roast_date, oz_in, oz_out, weight_loss_percent, roast_notes, roaster_type, roaster_size, temperature_unit, total_roast_time, development_percent, data_source, last_updated, roast_uuid, ${MILESTONE_FIELDS}`;
+const ROAST_LIST_SELECT = `roast_id, batch_name, coffee_id, coffee_name, roast_date, oz_in, oz_out, weight_loss_percent, roast_notes, roast_targets, roaster_type, roaster_size, temperature_unit, total_roast_time, development_percent, data_source, last_updated, roast_uuid, ${MILESTONE_FIELDS}`;
 
-const ROAST_DETAIL_SELECT = `roast_id, batch_name, coffee_id, coffee_name, roast_date, oz_in, oz_out, weight_loss_percent, roast_notes, roaster_type, roaster_size, temperature_unit, total_roast_time, development_percent, data_source, last_updated, roast_uuid, ${MILESTONE_FIELDS}`;
+const ROAST_DETAIL_SELECT = `roast_id, batch_name, coffee_id, coffee_name, roast_date, oz_in, oz_out, weight_loss_percent, roast_notes, roast_targets, roaster_type, roaster_size, temperature_unit, total_roast_time, development_percent, data_source, last_updated, roast_uuid, ${MILESTONE_FIELDS}`;
 
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
@@ -456,6 +457,7 @@ export const importRoastSchema = z.object({
   batchName: z.string().optional(),
   ozIn: z.number().positive().optional(),
   roastNotes: z.string().optional(),
+  roastTargets: z.string().optional(),
 });
 
 export type ImportRoastInput = z.input<typeof importRoastSchema>;
@@ -578,6 +580,7 @@ export async function importRoastFromFile(
   };
   if (ozIn !== undefined) insertPayload.oz_in = ozIn;
   if (parsed.roastNotes !== undefined) insertPayload.roast_notes = parsed.roastNotes;
+  if (parsed.roastTargets !== undefined) insertPayload.roast_targets = parsed.roastTargets;
 
   const { data: inserted, error: insertError } = await supabase
     .from('roast_profiles')
