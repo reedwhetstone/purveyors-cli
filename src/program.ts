@@ -100,8 +100,8 @@ Local and reference commands (no pre-existing session required):
   config get        Get a config value
   config set        Set a config value
   config reset      Reset config to defaults
-  context           Output dense human-readable reference text, or JSON with --json/--pretty
-  manifest          Output the machine-readable CLI contract for agents/scripts
+  context           Output dense human-readable reference text, or manifest JSON for compatibility
+  manifest          Output the preferred machine-readable CLI contract for agents/scripts
 
 Global Options:
   --json            Output compact JSON explicitly
@@ -123,12 +123,13 @@ Examples:
   $ purvey manifest
   $ purvey manifest --pretty
 
-Documentation: https://github.com/reedwhetstone/purveyors-cli
-CLI docs:       https://purveyors.io/docs/cli/overview
-API docs:       https://purveyors.io/docs/api/overview
-npm package:    https://www.npmjs.com/package/@purveyors/cli
+CLI docs:            https://purveyors.io/docs/cli/overview
+API docs:            https://purveyors.io/docs/api/overview
+Repository:          https://github.com/reedwhetstone/purveyors-cli
+npm package:         https://www.npmjs.com/package/@purveyors/cli
 Human reference:  purvey context
 JSON manifest:    purvey manifest
+Compatibility JSON:  purvey context --json
 `
     );
 

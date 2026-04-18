@@ -6,7 +6,7 @@ import type { OutputOptions } from '../types/index.js';
 
 export function buildManifestCommand(): Command {
   return new Command('manifest')
-    .description('Output the machine-readable CLI manifest contract')
+    .description('Output the preferred machine-readable CLI manifest contract')
     .option('--json', 'Emit the manifest as compact JSON (default)')
     .option('--pretty', 'Emit the manifest as indented JSON')
     .addHelpText(

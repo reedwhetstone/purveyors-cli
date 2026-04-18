@@ -112,9 +112,9 @@ export interface CliManifest {
 }
 
 const docs: CliDocLink[] = [
-  { label: 'Full README', url: 'https://github.com/reedwhetstone/purveyors-cli' },
   { label: 'CLI docs', url: 'https://purveyors.io/docs/cli/overview' },
   { label: 'API docs', url: 'https://purveyors.io/docs/api/overview' },
+  { label: 'Repository', url: 'https://github.com/reedwhetstone/purveyors-cli' },
   { label: 'npm package', url: 'https://www.npmjs.com/package/@purveyors/cli' },
 ];
 
@@ -722,26 +722,27 @@ const commandGroups: CliCommandGroupContract[] = [
   },
   {
     name: 'context',
-    summary: 'Emit human-readable agent reference or JSON manifest',
+    summary: 'Emit human-readable agent reference or manifest-compat JSON',
     auth: 'none',
     command: {
       name: 'context',
-      summary: 'Emit human-readable agent reference or JSON manifest',
+      summary: 'Emit human-readable agent reference or manifest-compat JSON',
       auth: 'none',
       options: [{ flags: '--json' }, { flags: '--pretty' }],
       notes: [
         'Use `purvey manifest` or `purvey context --json` for the machine-readable manifest contract.',
+        'Prefer `purvey manifest` for new automation, and keep `purvey context --json` in parity as a compatibility surface for existing tooling.',
       ],
       examples: ['purvey context', 'purvey context --json', 'purvey context --pretty'],
     },
   },
   {
     name: 'manifest',
-    summary: 'Emit the machine-readable CLI manifest contract',
+    summary: 'Emit the preferred machine-readable CLI manifest contract',
     auth: 'none',
     command: {
       name: 'manifest',
-      summary: 'Emit the machine-readable CLI manifest contract',
+      summary: 'Emit the preferred machine-readable CLI manifest contract',
       auth: 'none',
       options: [{ flags: '--json' }, { flags: '--pretty' }],
       notes: ['`purvey manifest` emits compact JSON by default.'],

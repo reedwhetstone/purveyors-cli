@@ -2,7 +2,7 @@
 
 Canonical contributor guide for `@purveyors/cli`.
 
-Use this file as the single maintained guide for humans and agents. `CLAUDE.md` should point here.
+Use this file as the single maintained guide for humans and agents. `CLAUDE.md` and `GEMINI.md` should point here.
 
 ## Project Snapshot
 
@@ -13,6 +13,13 @@ Use this file as the single maintained guide for humans and agents. `CLAUDE.md` 
 - Version source of truth: `package.json` and `purvey --version`
 - In-process manifest export: `@purveyors/cli/manifest` via package export `./manifest`
 - Live docs: `/docs/cli/*` and `/docs/api/*` on `https://purveyors.io`
+
+## Canonical Agent Docs Policy
+
+- `AGENTS.md` is the canonical maintained guide.
+- `CLAUDE.md` and `GEMINI.md` must stay lightweight pointers to this file.
+- If agent guidance changes, update `AGENTS.md` first and keep pointer files minimal.
+- Do not let agent-specific copies drift into separate maintained documentation.
 
 ## What the CLI Covers
 
@@ -25,20 +32,21 @@ Current command groups:
 - `sales`: `list` (filters: roast-id, date-start, date-end, buyer, limit, offset), `record`, `update <id>`, `delete <id>`
 - `tasting`: `get <bean-id>`, `rate [bean-id]`
 - `config`: `list`, `get <key>`, `set <key> <value>`, `reset`
-- `context`: dense human-readable agent reference for the CLI, or JSON manifest with `--json`/`--pretty`
-- `manifest`: machine-readable CLI manifest contract for agents and scripts
+- `context`: dense human-readable agent reference for the CLI, or manifest-compat JSON with `--json`/`--pretty`
+- `manifest`: preferred machine-readable CLI manifest contract for agents and scripts
 
 If you change this surface, update all of these in the same PR:
 
 1. `README.md`
 2. `AGENTS.md`
-3. `CLAUDE.md` link or pointer
-4. `src/commands/context.ts`
-5. `src/commands/manifest.ts`
-6. `src/lib/manifest.ts`
-7. command help text in `src/commands/*` and `src/program.ts` when affected
-8. compiled artifact checks after `npm run build` (`node dist/index.js --help`, `node dist/index.js manifest`, `node dist/index.js context --json`)
-9. relevant tests, including dist parity coverage
+3. `CLAUDE.md` and `GEMINI.md` pointers
+4. `docs/CLI_STRATEGY.md` when historical or architecture claims change
+5. `src/commands/context.ts`
+6. `src/commands/manifest.ts`
+7. `src/lib/manifest.ts`
+8. command help text in `src/commands/*` and `src/program.ts` when affected
+9. compiled artifact checks after `npm run build` (`node dist/index.js --help`, `node dist/index.js manifest`, `node dist/index.js context --json`)
+10. relevant tests, including dist parity coverage
 
 ## Local Setup
 
@@ -64,6 +72,7 @@ When documentation changes, verify against these files first:
 - `src/lib/manifest.ts` for the machine-readable contract and rendered context text
 - `package.json` for package metadata, Node engine, and exported subpaths
 - `README.md` for GitHub and npm landing-page coverage
+- `docs/CLI_STRATEGY.md` for historical architecture context that still needs to stay factually correct
 
 Docs links should prefer the current site structure:
 
@@ -134,6 +143,10 @@ Command files:
 
 This repo has several documentation surfaces that drift easily. When changing commands, options, auth behavior, or output behavior, audit the full set rather than patching one file.
 
+- Prefer `purvey manifest` as the primary machine-readable contract in docs and examples.
+- Keep `purvey context --json` in exact parity, but document it as a compatibility surface rather than the preferred entry point.
+- Keep `CLAUDE.md` and `GEMINI.md` as pointer files only.
+
 ### Built artifact discipline
 
 The published package and binary run from `dist/`, not `src/`. Any command-surface or manifest change must keep the compiled artifact in parity with source.
@@ -174,6 +187,6 @@ Before opening or updating a PR:
 - `npm run check`
 - `npm run lint`
 - `npm test`
-- audit README, AGENTS, CLAUDE, help text, manifest/context contract files, and dist artifact smoke checks for drift
+- audit README, AGENTS, CLAUDE, GEMINI, CLI_STRATEGY, help text, manifest/context contract files, and dist artifact smoke checks for drift
 
 Documentation-only PRs should still leave the command docs internally consistent.
