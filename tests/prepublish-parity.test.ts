@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -27,7 +27,7 @@ function writeTarOctal(buffer: Buffer, start: number, length: number, value: num
   buffer.write(`${encoded}\0`, start, length, 'ascii');
 }
 
-function createTarHeader(name: string, size: number, typeflag: '0' | '5') {
+function createTarHeader(name: string, size: number, typeflag: '0' | '2' | '5', linkPath = '') {
   const header = Buffer.alloc(512, 0);
   writeTarString(header, 0, 100, name);
   writeTarOctal(header, 100, 8, typeflag === '5' ? 0o755 : 0o644);
@@ -37,6 +37,9 @@ function createTarHeader(name: string, size: number, typeflag: '0' | '5') {
   writeTarOctal(header, 136, 12, Math.floor(Date.now() / 1000));
   header.fill(0x20, 148, 156);
   writeTarString(header, 156, 1, typeflag);
+  if (typeflag === '2') {
+    writeTarString(header, 157, 100, linkPath);
+  }
   writeTarString(header, 257, 6, 'ustar');
   writeTarString(header, 263, 2, '00');
 
@@ -49,12 +52,21 @@ function createTarHeader(name: string, size: number, typeflag: '0' | '5') {
   return header;
 }
 
-function createTarGzFixture(entries: Array<{ path: string; type: '0' | '5'; content?: string }>) {
+function createTarGzFixture(
+  entries: Array<{ path: string; type: '0' | '2' | '5'; content?: string; linkPath?: string }>
+) {
   const blocks: Buffer[] = [];
 
   for (const entry of entries) {
     const content = Buffer.from(entry.content ?? '', 'utf8');
-    blocks.push(createTarHeader(entry.path, entry.type === '5' ? 0 : content.length, entry.type));
+    blocks.push(
+      createTarHeader(
+        entry.path,
+        entry.type === '0' ? content.length : 0,
+        entry.type,
+        entry.linkPath ?? ''
+      )
+    );
 
     if (entry.type === '0') {
       blocks.push(content);
@@ -202,6 +214,52 @@ describe('prepublish parity guardrail', () => {
       expect(readFileSync(join(unpackDir, 'package', 'dist', 'index.js'), 'utf8')).toBe(
         "console.log('fixture');\n"
       );
+    } finally {
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects tar entries that traverse outside the unpack root', () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'purvey-tar-traversal-fixture-'));
+    const archivePath = join(fixtureDir, 'fixture.tgz');
+    const unpackDir = join(fixtureDir, 'unpack');
+    const escapedPath = join(fixtureDir, 'escaped.txt');
+
+    try {
+      writeFileSync(
+        archivePath,
+        createTarGzFixture([{ path: '../escaped.txt', type: '0', content: 'owned\n' }])
+      );
+
+      expect(() => extractTarGzArchive(archivePath, unpackDir)).toThrow(
+        /escapes the unpack root/
+      );
+      expect(existsSync(escapedPath)).toBe(false);
+    } finally {
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects tar entries that resolve through symlinks outside the unpack root', () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'purvey-tar-symlink-fixture-'));
+    const archivePath = join(fixtureDir, 'fixture.tgz');
+    const unpackDir = join(fixtureDir, 'unpack');
+    const escapedPath = join(fixtureDir, 'escaped.txt');
+
+    try {
+      writeFileSync(
+        archivePath,
+        createTarGzFixture([
+          { path: 'package/', type: '5' },
+          { path: 'package/out', type: '2', linkPath: '../..' },
+          { path: 'package/out/escaped.txt', type: '0', content: 'owned\n' },
+        ])
+      );
+
+      expect(() => extractTarGzArchive(archivePath, unpackDir)).toThrow(
+        /resolves outside the unpack root/
+      );
+      expect(existsSync(escapedPath)).toBe(false);
     } finally {
       rmSync(fixtureDir, { recursive: true, force: true });
     }

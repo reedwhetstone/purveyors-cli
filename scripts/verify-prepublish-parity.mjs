@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdtempSync,
   mkdirSync,
+  realpathSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -11,7 +12,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 
@@ -218,7 +219,44 @@ function parsePaxHeader(buffer) {
   return values;
 }
 
+function isPathInsideRoot(rootPath, candidatePath) {
+  const relativePath = relative(rootPath, candidatePath);
+  return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath));
+}
+
+function findNearestExistingPath(path) {
+  let currentPath = path;
+
+  while (!existsSync(currentPath)) {
+    const parentPath = dirname(currentPath);
+    if (parentPath === currentPath) {
+      break;
+    }
+
+    currentPath = parentPath;
+  }
+
+  return currentPath;
+}
+
+function resolveTarTargetPath(unpackRoot, relativePath, archivePath) {
+  const targetPath = resolve(unpackRoot, relativePath);
+  if (!isPathInsideRoot(unpackRoot, targetPath)) {
+    fail(`Tar entry escapes the unpack root: ${relativePath} in ${archivePath}`);
+  }
+
+  const existingPath = findNearestExistingPath(targetPath);
+  const resolvedExistingPath = realpathSync(existingPath);
+  if (!isPathInsideRoot(unpackRoot, resolvedExistingPath)) {
+    fail(`Tar entry resolves outside the unpack root: ${relativePath} in ${archivePath}`);
+  }
+
+  return targetPath;
+}
+
 export function extractTarGzArchive(archivePath, destinationDir) {
+  mkdirSync(destinationDir, { recursive: true });
+  const unpackRoot = realpathSync(destinationDir);
   const archive = gunzipSync(readFileSync(archivePath));
   let offset = 0;
   let pendingExtendedHeader = null;
@@ -253,7 +291,7 @@ export function extractTarGzArchive(archivePath, destinationDir) {
       continue;
     }
 
-    const targetPath = join(destinationDir, relativePath);
+    const targetPath = resolveTarTargetPath(unpackRoot, relativePath, archivePath);
 
     if (typeflag === '5') {
       mkdirSync(targetPath, { recursive: true });
