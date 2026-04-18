@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 
@@ -221,7 +221,10 @@ function parsePaxHeader(buffer) {
 
 function isPathInsideRoot(rootPath, candidatePath) {
   const relativePath = relative(rootPath, candidatePath);
-  return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath));
+  return (
+    relativePath === '' ||
+    (!isAbsolute(relativePath) && relativePath !== '..' && !relativePath.startsWith(`..${sep}`))
+  );
 }
 
 function findNearestExistingPath(path) {
@@ -252,6 +255,23 @@ function resolveTarTargetPath(unpackRoot, relativePath, archivePath) {
   }
 
   return targetPath;
+}
+
+function resolveTarSymlinkTargetPath(unpackRoot, symlinkPath, linkPath, archivePath) {
+  if (isAbsolute(linkPath)) {
+    fail(`Tar symlink target must be relative: ${linkPath} in ${archivePath}`);
+  }
+
+  const resolvedTargetPath = resolve(dirname(symlinkPath), linkPath);
+  if (!isPathInsideRoot(unpackRoot, resolvedTargetPath)) {
+    fail(`Tar symlink target escapes the unpack root: ${linkPath} in ${archivePath}`);
+  }
+
+  const existingPath = findNearestExistingPath(resolvedTargetPath);
+  const resolvedExistingPath = realpathSync(existingPath);
+  if (!isPathInsideRoot(unpackRoot, resolvedExistingPath)) {
+    fail(`Tar symlink target resolves outside the unpack root: ${linkPath} in ${archivePath}`);
+  }
 }
 
 export function extractTarGzArchive(archivePath, destinationDir) {
@@ -299,6 +319,7 @@ export function extractTarGzArchive(archivePath, destinationDir) {
     }
 
     if (typeflag === '2') {
+      resolveTarSymlinkTargetPath(unpackRoot, targetPath, linkPath, archivePath);
       mkdirSync(dirname(targetPath), { recursive: true });
       rmSync(targetPath, { force: true });
       symlinkSync(linkPath, targetPath);
