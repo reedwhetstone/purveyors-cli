@@ -112,8 +112,9 @@ export interface CliManifest {
 }
 
 const docs: CliDocLink[] = [
-  { label: 'Full README', url: 'https://github.com/reedwhetstone/purveyors-cli' },
-  { label: 'Live docs', url: 'https://purveyors.io/docs' },
+  { label: 'CLI docs', url: 'https://purveyors.io/docs/cli/overview' },
+  { label: 'API docs', url: 'https://purveyors.io/docs/api/overview' },
+  { label: 'Repository', url: 'https://github.com/reedwhetstone/purveyors-cli' },
   { label: 'npm package', url: 'https://www.npmjs.com/package/@purveyors/cli' },
 ];
 
@@ -517,6 +518,7 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--batch-name <name>' },
           { flags: '--oz-in <oz>' },
           { flags: '--roast-notes <text>' },
+          { flags: '--roast-targets <text>' },
           { flags: '--form' },
         ],
       },
@@ -530,10 +532,17 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--batch-prefix <name>' },
           { flags: '--prompt-each' },
           { flags: '--auto-match' },
+          { flags: '--commit-mode <batch|individual>', defaultValue: 'batch' },
+          { flags: '--oz-in <oz>' },
+          { flags: '--roast-notes <text>' },
+          { flags: '--roast-targets <text>' },
           { flags: '--resume' },
           { flags: '--form' },
         ],
-        notes: ['--auto-match is mutually exclusive with --coffee-id.'],
+        notes: [
+          '--auto-match is mutually exclusive with --coffee-id.',
+          '--commit-mode defaults to batch so new roasts are queued until the session ends.',
+        ],
       },
     ],
   },
@@ -713,26 +722,27 @@ const commandGroups: CliCommandGroupContract[] = [
   },
   {
     name: 'context',
-    summary: 'Emit human-readable agent reference or JSON manifest',
+    summary: 'Emit human-readable agent reference or manifest-compat JSON',
     auth: 'none',
     command: {
       name: 'context',
-      summary: 'Emit human-readable agent reference or JSON manifest',
+      summary: 'Emit human-readable agent reference or manifest-compat JSON',
       auth: 'none',
       options: [{ flags: '--json' }, { flags: '--pretty' }],
       notes: [
         'Use `purvey manifest` or `purvey context --json` for the machine-readable manifest contract.',
+        'Prefer `purvey manifest` for new automation, and keep `purvey context --json` in parity as a compatibility surface for existing tooling.',
       ],
       examples: ['purvey context', 'purvey context --json', 'purvey context --pretty'],
     },
   },
   {
     name: 'manifest',
-    summary: 'Emit the machine-readable CLI manifest contract',
+    summary: 'Emit the preferred machine-readable CLI manifest contract',
     auth: 'none',
     command: {
       name: 'manifest',
-      summary: 'Emit the machine-readable CLI manifest contract',
+      summary: 'Emit the preferred machine-readable CLI manifest contract',
       auth: 'none',
       options: [{ flags: '--json' }, { flags: '--pretty' }],
       notes: ['`purvey manifest` emits compact JSON by default.'],
@@ -759,7 +769,8 @@ const workflows: CliWorkflowContract[] = [
   {
     title: 'Watch a folder for new roasts',
     commands: [
-      'purvey roast watch ~/artisan/ --coffee-id 7',
+      'purvey roast watch ~/artisan/ --coffee-id 7 --commit-mode batch',
+      'purvey roast watch ~/artisan/ --coffee-id 7 --commit-mode individual',
       'purvey roast watch ~/artisan/ --auto-match',
       'purvey roast watch --resume',
     ],
@@ -853,7 +864,7 @@ export function getCliManifest(): CliManifest {
         '`purvey config list/get/set/reset` stay human-readable in an interactive TTY, but emit JSON on stdout in machine mode and reject --csv.',
         'In interactive use, stderr may also carry prompts, spinners, and human-readable status lines.',
         'Parser mistakes like unknown options, unknown commands, and missing required arguments follow the same fatal-error contract as runtime command failures.',
-        'Important exception: auth status prints human-readable output in an interactive TTY unless --json, --pretty, or --csv is passed; when piped or redirected it emits structured JSON automatically.',
+        'Important exception: auth status prints human-readable output in an interactive TTY unless --json, --pretty, or --csv is passed; when piped or redirected it emits structured JSON automatically, even when unauthenticated.',
       ],
       structuredErrors: {
         channel: 'stderr',

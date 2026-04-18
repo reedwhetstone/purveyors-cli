@@ -3,6 +3,7 @@ import { writeFile, mkdir, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
+  buildManualImportRecoveryCommand,
   generateBatchName,
   isAlogFile,
   printVerificationTable,
@@ -28,6 +29,26 @@ describe('generateBatchName', () => {
 
   it('preserves prefix with special characters', () => {
     expect(generateBatchName('Ethiopia — Guji', 1)).toBe('Ethiopia — Guji #1');
+  });
+});
+
+// ── buildManualImportRecoveryCommand ────────────────────────────────────────
+
+describe('buildManualImportRecoveryCommand', () => {
+  it('includes watch metadata that can be preserved manually', () => {
+    expect(
+      buildManualImportRecoveryCommand({
+        ozIn: 16,
+        roastNotes: 'Drop 15s sooner next time',
+        roastTargets: 'Aim for 18% development',
+      })
+    ).toBe(
+      'purvey roast import <file> --coffee-id <id> --oz-in 16 --roast-notes "Drop 15s sooner next time" --roast-targets "Aim for 18% development"'
+    );
+  });
+
+  it('omits unset optional metadata', () => {
+    expect(buildManualImportRecoveryCommand()).toBe('purvey roast import <file> --coffee-id <id>');
   });
 });
 
@@ -355,6 +376,38 @@ describe('printVerificationTable', () => {
     expect(combined).toContain('2 files processed');
     expect(combined).toContain('1 succeeded');
     expect(combined).toContain('1 failed');
+
+    spy.mockRestore();
+  });
+
+  it('includes queued counts for batch sessions', () => {
+    const session: WatchSession = {
+      directory: '/tmp/roasts',
+      coffeeId: 1,
+      coffeeName: 'Test',
+      batchPrefix: 'Test',
+      startedAt: new Date().toISOString(),
+      imports: [
+        {
+          fileName: 'queued.alog',
+          roastId: null,
+          batchName: 'Test #1',
+          status: 'pending',
+          importedAt: new Date().toISOString(),
+        },
+      ],
+    };
+
+    const written: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+
+    printVerificationTable(session);
+    const combined = written.join('');
+    expect(combined).toContain('1 queued');
+    expect(combined).toContain('queued.alog');
 
     spy.mockRestore();
   });

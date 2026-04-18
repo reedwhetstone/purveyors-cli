@@ -18,7 +18,8 @@ purveyors.io. Three options were considered:
 
 The primary target environment is an AI agent running in a headless container (no
 browser, no interactive TTY). Standard OAuth flows require a browser redirect, which
-doesn't work in that context.
+doesn't work in that context. That headless agent path is not a niche fallback. It is
+one of the main product environments for the CLI surface.
 
 ## Decision
 
@@ -32,6 +33,10 @@ Use Google OAuth via Supabase's `signInWithOAuth` for both modes:
   Prints the URL; user visits it, authenticates, and pastes the resulting callback URL
   back into the CLI. The CLI extracts the session tokens from the URL fragment.
 
+Headless mode is treated as a first-class supported path, not an afterthought. Auth
+changes that preserve browser UX but break headless agent usability are regressions in
+the primary machine-consumer surface.
+
 Tokens are stored as access + refresh token pair. The Supabase client auto-rotates
 the access token on expiry using the stored refresh token.
 
@@ -40,6 +45,8 @@ the access token on expiry using the stored refresh token.
 - No static API keys to leak or manage; tokens expire and rotate.
 - Headless mode works in any environment (Docker, SSH, CI, agent containers).
 - UX for headless is slightly awkward (copy-paste a URL), but it's a one-time setup.
+- Future auth work should be judged partly on whether it reduces headless friction for
+  agents, because they are primary CLI consumers.
 - If Supabase or Google OAuth is unavailable, auth is completely broken — no offline
   fallback.
 - Revisit if a machine-to-machine service account pattern is needed (e.g. for CI

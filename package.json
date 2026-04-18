@@ -1,6 +1,6 @@
 {
   "name": "@purveyors/cli",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "description": "The official CLI for purveyors.io — coffee intelligence from your terminal",
   "type": "module",
   "bin": {
@@ -44,8 +44,10 @@
     "lint": "prettier --check . && eslint .",
     "format": "prettier --write .",
     "check": "tsc --noEmit",
+    "verify:contract": "vitest run tests/manifest.test.ts tests/cli-output-modes.test.ts",
     "verify:dist": "vitest run tests/dist-contract.test.ts",
-    "prepack": "pnpm build && pnpm verify:dist",
+    "verify:prepublish": "pnpm build && pnpm verify:contract && pnpm verify:dist && node scripts/verify-prepublish-parity.mjs",
+    "prepack": "pnpm verify:prepublish",
     "test": "vitest run",
     "test:watch": "vitest"
   },

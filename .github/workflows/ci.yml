@@ -8,7 +8,7 @@ on:
 
 jobs:
   ci:
-    name: Lint, Type Check, Build, Dist Verify, Test
+    name: Lint, Type Check, Prepublish Parity, Test
     runs-on: ubuntu-latest
     env:
       DISCORD_CODEBASE_WEBHOOK_URL: ${{ secrets.DISCORD_CODEBASE_WEBHOOK_URL }}
@@ -48,11 +48,8 @@ jobs:
       - name: Type check
         run: pnpm check
 
-      - name: Build
-        run: pnpm build
-
-      - name: Verify dist artifact parity
-        run: pnpm verify:dist
+      - name: Verify prepublish parity
+        run: pnpm verify:prepublish
 
       - name: Test
         run: pnpm test
