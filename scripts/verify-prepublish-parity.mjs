@@ -276,6 +276,16 @@ export function extractTarGzArchive(archivePath, destinationDir) {
   }
 }
 
+export function linkPackedNodeModules(packageDir, sourceNodeModulesPath, options = {}) {
+  const { platform = process.platform, symlink = symlinkSync } = options;
+  const linkPath = join(packageDir, 'node_modules');
+  const linkType = platform === 'win32' ? 'junction' : 'dir';
+
+  symlink(sourceNodeModulesPath, linkPath, linkType);
+
+  return linkPath;
+}
+
 function createPackedArtifactFixture() {
   const tempDir = mkdtempSync(join(tmpdir(), 'purvey-prepublish-pack-'));
   const packDir = join(tempDir, 'pack');
@@ -308,7 +318,7 @@ function createPackedArtifactFixture() {
   const packageDir = join(unpackDir, 'package');
   const cliPath = join(packageDir, 'dist', 'index.js');
   assert(existsSync(cliPath), `Packed CLI entrypoint is missing: ${cliPath}`);
-  symlinkSync(resolve(repoRoot, 'node_modules'), join(packageDir, 'node_modules'), 'dir');
+  linkPackedNodeModules(packageDir, resolve(repoRoot, 'node_modules'));
 
   return {
     tempDir,

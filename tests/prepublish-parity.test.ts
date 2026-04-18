@@ -12,6 +12,7 @@ import {
   assertPackageReleaseSurface,
   assertReadmeReleaseSurface,
   extractTarGzArchive,
+  linkPackedNodeModules,
   repoRoot,
   stripAnsi,
   verifyPrepublishParity,
@@ -204,6 +205,32 @@ describe('prepublish parity guardrail', () => {
     } finally {
       rmSync(fixtureDir, { recursive: true, force: true });
     }
+  });
+
+  it('uses a Windows-safe junction for packed node_modules fixtures', () => {
+    const packageDir = 'C:\\temp\\package';
+    const sourceNodeModulesPath = 'C:\\repo\\node_modules';
+    const calls: Array<{ target: string; linkPath: string; type: string | undefined }> = [];
+
+    const linkPath = linkPackedNodeModules(packageDir, sourceNodeModulesPath, {
+      platform: 'win32',
+      symlink(target: string, path: string, type?: string) {
+        calls.push({
+          target,
+          linkPath: path,
+          type,
+        });
+      },
+    });
+
+    expect(linkPath).toBe(join(packageDir, 'node_modules'));
+    expect(calls).toEqual([
+      {
+        target: sourceNodeModulesPath,
+        linkPath: join(packageDir, 'node_modules'),
+        type: 'junction',
+      },
+    ]);
   });
 
   it('fails when a supported package export is removed or retargeted', () => {
