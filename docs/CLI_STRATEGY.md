@@ -12,6 +12,11 @@ This document preserves the intent behind the original CLI strategy work, while 
 
 The repository now ships a TypeScript CLI named `purvey`, published as `@purveyors/cli`.
 
+The product stance needs to stay explicit: this CLI is not just a developer utility.
+It is a core agent surface. The website, chat tooling, and internal automation all
+depend on the same exported functions and machine-readable contract, so CLI clarity
+and reliability are product requirements, not optional DX polish.
+
 Current command groups:
 
 - `auth`: `login`, `status`, `logout`
@@ -25,6 +30,21 @@ Current command groups:
 - `manifest`: preferred machine-readable CLI contract
 
 The command surface is implemented explicitly in `src/program.ts` and `src/commands/*.ts`. It is not generated dynamically at runtime.
+
+## Agent-first product stance
+
+The shipped CLI should be judged by these rules:
+
+1. **Agents are primary users of the machine surface.** Human terminal use matters,
+   but command naming, argument clarity, manifest metadata, error envelopes, and
+   output semantics should optimize first for reliable machine use.
+2. **The website is downstream from the same functions.** If the CLI is awkward or
+   ambiguous for an agent, that weakness leaks into the shared product layer.
+3. **Shared workflow changes should be dogfooded through the CLI directly.** Do not
+   treat web-only validation as sufficient for code that flows through `@purveyors/cli`.
+4. **Human ergonomics are layered on top of a machine-clear contract.** Pretty output,
+   prompts, and reference text should complement, not replace, explicit and stable
+   machine behavior.
 
 ## Original strategy ideas that are no longer current
 
@@ -65,6 +85,10 @@ Google OAuth is available in two supported flows:
 - `purvey auth login` for local interactive browser-based sign-in
 - `purvey auth login --headless` for agents, CI, and remote machines
 
+The headless path is a first-class supported environment, not a fallback edge case.
+Auth changes that preserve browser UX but degrade headless agent usability should be
+treated as product regressions.
+
 Credentials are stored locally in `~/.config/purvey/credentials.json`.
 
 ### Output and reference surfaces
@@ -76,6 +100,8 @@ The CLI is designed for both humans and automation:
 - `--csv` is supported on array-shaped results for supported commands.
 - Operational messaging stays on stderr.
 - Fatal errors stay on stderr, with structured JSON error envelopes in machine-oriented modes.
+- When human and machine ergonomics conflict, the contract should preserve machine
+  clarity first and layer human affordances on top.
 
 Reference surfaces:
 
@@ -113,6 +139,8 @@ It provides:
 - explicit machine-readable and human-readable reference surfaces
 - a reusable in-process manifest export
 - compiled artifact checks that keep the published package aligned with source
+- a shared execution layer whose ergonomics directly affect the website and agent
+  product surfaces
 
 In other words, the product value came from a disciplined CLI contract, not from the specific `pvrs` naming or dynamic-discovery ideas proposed early on.
 
@@ -129,6 +157,9 @@ When the command surface, output behavior, auth model, IDs, or docs links change
 7. `src/lib/manifest.ts`
 8. help text in `src/program.ts` and affected command files
 9. compiled artifact validation after `npm run build`
+
+For shared workflow changes, also test the CLI or exported function directly instead
+of relying only on website flows. The CLI is part of the core product contract.
 
 ## Live docs links
 
