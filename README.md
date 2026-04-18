@@ -426,10 +426,10 @@ purvey tasting rate 42 --aroma 3 --body 3 --acidity 3 --sweetness 3 --aftertaste
 
 ### config
 
-- `purvey config list`
-- `purvey config get <key>`
-- `purvey config set <key> <value>`
-- `purvey config reset`
+- `purvey config list` (supports `--json`, `--pretty`)
+- `purvey config get <key>` (supports `--json`, `--pretty`)
+- `purvey config set <key> <value>` (supports `--json`, `--pretty`)
+- `purvey config reset` (supports `--json`, `--pretty`)
 
 Current config key:
 

@@ -23,7 +23,7 @@ Current command groups:
 - `roast`: `list` (filters: coffee-id, roast-id, batch-name, coffee-name, date-start, date-end, stocked, catalog-id, limit, offset), `get <id>`, `create`, `update <id>`, `delete <id>`, `import [file]`, `watch [directory]`
 - `sales`: `list` (filters: roast-id, date-start, date-end, buyer, limit, offset), `record`, `update <id>`, `delete <id>`
 - `tasting`: `get <bean-id>`, `rate [bean-id]`
-- `config`: `list`, `get <key>`, `set <key> <value>`, `reset`
+- `config`: `list`, `get <key>`, `set <key> <value>`, `reset` (supports `--json` and `--pretty`; `--csv` is invalid)
 - `context`: dense human-readable agent reference for the CLI, or JSON manifest with `--json`/`--pretty`
 - `manifest`: machine-readable CLI manifest contract for agents and scripts
 
