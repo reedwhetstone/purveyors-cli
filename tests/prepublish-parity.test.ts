@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -87,7 +87,7 @@ function createTempRepoFixture() {
     },
   });
 
-  symlinkSync(resolve(repoRoot, 'node_modules'), join(tempRepo, 'node_modules'), 'dir');
+  linkPackedNodeModules(tempRepo, resolve(repoRoot, 'node_modules'));
 
   return {
     tempRepo,
