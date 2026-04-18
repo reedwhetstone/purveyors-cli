@@ -515,10 +515,10 @@ Notes:
 
 ### config
 
-- `purvey config list`
-- `purvey config get <key>`
-- `purvey config set <key> <value>`
-- `purvey config reset`
+- `purvey config list` (supports `--json`, `--pretty`)
+- `purvey config get <key>` (supports `--json`, `--pretty`)
+- `purvey config set <key> <value>` (supports `--json`, `--pretty`)
+- `purvey config reset` (supports `--json`, `--pretty`)
 
 Current config key:
 
