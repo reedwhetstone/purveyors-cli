@@ -1,10 +1,19 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -157,6 +166,116 @@ function getPackDryRun() {
   }
 }
 
+function readTarString(buffer, start, length) {
+  return buffer
+    .subarray(start, start + length)
+    .toString('utf8')
+    .replace(/\0.*$/, '')
+    .trim();
+}
+
+function readTarOctal(buffer, start, length) {
+  const value = readTarString(buffer, start, length);
+  return value ? Number.parseInt(value, 8) : 0;
+}
+
+function isZeroBlock(block) {
+  for (const byte of block) {
+    if (byte !== 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function parsePaxHeader(buffer) {
+  const values = {};
+  let offset = 0;
+
+  while (offset < buffer.length) {
+    const lengthEnd = buffer.indexOf(0x20, offset);
+    if (lengthEnd === -1) {
+      break;
+    }
+
+    const recordLength = Number.parseInt(buffer.subarray(offset, lengthEnd).toString('utf8'), 10);
+    if (!Number.isFinite(recordLength) || recordLength <= 0) {
+      break;
+    }
+
+    const record = buffer.subarray(offset + (lengthEnd - offset) + 1, offset + recordLength - 1);
+    const separatorIndex = record.indexOf(0x3d);
+    if (separatorIndex !== -1) {
+      const key = record.subarray(0, separatorIndex).toString('utf8');
+      const value = record.subarray(separatorIndex + 1).toString('utf8');
+      values[key] = value;
+    }
+
+    offset += recordLength;
+  }
+
+  return values;
+}
+
+export function extractTarGzArchive(archivePath, destinationDir) {
+  const archive = gunzipSync(readFileSync(archivePath));
+  let offset = 0;
+  let pendingExtendedHeader = null;
+
+  while (offset + 512 <= archive.length) {
+    const header = archive.subarray(offset, offset + 512);
+    offset += 512;
+
+    if (isZeroBlock(header)) {
+      break;
+    }
+
+    const size = readTarOctal(header, 124, 12);
+    const typeflag = readTarString(header, 156, 1) || '0';
+    const name = readTarString(header, 0, 100);
+    const prefix = readTarString(header, 345, 155);
+    const rawPath = prefix ? `${prefix}/${name}` : name;
+    const content = archive.subarray(offset, offset + size);
+    offset += Math.ceil(size / 512) * 512;
+
+    if (typeflag === 'x' || typeflag === 'g') {
+      pendingExtendedHeader = parsePaxHeader(content);
+      continue;
+    }
+
+    const extendedHeader = pendingExtendedHeader;
+    const relativePath = extendedHeader?.path ?? rawPath;
+    const linkPath = extendedHeader?.linkpath ?? readTarString(header, 157, 100);
+    pendingExtendedHeader = null;
+
+    if (!relativePath) {
+      continue;
+    }
+
+    const targetPath = join(destinationDir, relativePath);
+
+    if (typeflag === '5') {
+      mkdirSync(targetPath, { recursive: true });
+      continue;
+    }
+
+    if (typeflag === '2') {
+      mkdirSync(dirname(targetPath), { recursive: true });
+      rmSync(targetPath, { force: true });
+      symlinkSync(linkPath, targetPath);
+      continue;
+    }
+
+    if (typeflag !== '0') {
+      fail(`Unsupported tar entry type ${typeflag} in ${archivePath}`);
+    }
+
+    mkdirSync(dirname(targetPath), { recursive: true });
+    writeFileSync(targetPath, content);
+  }
+}
+
 function createPackedArtifactFixture() {
   const tempDir = mkdtempSync(join(tmpdir(), 'purvey-prepublish-pack-'));
   const packDir = join(tempDir, 'pack');
@@ -184,10 +303,7 @@ function createPackedArtifactFixture() {
   }
 
   const tarballPath = join(packDir, tarballFilename);
-  const unpackResult = run('tar', ['-xzf', tarballPath, '-C', unpackDir]);
-  if (unpackResult.status !== 0) {
-    fail(`Failed to extract packed artifact.\n\n${formatStdio(unpackResult)}`);
-  }
+  extractTarGzArchive(tarballPath, unpackDir);
 
   const packageDir = join(unpackDir, 'package');
   const cliPath = join(packageDir, 'dist', 'index.js');

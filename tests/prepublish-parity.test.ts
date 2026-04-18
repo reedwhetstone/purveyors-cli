@@ -3,6 +3,7 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { gzipSync } from 'node:zlib';
 import {
   REQUIRED_HELP_SNIPPETS,
   REQUIRED_PACKAGE_EXPORTS,
@@ -10,10 +11,62 @@ import {
   assertHelpSurface,
   assertPackageReleaseSurface,
   assertReadmeReleaseSurface,
+  extractTarGzArchive,
   repoRoot,
   stripAnsi,
   verifyPrepublishParity,
 } from '../scripts/verify-prepublish-parity.mjs';
+
+function writeTarString(buffer: Buffer, start: number, length: number, value: string) {
+  buffer.write(value.slice(0, length), start, length, 'utf8');
+}
+
+function writeTarOctal(buffer: Buffer, start: number, length: number, value: number) {
+  const encoded = value.toString(8).padStart(length - 1, '0');
+  buffer.write(`${encoded}\0`, start, length, 'ascii');
+}
+
+function createTarHeader(name: string, size: number, typeflag: '0' | '5') {
+  const header = Buffer.alloc(512, 0);
+  writeTarString(header, 0, 100, name);
+  writeTarOctal(header, 100, 8, typeflag === '5' ? 0o755 : 0o644);
+  writeTarOctal(header, 108, 8, 0);
+  writeTarOctal(header, 116, 8, 0);
+  writeTarOctal(header, 124, 12, size);
+  writeTarOctal(header, 136, 12, Math.floor(Date.now() / 1000));
+  header.fill(0x20, 148, 156);
+  writeTarString(header, 156, 1, typeflag);
+  writeTarString(header, 257, 6, 'ustar');
+  writeTarString(header, 263, 2, '00');
+
+  let checksum = 0;
+  for (const byte of header) {
+    checksum += byte;
+  }
+  writeTarOctal(header, 148, 8, checksum);
+
+  return header;
+}
+
+function createTarGzFixture(entries: Array<{ path: string; type: '0' | '5'; content?: string }>) {
+  const blocks: Buffer[] = [];
+
+  for (const entry of entries) {
+    const content = Buffer.from(entry.content ?? '', 'utf8');
+    blocks.push(createTarHeader(entry.path, entry.type === '5' ? 0 : content.length, entry.type));
+
+    if (entry.type === '0') {
+      blocks.push(content);
+      const padding = (512 - (content.length % 512)) % 512;
+      if (padding) {
+        blocks.push(Buffer.alloc(padding, 0));
+      }
+    }
+  }
+
+  blocks.push(Buffer.alloc(1024, 0));
+  return gzipSync(Buffer.concat(blocks));
+}
 
 function createTempRepoFixture() {
   const tempRepo = mkdtempSync(join(tmpdir(), 'purvey-prepublish-fixture-'));
@@ -43,21 +96,53 @@ function createTempRepoFixture() {
   };
 }
 
-function runFixtureGuardrail(tempRepo: string) {
-  return spawnSync(
-    'bash',
-    ['-lc', 'pnpm clean:dist && pnpm build && node scripts/verify-prepublish-parity.mjs'],
+function getFixtureGuardrailSteps(tempRepo: string) {
+  const sharedOptions = {
+    cwd: tempRepo,
+    encoding: 'utf8' as const,
+    maxBuffer: 10 * 1024 * 1024,
+    env: {
+      ...process.env,
+      PURVEYORS_SUPABASE_URL: 'https://placeholder.supabase.co',
+      PURVEYORS_SUPABASE_ANON_KEY: 'placeholder-anon-key',
+    },
+  };
+
+  return [
+    { command: 'pnpm', args: ['clean:dist'], options: sharedOptions },
+    { command: 'pnpm', args: ['build'], options: sharedOptions },
     {
-      cwd: tempRepo,
-      encoding: 'utf8',
-      maxBuffer: 10 * 1024 * 1024,
-      env: {
-        ...process.env,
-        PURVEYORS_SUPABASE_URL: 'https://placeholder.supabase.co',
-        PURVEYORS_SUPABASE_ANON_KEY: 'placeholder-anon-key',
-      },
+      command: process.execPath,
+      args: ['scripts/verify-prepublish-parity.mjs'],
+      options: sharedOptions,
+    },
+  ];
+}
+
+function runFixtureGuardrail(tempRepo: string) {
+  let stdout = '';
+  let stderr = '';
+
+  for (const step of getFixtureGuardrailSteps(tempRepo)) {
+    const result = spawnSync(step.command, step.args, step.options);
+    stdout += result.stdout;
+    stderr += result.stderr;
+
+    if (result.error || result.status !== 0 || result.signal) {
+      return {
+        ...result,
+        stdout,
+        stderr,
+      };
     }
-  );
+  }
+
+  return {
+    status: 0,
+    signal: null,
+    stdout,
+    stderr,
+  };
 }
 
 describe('prepublish parity guardrail', () => {
@@ -87,6 +172,38 @@ describe('prepublish parity guardrail', () => {
     expect(() => assertPackageReleaseSurface(packageJson)).not.toThrow();
     expect(() => assertReadmeReleaseSurface(readme)).not.toThrow();
     expect(() => assertHelpSurface(sampleHelp, 'sample help')).not.toThrow();
+  });
+
+  it('runs the fixture guardrail with direct executables instead of bash', () => {
+    const commands = getFixtureGuardrailSteps(repoRoot).map((step) => step.command);
+
+    expect(commands).toEqual(['pnpm', 'pnpm', process.execPath]);
+    expect(commands).not.toContain('bash');
+  });
+
+  it('extracts packed artifacts without relying on system tar', () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'purvey-tar-fixture-'));
+    const archivePath = join(fixtureDir, 'fixture.tgz');
+    const unpackDir = join(fixtureDir, 'unpack');
+
+    try {
+      writeFileSync(
+        archivePath,
+        createTarGzFixture([
+          { path: 'package/', type: '5' },
+          { path: 'package/dist/', type: '5' },
+          { path: 'package/dist/index.js', type: '0', content: "console.log('fixture');\n" },
+        ])
+      );
+
+      extractTarGzArchive(archivePath, unpackDir);
+
+      expect(readFileSync(join(unpackDir, 'package', 'dist', 'index.js'), 'utf8')).toBe(
+        "console.log('fixture');\n"
+      );
+    } finally {
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
   });
 
   it('fails when a supported package export is removed or retargeted', () => {
