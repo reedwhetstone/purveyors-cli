@@ -231,9 +231,7 @@ describe('prepublish parity guardrail', () => {
         createTarGzFixture([{ path: '../escaped.txt', type: '0', content: 'owned\n' }])
       );
 
-      expect(() => extractTarGzArchive(archivePath, unpackDir)).toThrow(
-        /escapes the unpack root/
-      );
+      expect(() => extractTarGzArchive(archivePath, unpackDir)).toThrow(/escapes the unpack root/);
       expect(existsSync(escapedPath)).toBe(false);
     } finally {
       rmSync(fixtureDir, { recursive: true, force: true });
@@ -256,9 +254,7 @@ describe('prepublish parity guardrail', () => {
         ])
       );
 
-      expect(() => extractTarGzArchive(archivePath, unpackDir)).toThrow(
-        /escapes the unpack root/
-      );
+      expect(() => extractTarGzArchive(archivePath, unpackDir)).toThrow(/escapes the unpack root/);
       expect(existsSync(escapedPath)).toBe(false);
     } finally {
       rmSync(fixtureDir, { recursive: true, force: true });
@@ -268,25 +264,28 @@ describe('prepublish parity guardrail', () => {
   it.each([
     { label: 'relative escape', linkPath: '../../outside-root', error: /escapes the unpack root/ },
     { label: 'absolute target', linkPath: '/tmp/outside-root', error: /must be relative/ },
-  ])('rejects tar symlink targets that escape the unpack root via $label', ({ linkPath, error }) => {
-    const fixtureDir = mkdtempSync(join(tmpdir(), 'purvey-tar-fixture-'));
-    const archivePath = join(fixtureDir, 'fixture.tgz');
-    const unpackDir = join(fixtureDir, 'unpack');
+  ])(
+    'rejects tar symlink targets that escape the unpack root via $label',
+    ({ linkPath, error }) => {
+      const fixtureDir = mkdtempSync(join(tmpdir(), 'purvey-tar-fixture-'));
+      const archivePath = join(fixtureDir, 'fixture.tgz');
+      const unpackDir = join(fixtureDir, 'unpack');
 
-    try {
-      writeFileSync(
-        archivePath,
-        createTarGzFixture([
-          { path: 'package/', type: '5' },
-          { path: 'package/dist', type: '2', linkPath },
-        ])
-      );
+      try {
+        writeFileSync(
+          archivePath,
+          createTarGzFixture([
+            { path: 'package/', type: '5' },
+            { path: 'package/dist', type: '2', linkPath },
+          ])
+        );
 
-      expect(() => extractTarGzArchive(archivePath, unpackDir)).toThrow(error);
-    } finally {
-      rmSync(fixtureDir, { recursive: true, force: true });
+        expect(() => extractTarGzArchive(archivePath, unpackDir)).toThrow(error);
+      } finally {
+        rmSync(fixtureDir, { recursive: true, force: true });
+      }
     }
-  });
+  );
 
   it('uses a Windows-safe junction for packed node_modules fixtures', () => {
     const packageDir = 'C:\\temp\\package';
