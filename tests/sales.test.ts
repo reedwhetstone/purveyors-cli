@@ -438,7 +438,10 @@ describe('recordSale', () => {
       price: 18.5,
     });
 
-    expect(harness.roastCalls).toContainEqual({ method: 'eq', args: ['batch_name', literalBatchName] });
+    expect(harness.roastCalls).toContainEqual({
+      method: 'eq',
+      args: ['batch_name', literalBatchName],
+    });
     expect(harness.roastCalls.find((call) => call.method === 'ilike')).toBeUndefined();
   });
 
