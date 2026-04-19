@@ -1,9 +1,20 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  realpathSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -25,6 +36,31 @@ export const REQUIRED_PACKAGE_EXPORTS = {
 export const REQUIRED_SELF_IMPORT_EXPORTS = Object.fromEntries(
   Object.entries(REQUIRED_PACKAGE_EXPORTS).filter(([exportKey]) => exportKey !== '.')
 );
+
+export const REQUIRED_SELF_IMPORT_MEMBERS = {
+  './catalog': ['searchCatalog', 'getCatalog', 'getCatalogStats', 'findSimilarBeans'],
+  './inventory': [
+    'listInventory',
+    'getInventory',
+    'addInventory',
+    'updateInventory',
+    'deleteInventory',
+  ],
+  './roast': [
+    'listRoasts',
+    'getRoast',
+    'createRoast',
+    'updateRoast',
+    'deleteRoast',
+    'importRoastFromFile',
+  ],
+  './sales': ['listSales', 'recordSale', 'updateSale', 'deleteSale'],
+  './tasting': ['getTastingNotes', 'rateCoffee'],
+  './lib': ['searchCatalog', 'listInventory', 'listRoasts', 'recordSale', 'getCliManifest'],
+  './manifest': ['getCliManifest', 'renderContextText'],
+  './artisan': ['parseAlogFile', 'importArtisanData'],
+  './ai': ['classifyRoast'],
+};
 
 export const REQUIRED_PACKAGE_FILES = ['dist', 'README.md', 'LICENSE.md'];
 
@@ -81,9 +117,10 @@ function assertPathExists(relativePath, label = relativePath) {
   );
 }
 
-function run(command, args, env = {}) {
+function run(command, args, options = {}) {
+  const { cwd = repoRoot, env = {} } = options;
   const result = spawnSync(command, args, {
-    cwd: repoRoot,
+    cwd,
     encoding: 'utf8',
     maxBuffer: 10 * 1024 * 1024,
     env: {
@@ -128,6 +165,225 @@ function getPackDryRun() {
   } catch (error) {
     fail(`npm pack --dry-run did not emit valid JSON.\n\n${formatStdio(result)}\n\n${error}`);
   }
+}
+
+function readTarString(buffer, start, length) {
+  return buffer
+    .subarray(start, start + length)
+    .toString('utf8')
+    .replace(/\0.*$/, '')
+    .trim();
+}
+
+function readTarOctal(buffer, start, length) {
+  const value = readTarString(buffer, start, length);
+  return value ? Number.parseInt(value, 8) : 0;
+}
+
+function isZeroBlock(block) {
+  for (const byte of block) {
+    if (byte !== 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function parsePaxHeader(buffer) {
+  const values = {};
+  let offset = 0;
+
+  while (offset < buffer.length) {
+    const lengthEnd = buffer.indexOf(0x20, offset);
+    if (lengthEnd === -1) {
+      break;
+    }
+
+    const recordLength = Number.parseInt(buffer.subarray(offset, lengthEnd).toString('utf8'), 10);
+    if (!Number.isFinite(recordLength) || recordLength <= 0) {
+      break;
+    }
+
+    const record = buffer.subarray(offset + (lengthEnd - offset) + 1, offset + recordLength - 1);
+    const separatorIndex = record.indexOf(0x3d);
+    if (separatorIndex !== -1) {
+      const key = record.subarray(0, separatorIndex).toString('utf8');
+      const value = record.subarray(separatorIndex + 1).toString('utf8');
+      values[key] = value;
+    }
+
+    offset += recordLength;
+  }
+
+  return values;
+}
+
+function isPathInsideRoot(rootPath, candidatePath) {
+  const relativePath = relative(rootPath, candidatePath);
+  return (
+    relativePath === '' ||
+    (!isAbsolute(relativePath) && relativePath !== '..' && !relativePath.startsWith(`..${sep}`))
+  );
+}
+
+function findNearestExistingPath(path) {
+  let currentPath = path;
+
+  while (!existsSync(currentPath)) {
+    const parentPath = dirname(currentPath);
+    if (parentPath === currentPath) {
+      break;
+    }
+
+    currentPath = parentPath;
+  }
+
+  return currentPath;
+}
+
+function resolveTarTargetPath(unpackRoot, relativePath, archivePath) {
+  const targetPath = resolve(unpackRoot, relativePath);
+  if (!isPathInsideRoot(unpackRoot, targetPath)) {
+    fail(`Tar entry escapes the unpack root: ${relativePath} in ${archivePath}`);
+  }
+
+  const existingPath = findNearestExistingPath(targetPath);
+  const resolvedExistingPath = realpathSync(existingPath);
+  if (!isPathInsideRoot(unpackRoot, resolvedExistingPath)) {
+    fail(`Tar entry resolves outside the unpack root: ${relativePath} in ${archivePath}`);
+  }
+
+  return targetPath;
+}
+
+function resolveTarSymlinkTargetPath(unpackRoot, symlinkPath, linkPath, archivePath) {
+  if (isAbsolute(linkPath)) {
+    fail(`Tar symlink target must be relative: ${linkPath} in ${archivePath}`);
+  }
+
+  const resolvedTargetPath = resolve(dirname(symlinkPath), linkPath);
+  if (!isPathInsideRoot(unpackRoot, resolvedTargetPath)) {
+    fail(`Tar symlink target escapes the unpack root: ${linkPath} in ${archivePath}`);
+  }
+
+  const existingPath = findNearestExistingPath(resolvedTargetPath);
+  const resolvedExistingPath = realpathSync(existingPath);
+  if (!isPathInsideRoot(unpackRoot, resolvedExistingPath)) {
+    fail(`Tar symlink target resolves outside the unpack root: ${linkPath} in ${archivePath}`);
+  }
+}
+
+export function extractTarGzArchive(archivePath, destinationDir) {
+  mkdirSync(destinationDir, { recursive: true });
+  const unpackRoot = realpathSync(destinationDir);
+  const archive = gunzipSync(readFileSync(archivePath));
+  let offset = 0;
+  let pendingExtendedHeader = null;
+
+  while (offset + 512 <= archive.length) {
+    const header = archive.subarray(offset, offset + 512);
+    offset += 512;
+
+    if (isZeroBlock(header)) {
+      break;
+    }
+
+    const size = readTarOctal(header, 124, 12);
+    const typeflag = readTarString(header, 156, 1) || '0';
+    const name = readTarString(header, 0, 100);
+    const prefix = readTarString(header, 345, 155);
+    const rawPath = prefix ? `${prefix}/${name}` : name;
+    const content = archive.subarray(offset, offset + size);
+    offset += Math.ceil(size / 512) * 512;
+
+    if (typeflag === 'x' || typeflag === 'g') {
+      pendingExtendedHeader = parsePaxHeader(content);
+      continue;
+    }
+
+    const extendedHeader = pendingExtendedHeader;
+    const relativePath = extendedHeader?.path ?? rawPath;
+    const linkPath = extendedHeader?.linkpath ?? readTarString(header, 157, 100);
+    pendingExtendedHeader = null;
+
+    if (!relativePath) {
+      continue;
+    }
+
+    const targetPath = resolveTarTargetPath(unpackRoot, relativePath, archivePath);
+
+    if (typeflag === '5') {
+      mkdirSync(targetPath, { recursive: true });
+      continue;
+    }
+
+    if (typeflag === '2') {
+      resolveTarSymlinkTargetPath(unpackRoot, targetPath, linkPath, archivePath);
+      mkdirSync(dirname(targetPath), { recursive: true });
+      rmSync(targetPath, { force: true });
+      symlinkSync(linkPath, targetPath);
+      continue;
+    }
+
+    if (typeflag !== '0') {
+      fail(`Unsupported tar entry type ${typeflag} in ${archivePath}`);
+    }
+
+    mkdirSync(dirname(targetPath), { recursive: true });
+    writeFileSync(targetPath, content);
+  }
+}
+
+export function linkPackedNodeModules(packageDir, sourceNodeModulesPath, options = {}) {
+  const { platform = process.platform, symlink = symlinkSync } = options;
+  const linkPath = join(packageDir, 'node_modules');
+  const linkType = platform === 'win32' ? 'junction' : 'dir';
+
+  symlink(sourceNodeModulesPath, linkPath, linkType);
+
+  return linkPath;
+}
+
+function createPackedArtifactFixture() {
+  const tempDir = mkdtempSync(join(tmpdir(), 'purvey-prepublish-pack-'));
+  const packDir = join(tempDir, 'pack');
+  const unpackDir = join(tempDir, 'unpack');
+  mkdirSync(packDir, { recursive: true });
+  mkdirSync(unpackDir, { recursive: true });
+
+  const packResult = run('npm', [
+    'pack',
+    '--json',
+    '--ignore-scripts',
+    '--pack-destination',
+    packDir,
+  ]);
+  if (packResult.status !== 0) {
+    fail(`npm pack failed.\n\n${formatStdio(packResult)}`);
+  }
+
+  let tarballFilename;
+  try {
+    const [packMetadata] = JSON.parse(packResult.stdout);
+    tarballFilename = packMetadata.filename;
+  } catch (error) {
+    fail(`npm pack did not emit valid JSON.\n\n${formatStdio(packResult)}\n\n${error}`);
+  }
+
+  const tarballPath = join(packDir, tarballFilename);
+  extractTarGzArchive(tarballPath, unpackDir);
+
+  const packageDir = join(unpackDir, 'package');
+  const cliPath = join(packageDir, 'dist', 'index.js');
+  assert(existsSync(cliPath), `Packed CLI entrypoint is missing: ${cliPath}`);
+  linkPackedNodeModules(packageDir, resolve(repoRoot, 'node_modules'));
+
+  return {
+    tempDir,
+    packageDir,
+    cliPath,
+  };
 }
 
 function assertSuccessfulRun(result, label) {
@@ -243,21 +499,30 @@ function runSourceCli(args) {
   return run('pnpm', ['exec', 'tsx', 'src/index.ts', ...args]);
 }
 
-function runDistCli(args) {
-  return run('node', ['dist/index.js', ...args]);
+function runPackedCli(packFixture, args) {
+  return run('node', [packFixture.cliPath, ...args], { cwd: packFixture.packageDir });
 }
 
-function runSelfImportManifest() {
-  return run('node', [
-    '--input-type=module',
-    '-e',
-    "import { getCliManifest } from '@purveyors/cli/manifest'; console.log(JSON.stringify(getCliManifest()));",
-  ]);
+function runPackedManifestImport(packFixture) {
+  return run(
+    'node',
+    [
+      '--input-type=module',
+      '-e',
+      "import { getCliManifest } from '@purveyors/cli/manifest'; console.log(JSON.stringify(getCliManifest()));",
+    ],
+    {
+      cwd: packFixture.packageDir,
+    }
+  );
 }
 
-function runSelfImportExports() {
-  const specifiers = Object.keys(REQUIRED_SELF_IMPORT_EXPORTS).map(
-    (exportKey) => `@purveyors/cli${exportKey.slice(1)}`
+function runPackedSelfImportExports(packFixture) {
+  const specifiers = Object.entries(REQUIRED_SELF_IMPORT_MEMBERS).map(
+    ([exportKey, requiredKeys]) => ({
+      specifier: `@purveyors/cli${exportKey.slice(1)}`,
+      requiredKeys,
+    })
   );
 
   return run(
@@ -265,11 +530,14 @@ function runSelfImportExports() {
     [
       '--input-type=module',
       '-e',
-      `const specifiers = ${JSON.stringify(specifiers)};\nconst loaded = [];\nfor (const specifier of specifiers) {\n  const moduleNamespace = await import(specifier);\n  loaded.push({ specifier, keys: Object.keys(moduleNamespace).sort() });\n}\nconsole.log(JSON.stringify(loaded));`,
+      `const specifiers = ${JSON.stringify(specifiers)};\nconst loaded = [];\nfor (const { specifier, requiredKeys } of specifiers) {\n  const moduleNamespace = await import(specifier);\n  loaded.push({ specifier, requiredKeys, keys: Object.keys(moduleNamespace).sort() });\n}\nconsole.log(JSON.stringify(loaded));`,
     ],
     {
-      PURVEYORS_SUPABASE_URL: 'https://placeholder.supabase.co',
-      PURVEYORS_SUPABASE_ANON_KEY: 'placeholder-anon-key',
+      cwd: packFixture.packageDir,
+      env: {
+        PURVEYORS_SUPABASE_URL: 'https://placeholder.supabase.co',
+        PURVEYORS_SUPABASE_ANON_KEY: 'placeholder-anon-key',
+      },
     }
   );
 }
@@ -281,69 +549,103 @@ export function verifyPrepublishParity() {
   assertPackageReleaseSurface(packageJson);
   assertReadmeReleaseSurface(readmeText);
 
-  const sourceHelpResult = runSourceCli(['--help']);
-  const distHelpResult = runDistCli(['--help']);
+  const packFixture = createPackedArtifactFixture();
 
-  assertSuccessfulRun(sourceHelpResult, 'source help smoke check');
-  assertSuccessfulRun(distHelpResult, 'dist help smoke check');
+  try {
+    const sourceHelpResult = runSourceCli(['--help']);
+    const packedHelpResult = runPackedCli(packFixture, ['--help']);
 
-  const sourceHelp = stripAnsi(sourceHelpResult.stdout);
-  const distHelp = stripAnsi(distHelpResult.stdout);
-  assertHelpSurface(sourceHelp, 'source help');
-  assertHelpSurface(distHelp, 'dist help');
-  assertTextEqual(distHelp, sourceHelp, 'Source and dist help output');
+    assertSuccessfulRun(sourceHelpResult, 'source help smoke check');
+    assertSuccessfulRun(packedHelpResult, 'packed help smoke check');
 
-  const sourceManifest = parseJsonStdout(runSourceCli(['manifest']), 'source manifest smoke check');
-  const sourceContext = parseJsonStdout(
-    runSourceCli(['context', '--json']),
-    'source context --json smoke check'
-  );
-  const distManifest = parseJsonStdout(runDistCli(['manifest']), 'dist manifest smoke check');
-  const distContext = parseJsonStdout(
-    runDistCli(['context', '--json']),
-    'dist context --json smoke check'
-  );
-  const importManifest = parseJsonStdout(
-    runSelfImportManifest(),
-    'package self-import manifest smoke check'
-  );
-  const importExports = parseJsonStdout(
-    runSelfImportExports(),
-    'package self-import subpath smoke check'
-  );
+    const sourceHelp = stripAnsi(sourceHelpResult.stdout);
+    const packedHelp = stripAnsi(packedHelpResult.stdout);
+    assertHelpSurface(sourceHelp, 'source help');
+    assertHelpSurface(packedHelp, 'packed help');
+    assertTextEqual(packedHelp, sourceHelp, 'Source and packed help output');
 
-  for (const [label, manifest] of [
-    ['source manifest', sourceManifest],
-    ['source context --json', sourceContext],
-    ['dist manifest', distManifest],
-    ['dist context --json', distContext],
-    ['self-import manifest', importManifest],
-  ]) {
-    assertManifestSurface(manifest, label);
+    const sourceManifest = parseJsonStdout(
+      runSourceCli(['manifest']),
+      'source manifest smoke check'
+    );
+    const sourceContext = parseJsonStdout(
+      runSourceCli(['context', '--json']),
+      'source context --json smoke check'
+    );
+    const packedManifest = parseJsonStdout(
+      runPackedCli(packFixture, ['manifest']),
+      'packed manifest smoke check'
+    );
+    const packedContext = parseJsonStdout(
+      runPackedCli(packFixture, ['context', '--json']),
+      'packed context --json smoke check'
+    );
+    const importedManifest = parseJsonStdout(
+      runPackedManifestImport(packFixture),
+      'packed self-import manifest smoke check'
+    );
+    const importedExports = parseJsonStdout(
+      runPackedSelfImportExports(packFixture),
+      'packed self-import subpath smoke check'
+    );
+
+    for (const [label, manifest] of [
+      ['source manifest', sourceManifest],
+      ['source context --json', sourceContext],
+      ['packed manifest', packedManifest],
+      ['packed context --json', packedContext],
+      ['packed self-import manifest', importedManifest],
+    ]) {
+      assertManifestSurface(manifest, label);
+    }
+
+    assertDeepEqual(sourceContext, sourceManifest, 'Source manifest and source context --json');
+    assertDeepEqual(packedManifest, sourceManifest, 'Packed manifest and source manifest');
+    assertDeepEqual(
+      packedContext,
+      sourceContext,
+      'Packed context --json and source context --json'
+    );
+    assertDeepEqual(
+      importedManifest,
+      sourceManifest,
+      'Packed self-import manifest and source manifest'
+    );
+
+    assert(
+      Array.isArray(importedExports) &&
+        importedExports.length === Object.keys(REQUIRED_SELF_IMPORT_MEMBERS).length,
+      'Packed self-import subpath smoke check must load every stable exported subpath'
+    );
+
+    for (const [exportKey, requiredKeys] of Object.entries(REQUIRED_SELF_IMPORT_MEMBERS)) {
+      const specifier = `@purveyors/cli${exportKey.slice(1)}`;
+      const loadedModule = importedExports.find((entry) => entry.specifier === specifier);
+      assert(loadedModule, `Packed self-import subpath smoke check is missing ${specifier}`);
+
+      for (const requiredKey of requiredKeys) {
+        assert(
+          loadedModule.keys.includes(requiredKey),
+          `${specifier} is missing required export ${requiredKey}`
+        );
+      }
+    }
+
+    return {
+      checked: [
+        'package.json bin/files/exports surface',
+        'npm pack dry-run publish surface',
+        'README machine-readable contract snippets',
+        'source vs packed help parity',
+        'source manifest/context parity',
+        'packed manifest/context parity',
+        'packed self-import manifest parity',
+        'packed self-import subpath member parity',
+      ],
+    };
+  } finally {
+    rmSync(packFixture.tempDir, { recursive: true, force: true });
   }
-
-  assertDeepEqual(sourceContext, sourceManifest, 'Source manifest and source context --json');
-  assertDeepEqual(distManifest, sourceManifest, 'Dist manifest and source manifest');
-  assertDeepEqual(distContext, sourceContext, 'Dist context --json and source context --json');
-  assertDeepEqual(importManifest, sourceManifest, 'Self-import manifest and source manifest');
-  assert(
-    Array.isArray(importExports) &&
-      importExports.length === Object.keys(REQUIRED_SELF_IMPORT_EXPORTS).length,
-    'Self-import subpath smoke check must load every stable exported subpath'
-  );
-
-  return {
-    checked: [
-      'package.json bin/files/exports surface',
-      'npm pack dry-run publish surface',
-      'README machine-readable contract snippets',
-      'source vs dist help parity',
-      'source manifest/context parity',
-      'dist manifest/context parity',
-      'package self-import manifest parity',
-      'package self-import subpath parity',
-    ],
-  };
 }
 
 function isDirectRun() {

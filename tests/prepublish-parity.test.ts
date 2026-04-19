@@ -1,6 +1,9 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { gzipSync } from 'node:zlib';
 import {
   REQUIRED_HELP_SNIPPETS,
   REQUIRED_PACKAGE_EXPORTS,
@@ -8,9 +11,152 @@ import {
   assertHelpSurface,
   assertPackageReleaseSurface,
   assertReadmeReleaseSurface,
+  extractTarGzArchive,
+  linkPackedNodeModules,
   repoRoot,
+  stripAnsi,
   verifyPrepublishParity,
 } from '../scripts/verify-prepublish-parity.mjs';
+
+function writeTarString(buffer: Buffer, start: number, length: number, value: string) {
+  buffer.write(value.slice(0, length), start, length, 'utf8');
+}
+
+function writeTarOctal(buffer: Buffer, start: number, length: number, value: number) {
+  const encoded = value.toString(8).padStart(length - 1, '0');
+  buffer.write(`${encoded}\0`, start, length, 'ascii');
+}
+
+function createTarHeader(name: string, size: number, typeflag: '0' | '2' | '5', linkPath = '') {
+  const header = Buffer.alloc(512, 0);
+  writeTarString(header, 0, 100, name);
+  writeTarOctal(header, 100, 8, typeflag === '5' ? 0o755 : 0o644);
+  writeTarOctal(header, 108, 8, 0);
+  writeTarOctal(header, 116, 8, 0);
+  writeTarOctal(header, 124, 12, size);
+  writeTarOctal(header, 136, 12, Math.floor(Date.now() / 1000));
+  header.fill(0x20, 148, 156);
+  writeTarString(header, 156, 1, typeflag);
+  if (typeflag === '2') {
+    writeTarString(header, 157, 100, linkPath);
+  }
+  writeTarString(header, 257, 6, 'ustar');
+  writeTarString(header, 263, 2, '00');
+
+  let checksum = 0;
+  for (const byte of header) {
+    checksum += byte;
+  }
+  writeTarOctal(header, 148, 8, checksum);
+
+  return header;
+}
+
+function createTarGzFixture(
+  entries: Array<{ path: string; type: '0' | '2' | '5'; content?: string; linkPath?: string }>
+) {
+  const blocks: Buffer[] = [];
+
+  for (const entry of entries) {
+    const content = Buffer.from(entry.content ?? '', 'utf8');
+    blocks.push(
+      createTarHeader(
+        entry.path,
+        entry.type === '0' ? content.length : 0,
+        entry.type,
+        entry.linkPath ?? ''
+      )
+    );
+
+    if (entry.type === '0') {
+      blocks.push(content);
+      const padding = (512 - (content.length % 512)) % 512;
+      if (padding) {
+        blocks.push(Buffer.alloc(padding, 0));
+      }
+    }
+  }
+
+  blocks.push(Buffer.alloc(1024, 0));
+  return gzipSync(Buffer.concat(blocks));
+}
+
+function createTempRepoFixture() {
+  const tempRepo = mkdtempSync(join(tmpdir(), 'purvey-prepublish-fixture-'));
+
+  cpSync(repoRoot, tempRepo, {
+    recursive: true,
+    filter: (source) => {
+      const relativePath = source.slice(repoRoot.length + 1);
+
+      if (!relativePath) {
+        return true;
+      }
+
+      return !['.git', 'node_modules', '.verify-pr', 'notes/pr-audits'].some(
+        (blockedPath) => relativePath === blockedPath || relativePath.startsWith(`${blockedPath}/`)
+      );
+    },
+  });
+
+  linkPackedNodeModules(tempRepo, resolve(repoRoot, 'node_modules'));
+
+  return {
+    tempRepo,
+    cleanup() {
+      rmSync(tempRepo, { recursive: true, force: true });
+    },
+  };
+}
+
+function getFixtureGuardrailSteps(tempRepo: string) {
+  const sharedOptions = {
+    cwd: tempRepo,
+    encoding: 'utf8' as const,
+    maxBuffer: 10 * 1024 * 1024,
+    env: {
+      ...process.env,
+      PURVEYORS_SUPABASE_URL: 'https://placeholder.supabase.co',
+      PURVEYORS_SUPABASE_ANON_KEY: 'placeholder-anon-key',
+    },
+  };
+
+  return [
+    { command: 'pnpm', args: ['clean:dist'], options: sharedOptions },
+    { command: 'pnpm', args: ['build'], options: sharedOptions },
+    {
+      command: process.execPath,
+      args: ['scripts/verify-prepublish-parity.mjs'],
+      options: sharedOptions,
+    },
+  ];
+}
+
+function runFixtureGuardrail(tempRepo: string) {
+  let stdout = '';
+  let stderr = '';
+
+  for (const step of getFixtureGuardrailSteps(tempRepo)) {
+    const result = spawnSync(step.command, step.args, step.options);
+    stdout += result.stdout;
+    stderr += result.stderr;
+
+    if (result.error || result.status !== 0 || result.signal) {
+      return {
+        ...result,
+        stdout,
+        stderr,
+      };
+    }
+  }
+
+  return {
+    status: 0,
+    signal: null,
+    stdout,
+    stderr,
+  };
+}
 
 describe('prepublish parity guardrail', () => {
   const packageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
@@ -39,6 +185,132 @@ describe('prepublish parity guardrail', () => {
     expect(() => assertPackageReleaseSurface(packageJson)).not.toThrow();
     expect(() => assertReadmeReleaseSurface(readme)).not.toThrow();
     expect(() => assertHelpSurface(sampleHelp, 'sample help')).not.toThrow();
+  });
+
+  it('runs the fixture guardrail with direct executables instead of bash', () => {
+    const commands = getFixtureGuardrailSteps(repoRoot).map((step) => step.command);
+
+    expect(commands).toEqual(['pnpm', 'pnpm', process.execPath]);
+    expect(commands).not.toContain('bash');
+  });
+
+  it('extracts packed artifacts without relying on system tar', () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'purvey-tar-fixture-'));
+    const archivePath = join(fixtureDir, 'fixture.tgz');
+    const unpackDir = join(fixtureDir, 'unpack');
+
+    try {
+      writeFileSync(
+        archivePath,
+        createTarGzFixture([
+          { path: 'package/', type: '5' },
+          { path: 'package/dist/', type: '5' },
+          { path: 'package/dist/index.js', type: '0', content: "console.log('fixture');\n" },
+        ])
+      );
+
+      extractTarGzArchive(archivePath, unpackDir);
+
+      expect(readFileSync(join(unpackDir, 'package', 'dist', 'index.js'), 'utf8')).toBe(
+        "console.log('fixture');\n"
+      );
+    } finally {
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects tar entries that traverse outside the unpack root', () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'purvey-tar-traversal-fixture-'));
+    const archivePath = join(fixtureDir, 'fixture.tgz');
+    const unpackDir = join(fixtureDir, 'unpack');
+    const escapedPath = join(fixtureDir, 'escaped.txt');
+
+    try {
+      writeFileSync(
+        archivePath,
+        createTarGzFixture([{ path: '../escaped.txt', type: '0', content: 'owned\n' }])
+      );
+
+      expect(() => extractTarGzArchive(archivePath, unpackDir)).toThrow(/escapes the unpack root/);
+      expect(existsSync(escapedPath)).toBe(false);
+    } finally {
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects tar entries that resolve through symlinks outside the unpack root', () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'purvey-tar-symlink-fixture-'));
+    const archivePath = join(fixtureDir, 'fixture.tgz');
+    const unpackDir = join(fixtureDir, 'unpack');
+    const escapedPath = join(fixtureDir, 'escaped.txt');
+
+    try {
+      writeFileSync(
+        archivePath,
+        createTarGzFixture([
+          { path: 'package/', type: '5' },
+          { path: 'package/out', type: '2', linkPath: '../..' },
+          { path: 'package/out/escaped.txt', type: '0', content: 'owned\n' },
+        ])
+      );
+
+      expect(() => extractTarGzArchive(archivePath, unpackDir)).toThrow(/escapes the unpack root/);
+      expect(existsSync(escapedPath)).toBe(false);
+    } finally {
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    { label: 'relative escape', linkPath: '../../outside-root', error: /escapes the unpack root/ },
+    { label: 'absolute target', linkPath: '/tmp/outside-root', error: /must be relative/ },
+  ])(
+    'rejects tar symlink targets that escape the unpack root via $label',
+    ({ linkPath, error }) => {
+      const fixtureDir = mkdtempSync(join(tmpdir(), 'purvey-tar-fixture-'));
+      const archivePath = join(fixtureDir, 'fixture.tgz');
+      const unpackDir = join(fixtureDir, 'unpack');
+
+      try {
+        writeFileSync(
+          archivePath,
+          createTarGzFixture([
+            { path: 'package/', type: '5' },
+            { path: 'package/dist', type: '2', linkPath },
+          ])
+        );
+
+        expect(() => extractTarGzArchive(archivePath, unpackDir)).toThrow(error);
+      } finally {
+        rmSync(fixtureDir, { recursive: true, force: true });
+      }
+    }
+  );
+
+  it('uses a Windows-safe junction for packed node_modules fixtures', () => {
+    const packageDir = 'C:\\temp\\package';
+    const sourceNodeModulesPath = 'C:\\repo\\node_modules';
+    const calls: Array<{ target: string; linkPath: string; type: string | undefined }> = [];
+
+    const linkPath = linkPackedNodeModules(packageDir, sourceNodeModulesPath, {
+      platform: 'win32',
+      symlink(target: string, path: string, type?: string) {
+        calls.push({
+          target,
+          linkPath: path,
+          type,
+        });
+      },
+    });
+
+    expect(linkPath).toBe(join(packageDir, 'node_modules'));
+    expect(calls).toEqual([
+      {
+        target: sourceNodeModulesPath,
+        linkPath: join(packageDir, 'node_modules'),
+        type: 'junction',
+      },
+    ]);
   });
 
   it('fails when a supported package export is removed or retargeted', () => {
@@ -72,6 +344,47 @@ describe('prepublish parity guardrail', () => {
     expect(wrongAiError).toContain('"./ai": "./dist/lib/not-ai.js"');
     expect(wrongAiError).toContain('"./ai": "./dist/lib/ai.js"');
   });
+
+  it('fails when a clean rebuild no longer emits a required published subpath artifact', () => {
+    const fixture = createTempRepoFixture();
+
+    try {
+      rmSync(join(fixture.tempRepo, 'src', 'lib', 'artisan', 'index.ts'));
+
+      const result = runFixtureGuardrail(fixture.tempRepo);
+      const output = stripAnsi(`${result.stdout}\n${result.stderr}`);
+
+      expect(result.status).toBe(1);
+      expect(output).toContain('package export ./artisan is missing from the release surface');
+    } finally {
+      fixture.cleanup();
+    }
+  }, 30000);
+
+  it('fails when a stable published subpath loses a required named export', () => {
+    const fixture = createTempRepoFixture();
+
+    try {
+      const artisanIndexPath = join(fixture.tempRepo, 'src', 'lib', 'artisan', 'index.ts');
+      const original = readFileSync(artisanIndexPath, 'utf8');
+      writeFileSync(
+        artisanIndexPath,
+        original.replace(
+          "export { parseAlogFile } from './parser.js'; // renamed from processAlogFile\n",
+          ''
+        ),
+        'utf8'
+      );
+
+      const result = runFixtureGuardrail(fixture.tempRepo);
+      const output = stripAnsi(`${result.stdout}\n${result.stderr}`);
+
+      expect(result.status).toBe(1);
+      expect(output).toContain('@purveyors/cli/artisan is missing required export parseAlogFile');
+    } finally {
+      fixture.cleanup();
+    }
+  }, 30000);
 
   it('passes the end-to-end prepublish smoke/parity checks', () => {
     expect(() => verifyPrepublishParity()).not.toThrow();

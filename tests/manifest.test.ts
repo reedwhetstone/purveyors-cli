@@ -74,6 +74,14 @@ describe('CLI manifest contract', () => {
     expect(parsed.schemaVersion).toBe('1');
     expect(parsed.binary).toBe('purvey');
     expect(parsed.packageName).toBe('@purveyors/cli');
+    expect(parsed.importPath).toBe('@purveyors/cli/manifest');
+    expect(parsed.machineSurfaces).toEqual(
+      expect.objectContaining({
+        humanReference: 'purvey context',
+        shellManifest: 'purvey manifest',
+        moduleImport: '@purveyors/cli/manifest',
+      })
+    );
     expect(Array.isArray(parsed.commandGroups)).toBe(true);
     expect(Array.isArray(parsed.exitCodes)).toBe(true);
     expect(Array.isArray(parsed.idTypes)).toBe(true);
@@ -158,10 +166,19 @@ describe('CLI manifest contract', () => {
       'Structured JSON by default for most commands'
     );
     expect(manifest.outputContract.notes).toContain(
-      '`purvey context` prints dense human-readable reference text unless --json or --pretty is passed.'
+      '`purvey context` prints dense human-readable operator reference text unless --json or --pretty is passed.'
     );
     expect(manifest.outputContract.notes).toContain(
-      '`purvey manifest` always emits the machine-readable contract on stdout.'
+      '`purvey manifest` is the preferred machine-readable contract and always emits it on stdout.'
+    );
+    expect(manifest.outputContract.notes).toContain(
+      '`purvey context --json` stays available for compatibility parity with existing context-based callers.'
+    );
+    expect(manifest.outputContract.notes).toContain(
+      '`@purveyors/cli/manifest` exposes the same machine-readable contract for in-process consumers.'
+    );
+    expect(manifest.machineSurfaces.notes).toContain(
+      '`@purveyors/cli/manifest` exposes the same manifest contract in-process for Node.js and agent consumers.'
     );
     expect(manifest.outputContract.notes).toContain(
       '`purvey config list/get/set/reset` stay human-readable in an interactive TTY, but emit JSON on stdout in machine mode and reject --csv.'
@@ -187,6 +204,7 @@ describe('CLI manifest contract', () => {
     const text = renderContextText();
 
     expect(text).toContain('PURVEY CLI - Agent Reference');
+    expect(text).toContain('Module import:    @purveyors/cli/manifest');
     expect(text).toContain(
       'No pre-existing session required for: auth, config, context, manifest.'
     );
@@ -204,7 +222,48 @@ describe('CLI manifest contract', () => {
     expect(text).toContain('tasting\n  get <bean-id> [options]');
     expect(text).toContain('  import [file] [options]');
     expect(text).toContain(
-      'Use `purvey manifest` or `purvey context --json` for the machine-readable manifest contract.'
+      'Prefer `purvey manifest` for the stable machine-readable CLI contract.'
+    );
+    expect(text).toContain(
+      'Use `purvey context --json` only for compatibility with existing context-based callers.'
+    );
+    expect(text).toContain('Quick discovery:  purvey --help');
+  });
+
+  it('falls back to legacy machine surfaces when rendering older schema version 1 manifests', () => {
+    const legacyManifest = JSON.parse(JSON.stringify(getCliManifest())) as {
+      machineSurfaces?: unknown;
+    } & ReturnType<typeof getCliManifest>;
+
+    delete legacyManifest.machineSurfaces;
+
+    const text = renderContextText(legacyManifest);
+
+    expect(text).toContain('Quick discovery:  purvey --help');
+    expect(text).toContain('Human reference:  purvey context');
+    expect(text).toContain('JSON manifest:    purvey manifest');
+    expect(text).toContain('Module import:    @purveyors/cli/manifest');
+  });
+
+  it('describes `purvey --help` as quick discovery and keeps machine surfaces distinct', () => {
+    const result = spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', '--help'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    const helpText = stripAnsi(result.stdout);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(helpText).toContain('Quick discovery:  purvey --help');
+    expect(helpText).toContain('Human reference:  purvey context');
+    expect(helpText).toContain('JSON manifest:    purvey manifest');
+    expect(helpText).toContain('Module import:    @purveyors/cli/manifest');
+    expect(helpText).toContain(
+      'context           Output the dense human-readable operator reference; use --json/--pretty only for manifest parity'
+    );
+    expect(helpText).toContain(
+      'manifest [options]  Output the preferred stable machine-readable CLI manifest'
     );
   });
 

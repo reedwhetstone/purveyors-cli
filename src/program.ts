@@ -100,8 +100,8 @@ Local and reference commands (no pre-existing session required):
   config get        Get a config value
   config set        Set a config value
   config reset      Reset config to defaults
-  context           Output dense human-readable reference text, or manifest JSON for compatibility
-  manifest          Output the preferred machine-readable CLI contract for agents/scripts
+  context           Output the dense human-readable operator reference; use --json/--pretty only for manifest parity
+  manifest          Output the preferred stable machine-readable CLI contract for agents/scripts
 
 Global Options:
   --json            Output compact JSON explicitly
@@ -118,18 +118,20 @@ Examples:
   $ purvey roast import my-roast.alog --coffee-id 7
   $ purvey roast watch ~/artisan/ --auto-match
   $ purvey tasting rate 42 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
+  $ purvey --help
   $ purvey context
-  $ purvey context --json > cli-manifest.json
   $ purvey manifest
   $ purvey manifest --pretty
+  $ purvey context --json > cli-manifest.json
 
 CLI docs:            https://purveyors.io/docs/cli/overview
 API docs:            https://purveyors.io/docs/api/overview
 Repository:          https://github.com/reedwhetstone/purveyors-cli
 npm package:         https://www.npmjs.com/package/@purveyors/cli
+Quick discovery:  purvey --help
 Human reference:  purvey context
 JSON manifest:    purvey manifest
-Compatibility JSON:  purvey context --json
+Module import:    @purveyors/cli/manifest
 `
     );
 

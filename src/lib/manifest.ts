@@ -90,6 +90,13 @@ export interface CliManifest {
   packageName: string;
   description: string;
   nodeVersion: string;
+  importPath: string;
+  machineSurfaces: {
+    humanReference: string;
+    shellManifest: string;
+    moduleImport: string;
+    notes: string[];
+  };
   files: {
     credentials: string;
     config: string;
@@ -110,6 +117,13 @@ export interface CliManifest {
   workflows: CliWorkflowContract[];
   errorPatterns: CliErrorPatternContract[];
 }
+
+const legacyMachineSurfaces: CliManifest['machineSurfaces'] = {
+  humanReference: 'purvey context',
+  shellManifest: 'purvey manifest',
+  moduleImport: '@purveyors/cli/manifest',
+  notes: [],
+};
 
 const docs: CliDocLink[] = [
   { label: 'CLI docs', url: 'https://purveyors.io/docs/cli/overview' },
@@ -722,30 +736,36 @@ const commandGroups: CliCommandGroupContract[] = [
   },
   {
     name: 'context',
-    summary: 'Emit human-readable agent reference or manifest-compat JSON',
+    summary: 'Emit dense human-readable operator reference or manifest-parity JSON',
     auth: 'none',
     command: {
       name: 'context',
-      summary: 'Emit human-readable agent reference or manifest-compat JSON',
+      summary: 'Emit dense human-readable operator reference or manifest-parity JSON',
       auth: 'none',
       options: [{ flags: '--json' }, { flags: '--pretty' }],
       notes: [
-        'Use `purvey manifest` or `purvey context --json` for the machine-readable manifest contract.',
-        'Prefer `purvey manifest` for new automation, and keep `purvey context --json` in parity as a compatibility surface for existing tooling.',
+        'Use `purvey context` for dense human-readable operator reference text.',
+        'Prefer `purvey manifest` for the stable machine-readable CLI contract.',
+        'Use `purvey context --json` only for compatibility with existing context-based callers.',
+        'Use `@purveyors/cli/manifest` for the same contract in-process.',
       ],
       examples: ['purvey context', 'purvey context --json', 'purvey context --pretty'],
     },
   },
   {
     name: 'manifest',
-    summary: 'Emit the preferred machine-readable CLI manifest contract',
+    summary: 'Emit the preferred stable machine-readable CLI manifest contract',
     auth: 'none',
     command: {
       name: 'manifest',
-      summary: 'Emit the preferred machine-readable CLI manifest contract',
+      summary: 'Emit the preferred stable machine-readable CLI manifest contract',
       auth: 'none',
       options: [{ flags: '--json' }, { flags: '--pretty' }],
-      notes: ['`purvey manifest` emits compact JSON by default.'],
+      notes: [
+        '`purvey manifest` is the preferred machine-readable entrypoint and emits compact JSON by default.',
+        '`purvey context --json` remains available for compatibility with existing context-based callers.',
+        'The same contract is available in-process via `@purveyors/cli/manifest`.',
+      ],
       examples: ['purvey manifest', 'purvey manifest --pretty'],
     },
   },
@@ -769,8 +789,7 @@ const workflows: CliWorkflowContract[] = [
   {
     title: 'Watch a folder for new roasts',
     commands: [
-      'purvey roast watch ~/artisan/ --coffee-id 7 --commit-mode batch',
-      'purvey roast watch ~/artisan/ --coffee-id 7 --commit-mode individual',
+      'purvey roast watch ~/artisan/ --coffee-id 7',
       'purvey roast watch ~/artisan/ --auto-match',
       'purvey roast watch --resume',
     ],
@@ -841,6 +860,19 @@ export function getCliManifest(): CliManifest {
     packageName: '@purveyors/cli',
     description: 'The official CLI for purveyors.io. Coffee intelligence from your terminal.',
     nodeVersion: 'Node.js 20+',
+    importPath: '@purveyors/cli/manifest',
+    machineSurfaces: {
+      humanReference: 'purvey context',
+      shellManifest: 'purvey manifest',
+      moduleImport: '@purveyors/cli/manifest',
+      notes: [
+        '`purvey --help` is the quick-discovery surface for commands and global flags.',
+        '`purvey context` is the dense human-readable operator reference surface.',
+        '`purvey manifest` is the preferred stable machine-readable contract for shells and automation.',
+        '`purvey context --json` emits the same manifest contract for compatibility when callers already use the context entrypoint.',
+        '`@purveyors/cli/manifest` exposes the same manifest contract in-process for Node.js and agent consumers.',
+      ],
+    },
     files: {
       credentials: '~/.config/purvey/credentials.json',
       config: '~/.config/purvey/config.json',
@@ -859,12 +891,14 @@ export function getCliManifest(): CliManifest {
         'Use --json to request compact JSON explicitly.',
         'Use --pretty for indented JSON.',
         'Use --csv for array-shaped results that support CSV output.',
-        '`purvey context` prints dense human-readable reference text unless --json or --pretty is passed.',
-        '`purvey manifest` always emits the machine-readable contract on stdout.',
+        '`purvey context` prints dense human-readable operator reference text unless --json or --pretty is passed.',
+        '`purvey manifest` is the preferred machine-readable contract and always emits it on stdout.',
+        '`purvey context --json` stays available for compatibility parity with existing context-based callers.',
+        '`@purveyors/cli/manifest` exposes the same machine-readable contract for in-process consumers.',
         '`purvey config list/get/set/reset` stay human-readable in an interactive TTY, but emit JSON on stdout in machine mode and reject --csv.',
         'In interactive use, stderr may also carry prompts, spinners, and human-readable status lines.',
         'Parser mistakes like unknown options, unknown commands, and missing required arguments follow the same fatal-error contract as runtime command failures.',
-        'Important exception: auth status prints human-readable output in an interactive TTY unless --json, --pretty, or --csv is passed; when piped or redirected it emits structured JSON automatically, even when unauthenticated.',
+        'Important exception: auth status prints human-readable output in an interactive TTY unless --json, --pretty, or --csv is passed; when piped or redirected it emits structured JSON automatically.',
       ],
       structuredErrors: {
         channel: 'stderr',
@@ -1054,13 +1088,34 @@ function renderErrorPatterns(patterns: CliErrorPatternContract[]): string[] {
   return lines;
 }
 
+function resolveMachineSurfaces(manifest: CliManifest): CliManifest['machineSurfaces'] {
+  const machineSurfaces = (
+    manifest as CliManifest & {
+      machineSurfaces?: Partial<CliManifest['machineSurfaces']>;
+    }
+  ).machineSurfaces;
+
+  return {
+    humanReference: machineSurfaces?.humanReference ?? legacyMachineSurfaces.humanReference,
+    shellManifest: machineSurfaces?.shellManifest ?? legacyMachineSurfaces.shellManifest,
+    moduleImport: machineSurfaces?.moduleImport ?? legacyMachineSurfaces.moduleImport,
+    notes: machineSurfaces?.notes ?? legacyMachineSurfaces.notes,
+  };
+}
+
 export function renderContextText(manifest: CliManifest = getCliManifest()): string {
+  const machineSurfaces = resolveMachineSurfaces(manifest);
+
   return [
     'PURVEY CLI - Agent Reference',
     '============================',
     `${manifest.description} ${manifest.nodeVersion}.`,
     `Credentials file: ${manifest.files.credentials}`,
     `Config file: ${manifest.files.config}`,
+    `Quick discovery:  purvey --help`,
+    `Human reference:  ${machineSurfaces.humanReference}`,
+    `JSON manifest:    ${machineSurfaces.shellManifest}`,
+    `Module import:    ${machineSurfaces.moduleImport}`,
     '',
     ...renderDocs(manifest.docs),
     '',

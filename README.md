@@ -4,6 +4,8 @@ Coffee intelligence from your terminal.
 
 `purvey` is the official CLI for [purveyors.io](https://purveyors.io). It gives coffee professionals, developers, and AI agents direct access to the Purveyors platform from the terminal: catalog search, inventory tracking, roast logging, sales records, tasting notes, and Artisan `.alog` import.
 
+Use `purvey --help` for quick command discovery, `purvey context` for the dense human-readable operator reference, `purvey manifest` for the preferred machine-readable contract, or `@purveyors/cli/manifest` in-process.
+
 ## At a glance
 
 - Official binary: `purvey`
@@ -15,6 +17,7 @@ Coffee intelligence from your terminal.
 - Preferred machine-readable contract: `purvey manifest`
 - Dense human-readable reference: `purvey context`
 - Compatibility JSON alias: `purvey context --json`
+- In-process machine contract: `@purveyors/cli/manifest`
 
 ## Installation
 
@@ -77,10 +80,10 @@ purvey context
 
 Use the right reference surface for the job:
 
-- `purvey manifest` is the preferred machine-readable contract for agents, scripts, generated tooling, and parity checks.
-- `purvey context` is the dense human-readable reference for operators and reviewers.
+- `purvey manifest` is the preferred stable machine-readable contract for agents, scripts, generated tooling, and parity checks.
+- `purvey context` is the dense human-readable operator reference for reviewers and interactive use.
 - `purvey context --json` and `purvey context --pretty` emit the same JSON payload as `purvey manifest`, but exist mainly for compatibility with tooling that already shells out to `context`.
-- `@purveyors/cli/manifest` exposes the same contract in-process for Node.js consumers.
+- `@purveyors/cli/manifest` exposes the same contract in-process for Node.js and agent runtimes.
 
 ## Authentication and access model
 
@@ -546,9 +549,10 @@ Notes:
 
 Notes:
 
-- Default output is dense human-readable reference text.
+- Default output is the dense human-readable operator reference text.
 - `--json` and `--pretty` emit the same machine-readable manifest as `purvey manifest`.
 - Prefer `purvey manifest` for new machine integrations. Use `purvey context --json` when you need compatibility with an existing `context`-based workflow.
+- Use `@purveyors/cli/manifest` when you need that same contract in-process from Node.js or an agent runtime.
 - `--csv` is not supported.
 
 ### manifest
@@ -558,16 +562,17 @@ Notes:
 
 Notes:
 
-- `purvey manifest` emits the preferred machine-readable CLI contract on stdout.
+- `purvey manifest` emits the preferred stable machine-readable CLI contract on stdout.
 - `purvey manifest` and `purvey context --json` emit the same JSON payload.
 - Use `purvey manifest` for new automation and treat `purvey context --json` as a compatibility alias.
+- Add `--pretty` for indented output.
 - `--csv` is not supported.
 
 ### In-process manifest export
 
 - `@purveyors/cli/manifest`
 
-Use this when you need the same contract from Node.js without shelling out to the CLI.
+Use this when you need the same stable contract from Node.js without shelling out to the CLI. This package subpath is exported via `./manifest` in `package.json` and is part of the supported public machine surface for agents and scripts.
 
 ```ts
 import { getCliManifest } from '@purveyors/cli/manifest';
