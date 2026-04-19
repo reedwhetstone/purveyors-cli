@@ -16,6 +16,11 @@ export interface Sale {
   last_updated: string;
 }
 
+export interface ResolvedSaleTarget {
+  roastId: number;
+  mode: 'exact' | 'resolved';
+}
+
 // ─── Shared select columns ────────────────────────────────────────────────────
 
 export const SALE_SELECT =
@@ -34,13 +39,62 @@ export const listSalesSchema = z.object({
 
 export type ListSalesInput = z.input<typeof listSalesSchema>;
 
-export const recordSaleSchema = z.object({
-  roastId: z.number().int().positive(),
-  oz: z.number().positive(),
-  price: z.number().min(0),
-  buyer: z.string().optional(),
-  sellDate: z.string().optional(),
-});
+const saleTargetFields = {
+  roastId: z.number().int().positive().optional(),
+  coffeeId: z.number().int().positive().optional(),
+  batchName: z.string().trim().min(1).optional(),
+};
+
+function validateSaleTargetSelector(
+  value: { roastId?: number; coffeeId?: number; batchName?: string },
+  ctx: z.RefinementCtx
+) {
+  const hasRoastId = value.roastId !== undefined;
+  const hasCoffeeId = value.coffeeId !== undefined;
+  const hasBatchName = value.batchName !== undefined;
+
+  if (hasRoastId && (hasCoffeeId || hasBatchName)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['roastId'],
+      message: 'Use either roastId or coffeeId + batchName, not both.',
+    });
+    return;
+  }
+
+  if (!hasRoastId && !hasCoffeeId && !hasBatchName) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['roastId'],
+      message: 'Provide roastId or coffeeId + batchName.',
+    });
+    return;
+  }
+
+  if (!hasRoastId && hasCoffeeId !== hasBatchName) {
+    ctx.addIssue({
+      code: 'custom',
+      path: hasCoffeeId ? ['batchName'] : ['coffeeId'],
+      message: 'coffeeId and batchName must be provided together when roastId is absent.',
+    });
+  }
+}
+
+export const saleTargetSelectorSchema = z
+  .object(saleTargetFields)
+  .superRefine(validateSaleTargetSelector);
+
+export type SaleTargetSelectorInput = z.input<typeof saleTargetSelectorSchema>;
+
+export const recordSaleSchema = z
+  .object({
+    ...saleTargetFields,
+    oz: z.number().positive(),
+    price: z.number().min(0),
+    buyer: z.string().optional(),
+    sellDate: z.string().optional(),
+  })
+  .superRefine(validateSaleTargetSelector);
 
 export type RecordSaleInput = z.input<typeof recordSaleSchema>;
 
@@ -107,8 +161,60 @@ export async function listSales(
   return (data ?? []) as Sale[];
 }
 
+export async function resolveSaleRoast(
+  supabase: SupabaseClient,
+  userId: string,
+  input: SaleTargetSelectorInput
+): Promise<ResolvedSaleTarget> {
+  const parsed = saleTargetSelectorSchema.parse(input);
+
+  if (parsed.roastId !== undefined) {
+    const { data: roastExists, error: roastError } = await supabase
+      .from('roast_profiles')
+      .select('roast_id')
+      .eq('roast_id', parsed.roastId)
+      .eq('user', userId)
+      .single();
+
+    if (roastError || !roastExists) {
+      throw new AuthError(`Roast profile ${parsed.roastId} not found or does not belong to you.`);
+    }
+
+    return { roastId: parsed.roastId, mode: 'exact' };
+  }
+
+  const { data: matches, error: lookupError } = await supabase
+    .from('roast_profiles')
+    .select('roast_id, batch_name')
+    .eq('user', userId)
+    .eq('coffee_id', parsed.coffeeId!)
+    .eq('batch_name', parsed.batchName!)
+    .limit(2);
+
+  if (lookupError) throw lookupError;
+
+  const resolvedMatches = (matches ?? []) as Array<{ roast_id: number; batch_name: string | null }>;
+
+  if (resolvedMatches.length === 0) {
+    throw new PrvrsError(
+      'NOT_FOUND',
+      `No roast profile found for --coffee-id ${parsed.coffeeId} with batch name "${parsed.batchName}". Use 'purvey roast list --coffee-id ${parsed.coffeeId}' to inspect candidates, or pass --roast-id directly.`
+    );
+  }
+
+  if (resolvedMatches.length > 1) {
+    const matchIds = resolvedMatches.map((row) => row.roast_id).join(', ');
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `Multiple roast profiles match --coffee-id ${parsed.coffeeId} and batch name "${parsed.batchName}". Matching roast IDs: ${matchIds}. Re-run with --roast-id.`
+    );
+  }
+
+  return { roastId: resolvedMatches[0].roast_id, mode: 'resolved' };
+}
+
 /**
- * Record a new sale (roastId must belong to userId).
+ * Record a new sale (target roast must belong to userId).
  */
 export async function recordSale(
   supabase: SupabaseClient,
@@ -116,24 +222,13 @@ export async function recordSale(
   input: RecordSaleInput
 ): Promise<Sale> {
   const parsed = recordSaleSchema.parse(input);
+  const target = await resolveSaleRoast(supabase, userId, parsed);
 
   const todayIso = () => new Date().toISOString().slice(0, 10);
 
-  // Verify the roast profile belongs to the user
-  const { data: roastExists, error: roastError } = await supabase
-    .from('roast_profiles')
-    .select('roast_id')
-    .eq('roast_id', parsed.roastId)
-    .eq('user', userId)
-    .single();
-
-  if (roastError || !roastExists) {
-    throw new AuthError(`Roast profile ${parsed.roastId} not found or does not belong to you.`);
-  }
-
   const insertPayload: Record<string, unknown> = {
     user: userId,
-    roast_id: parsed.roastId,
+    roast_id: target.roastId,
     oz_sold: parsed.oz,
     sale_price: parsed.price,
     sell_date: parsed.sellDate ?? todayIso(),

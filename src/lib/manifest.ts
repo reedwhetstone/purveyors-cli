@@ -587,12 +587,19 @@ const commandGroups: CliCommandGroupContract[] = [
         summary: 'Record a new sale',
         auth: 'member',
         options: [
-          { flags: '--roast-id <id>', requiredInFlagMode: true },
+          { flags: '--roast-id <id>' },
+          { flags: '--coffee-id <id>' },
+          { flags: '--batch-name <name>' },
           { flags: '--oz <amount>', requiredInFlagMode: true },
           { flags: '--price <dollars>', requiredInFlagMode: true },
           { flags: '--buyer <name>' },
           { flags: '--sell-date <YYYY-MM-DD>' },
           { flags: '--form' },
+        ],
+        notes: [
+          'Selector modes: exact --roast-id, or resolved --coffee-id + --batch-name.',
+          'Use exactly one selector mode.',
+          'If resolved mode is ambiguous, rerun with --roast-id.',
         ],
       },
       {
@@ -798,7 +805,7 @@ const workflows: CliWorkflowContract[] = [
     title: 'Rate coffee and record a sale',
     commands: [
       'purvey tasting rate 7 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4',
-      'purvey sales record --roast-id 123 --oz 12 --price 22.00 --buyer "Jane Smith"',
+      'purvey sales record --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz 12 --price 22.00 --buyer "Jane Smith"',
     ],
   },
 ];

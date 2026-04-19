@@ -445,7 +445,9 @@ Notes:
 
 `sales record` flags:
 
-- `--roast-id <id>`; required in flag mode
+- `--roast-id <id>`; exact selector mode
+- `--coffee-id <id>`; resolved selector mode, requires `--batch-name`
+- `--batch-name <name>`; resolved selector mode, requires `--coffee-id`
 - `--oz <amount>`; required in flag mode
 - `--price <dollars>`; required in flag mode
 - `--buyer <name>`
@@ -467,6 +469,7 @@ Examples:
 
 ```bash
 purvey sales record --roast-id 123 --oz 12 --price 22.00 --buyer "Jane Smith"
+purvey sales record --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz 8 --price 16.00
 purvey sales list --pretty
 purvey sales update 5 --price 24.00
 purvey sales delete 5 --yes
@@ -475,6 +478,8 @@ purvey sales delete 5 --yes
 Notes:
 
 - Sales commands require an authenticated `member` role.
+- Use exactly one selector mode for `sales record`: exact `--roast-id`, or resolved `--coffee-id` plus `--batch-name`.
+- If resolved mode matches multiple roasts, rerun with `--roast-id`.
 - `--price` is total sale price, not per-ounce price.
 
 ### tasting
@@ -589,7 +594,7 @@ purvey catalog search --origin "Ethiopia" --process "natural" --stocked --pretty
 purvey inventory add --catalog-id 128 --qty 10 --cost 8.50
 purvey roast import ~/artisan/guji-light.alog --coffee-id 7 --pretty
 purvey tasting rate 7 --aroma 5 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
-purvey sales record --roast-id 123 --oz 12 --price 22.00 --buyer "Jane Smith"
+purvey sales record --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz 12 --price 22.00 --buyer "Jane Smith"
 ```
 
 ### Continuous Artisan watch mode
@@ -624,6 +629,7 @@ Use the right ID for the right command.
 - `catalog_id`: `coffee_catalog` rows; used by `catalog get`, `inventory add --catalog-id`, `tasting get`, `roast list --catalog-id`
 - `inventory id`: `green_coffee_inv` rows; used by `inventory get/update/delete`, `roast --coffee-id`, `tasting rate`, `roast list --coffee-id`
 - `roast_id`: `roast_data` rows; used by `roast get/delete`, `sales --roast-id`, `roast list --roast-id`
+- `sales record` also supports resolving a roast from `inventory id` plus `--batch-name`; if that selector is ambiguous, use exact `roast_id`
 - `sale id`: `coffee_sales` rows; used by `sales update/delete`
 
 ## Environment variables

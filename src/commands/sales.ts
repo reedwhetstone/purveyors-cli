@@ -5,13 +5,129 @@ import { withErrorHandling, PrvrsError } from '../lib/errors.js';
 import { requireAuth } from '../lib/auth-guard.js';
 import { confirm, todayIso } from '../lib/prompts.js';
 import { listSales, recordSale, updateSale, deleteSale } from '../lib/sales.js';
-import type { Sale } from '../lib/sales.js';
+import type { Sale, RecordSaleInput } from '../lib/sales.js';
 import { pickRoast, guardCancel } from '../lib/interactive/forms.js';
 import { getConfigValue } from '../lib/config.js';
 import type { OutputOptions } from '../types/index.js';
 
 // Re-export type for backwards compatibility
 export type { Sale };
+
+type SalesRecordOptions = {
+  roastId?: string;
+  coffeeId?: string;
+  batchName?: string;
+  oz?: string;
+  price?: string;
+  buyer?: string;
+  sellDate?: string;
+  form?: boolean;
+};
+
+function parsePositiveIntegerOption(flag: string, value: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `Invalid ${flag}: "${value}". Must be a positive integer.`
+    );
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `Invalid ${flag}: "${value}". Must be a positive integer.`
+    );
+  }
+  return parsed;
+}
+
+function parsePositiveNumberOption(flag: string, value: string): number {
+  const parsed = parseFloat(value);
+  if (isNaN(parsed) || parsed <= 0) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `Invalid ${flag}: "${value}". Must be a positive number.`
+    );
+  }
+  return parsed;
+}
+
+function parseNonNegativeNumberOption(flag: string, value: string): number {
+  const parsed = parseFloat(value);
+  if (isNaN(parsed) || parsed < 0) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `Invalid ${flag}: "${value}". Must be a non-negative number.`
+    );
+  }
+  return parsed;
+}
+
+function hasCompleteRecordSaleFlagInput(opts: SalesRecordOptions): boolean {
+  const hasResolvedSelector = opts.coffeeId !== undefined && Boolean(opts.batchName?.trim());
+  const hasSelector = opts.roastId !== undefined || hasResolvedSelector;
+
+  return hasSelector && opts.oz !== undefined && opts.price !== undefined;
+}
+
+function parseRecordSaleFlagInput(opts: SalesRecordOptions): RecordSaleInput {
+  if (!opts.oz) {
+    throw new PrvrsError('INVALID_ARGUMENT', 'Missing --oz. Use --form for interactive mode.');
+  }
+  if (opts.price === undefined) {
+    throw new PrvrsError('INVALID_ARGUMENT', 'Missing --price. Use --form for interactive mode.');
+  }
+
+  const hasRoastId = opts.roastId !== undefined;
+  const hasCoffeeId = opts.coffeeId !== undefined;
+  const rawBatchName = opts.batchName?.trim();
+  const hasBatchName = Boolean(rawBatchName);
+
+  if (hasRoastId && (hasCoffeeId || opts.batchName !== undefined)) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      'Use either --roast-id or --coffee-id + --batch-name, not both.'
+    );
+  }
+
+  if (!hasRoastId && !hasCoffeeId && opts.batchName === undefined) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      'Missing sale target. Pass --roast-id or both --coffee-id and --batch-name. Use --form for interactive mode.'
+    );
+  }
+
+  if (!hasRoastId && hasCoffeeId && !hasBatchName) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      'Missing --batch-name. Resolved mode requires both --coffee-id and --batch-name.'
+    );
+  }
+
+  if (!hasRoastId && !hasCoffeeId && opts.batchName !== undefined) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      'Missing --coffee-id. Resolved mode requires both --coffee-id and --batch-name.'
+    );
+  }
+
+  const input: RecordSaleInput = {
+    oz: parsePositiveNumberOption('--oz', opts.oz),
+    price: parseNonNegativeNumberOption('--price', opts.price),
+    buyer: opts.buyer,
+    sellDate: opts.sellDate,
+  };
+
+  if (hasRoastId) {
+    input.roastId = parsePositiveIntegerOption('--roast-id', opts.roastId!);
+  } else {
+    input.coffeeId = parsePositiveIntegerOption('--coffee-id', opts.coffeeId!);
+    input.batchName = rawBatchName!;
+  }
+
+  return input;
+}
 
 // ─── Command builder ──────────────────────────────────────────────────────────
 
@@ -60,13 +176,7 @@ Notes:
 
         let roastId: number | undefined;
         if (opts.roastId !== undefined) {
-          roastId = parseInt(opts.roastId as string, 10);
-          if (isNaN(roastId) || roastId <= 0) {
-            throw new PrvrsError(
-              'INVALID_ARGUMENT',
-              `Invalid --roast-id: "${opts.roastId}". Must be a positive integer.`
-            );
-          }
+          roastId = parsePositiveIntegerOption('--roast-id', opts.roastId as string);
         }
 
         const offsetVal = parseInt(opts.offset as string, 10);
@@ -92,7 +202,9 @@ Notes:
   sales
     .command('record')
     .description('Record a new sale')
-    .option('--roast-id <id>', '[REQUIRED] Roast profile ID (roast_data.roast_id)')
+    .option('--roast-id <id>', 'Exact roast profile ID (roast_data.roast_id)')
+    .option('--coffee-id <id>', 'Inventory item ID used for resolved selector mode')
+    .option('--batch-name <name>', 'Batch name used with --coffee-id for resolved selector mode')
     .option('--oz <amount>', '[REQUIRED] Ounces sold')
     .option('--price <dollars>', '[REQUIRED] Sale price in dollars')
     .option('--buyer <name>', 'Buyer name or identifier (optional)')
@@ -104,28 +216,32 @@ Notes:
       `
 Examples:
   purvey sales record --roast-id 123 --oz 12 --price 22.00 --pretty
-  purvey sales record --roast-id 123 --oz 8 --price 16.00 --buyer "Jane Smith"
-  purvey sales record --roast-id 45 --oz 16 --price 28.00 --sell-date 2026-03-10
+  purvey sales record --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz 8 --price 16.00
+  purvey sales record --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz 16 --price 28.00 --sell-date 2026-03-10
   purvey sales record --form     # interactive wizard (browse roasts)
 
-Required flags: --roast-id, --oz, --price
+Selector modes:
+  Exact:    --roast-id <id>
+  Resolved: --coffee-id <id> --batch-name <name>
+  Use exactly one selector mode.
+  If multiple roasts match the same inventory item + batch name, re-run with --roast-id.
+
+Required flags: selector mode, --oz, --price
   Use 'purvey roast list' to find your --roast-id.
+  Use 'purvey roast list --coffee-id <id>' to inspect candidate roasts for resolved mode.
   --price is the total sale price (not per-oz).
   Requires authentication (member role).
 `
     )
     .action(
-      withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
+      withErrorHandling(async (opts: SalesRecordOptions, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase, userId } = await requireAuth('member');
 
-        // ── Interactive form mode ──────────────────────────────────────────
-        // Auto-enter form mode if config form-mode is true and required args are missing
         const formMode =
           opts.form ||
-          (!(opts.roastId && opts.oz && opts.price) &&
-            (await getConfigValue('form-mode')) === 'true');
+          (!hasCompleteRecordSaleFlagInput(opts) && (await getConfigValue('form-mode')) === 'true');
         if (formMode) {
+          const { supabase, userId } = await requireAuth('member');
           p.intro('Record Sale');
 
           const ozRaw = await p.text({
@@ -183,53 +299,12 @@ Required flags: --roast-id, --oz, --price
           return;
         }
 
-        // ── Flag-based mode ────────────────────────────────────────────────
-        if (!opts.roastId) {
-          throw new PrvrsError(
-            'INVALID_ARGUMENT',
-            'Missing --roast-id. Use --form for interactive mode.'
-          );
-        }
-        if (!opts.oz) {
-          throw new PrvrsError(
-            'INVALID_ARGUMENT',
-            'Missing --oz. Use --form for interactive mode.'
-          );
-        }
-        if (opts.price === undefined) {
-          throw new PrvrsError(
-            'INVALID_ARGUMENT',
-            'Missing --price. Use --form for interactive mode.'
-          );
-        }
-
-        const roastId = parseInt(opts.roastId as string, 10);
-        if (isNaN(roastId)) {
-          throw new PrvrsError('INVALID_ARGUMENT', `Invalid --roast-id: "${opts.roastId}".`);
-        }
-
-        const oz = parseFloat(opts.oz as string);
-        if (isNaN(oz) || oz <= 0) {
-          throw new PrvrsError(
-            'INVALID_ARGUMENT',
-            `Invalid --oz: "${opts.oz}". Must be a positive number.`
-          );
-        }
-
-        const price = parseFloat(opts.price as string);
-        if (isNaN(price) || price < 0) {
-          throw new PrvrsError(
-            'INVALID_ARGUMENT',
-            `Invalid --price: "${opts.price}". Must be a non-negative number.`
-          );
-        }
+        const recordInput = parseRecordSaleFlagInput(opts);
+        const { supabase, userId } = await requireAuth('member');
 
         const data = await recordSale(supabase, userId, {
-          roastId,
-          oz,
-          price,
-          buyer: opts.buyer as string | undefined,
-          sellDate: (opts.sellDate as string | undefined) ?? todayIso(),
+          ...recordInput,
+          sellDate: recordInput.sellDate ?? todayIso(),
         });
 
         success(`Sale ${data.id} recorded.`);
