@@ -336,6 +336,43 @@ describe('CLI output modes', () => {
     }
   }, 15000);
 
+  it('rejects --csv for context and manifest machine surfaces with JSON error envelopes', () => {
+    for (const { args, message } of [
+      {
+        args: ['context', '--csv'],
+        message: 'The context command does not support --csv. Use text, --json, or --pretty.',
+      },
+      {
+        args: ['context', '--json', '--csv'],
+        message: 'The context command does not support --csv. Use text, --json, or --pretty.',
+      },
+      {
+        args: ['manifest', '--csv'],
+        message: 'The manifest command does not support --csv. Use --json or --pretty.',
+      },
+      {
+        args: ['manifest', '--pretty', '--csv'],
+        message: 'The manifest command does not support --csv. Use --json or --pretty.',
+      },
+    ]) {
+      const result = spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', ...args], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      const stderr = parseJson(result.stderr);
+
+      expect(result.status, args.join(' ')).toBe(2);
+      expect(result.stdout, args.join(' ')).toBe('');
+      expect(stderr, args.join(' ')).toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        exitCode: 2,
+      });
+      expect(String(stderr.message), args.join(' ')).toContain(message);
+    }
+  }, 15000);
+
   it('emits JSON error envelopes for invalid sort with --json', () => {
     const result = spawnSync(
       'pnpm',
