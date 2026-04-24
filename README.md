@@ -85,6 +85,25 @@ Use the right reference surface for the job:
 - `purvey context --json` and `purvey context --pretty` emit the same JSON payload as `purvey manifest`, but exist mainly for compatibility with tooling that already shells out to `context`.
 - `@purveyors/cli/manifest` exposes the same contract in-process for Node.js and agent runtimes.
 
+## Package exports and shared product surface
+
+The npm package is both a binary and a shared TypeScript product surface. `coffee-app` and agent runtimes import CLI business functions directly, so exported subpaths are part of the supported machine contract.
+
+| Import path                     | Use it for                                      |
+| ------------------------------- | ----------------------------------------------- |
+| `@purveyors/cli`                | CLI entrypoint package root                     |
+| `@purveyors/cli/catalog`        | Catalog search, lookup, stats, similar coffees |
+| `@purveyors/cli/inventory`      | Green coffee inventory operations              |
+| `@purveyors/cli/roast`          | Roast profile operations                       |
+| `@purveyors/cli/sales`          | Sales record operations                        |
+| `@purveyors/cli/tasting`        | Tasting note and rating operations             |
+| `@purveyors/cli/lib`            | Shared library helpers                         |
+| `@purveyors/cli/manifest`       | Stable machine-readable CLI manifest           |
+| `@purveyors/cli/artisan`        | Artisan `.alog` parsing and import utilities   |
+| `@purveyors/cli/ai`             | AI helper surface used by CLI workflows        |
+
+Shell integrations should usually start with `purvey manifest`. In-process agent and website integrations should import the smallest relevant subpath instead of shelling out when they are already running in Node.js.
+
 ## Authentication and access model
 
 No pre-existing session is required for `auth`, `config`, `context`, or `manifest`.
@@ -382,9 +401,7 @@ Notes:
 `roast update <id>` flags:
 
 - `--batch-name <name>`
-- `--oz-in <oz>`
 - `--oz-out <oz>`
-- `--roast-date <YYYY-MM-DD>`
 - `--notes <text>`
 - `--targets <text>`
 

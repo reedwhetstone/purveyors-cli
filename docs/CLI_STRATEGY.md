@@ -70,7 +70,7 @@ When documentation or help text needs verification, use these files first:
 - `src/commands/context.ts` for the human-readable reference command
 - `src/commands/manifest.ts` for the manifest command contract
 - `src/lib/manifest.ts` for shared manifest metadata, reference text, ID guidance, and workflows
-- `package.json` for package metadata, Node engine, and exported subpaths
+- `package.json` for package metadata, scripts, binary entrypoint, Node engine, and exported subpaths
 
 ### Auth and roles
 
@@ -109,6 +109,7 @@ Reference surfaces:
 - `purvey context` is the dense human-readable reference.
 - `purvey context --json` emits the same JSON as `purvey manifest`, but is maintained for compatibility with existing wrappers and parity checks.
 - `@purveyors/cli/manifest` exposes the same contract in-process for Node.js consumers.
+- `@purveyors/cli/catalog`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/artisan`, and `/ai` expose the shared function layer used by agents and the website.
 
 ### Data and ID boundaries
 
@@ -137,7 +138,7 @@ It provides:
 - one stable binary for operators, scripts, and agents
 - a documented auth and role model
 - explicit machine-readable and human-readable reference surfaces
-- a reusable in-process manifest export
+- reusable in-process exports for catalog, inventory, roast, sales, tasting, shared library helpers, manifest, Artisan import, and AI workflows
 - compiled artifact checks that keep the published package aligned with source
 - a shared execution layer whose ergonomics directly affect the website and agent
   product surfaces
