@@ -11,6 +11,8 @@ Use this file as the single maintained guide for humans and agents. `CLAUDE.md` 
 - Runtime: Node.js 20+
 - Stack: TypeScript, Commander.js, Supabase JS, Vitest
 - Version source of truth: `package.json` and `purvey --version`
+- Binary entrypoint: `purvey` via package `bin` field
+- In-process product exports: `@purveyors/cli/catalog`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, `/artisan`, and `/ai`
 - In-process manifest export: `@purveyors/cli/manifest` via package export `./manifest`
 - Live docs: `/docs/cli/*` and `/docs/api/*` on `https://purveyors.io`
 
@@ -70,7 +72,7 @@ When documentation changes, verify against these files first:
 - `src/commands/*` for command names, flags, examples, and auth expectations
 - `src/program.ts` for global help text and docs links
 - `src/lib/manifest.ts` for the machine-readable contract and rendered context text
-- `package.json` for package metadata, Node engine, and exported subpaths
+- `package.json` for package metadata, Node engine, scripts, binary entrypoint, and exported subpaths
 - `README.md` for GitHub and npm landing-page coverage
 - `docs/CLI_STRATEGY.md` for historical architecture context that still needs to stay factually correct
 
@@ -141,8 +143,9 @@ Command files:
 
 ### Docs discipline
 
-This repo has several documentation surfaces that drift easily. When changing commands, options, auth behavior, or output behavior, audit the full set rather than patching one file.
+This repo has several documentation surfaces that drift easily. When changing commands, options, auth behavior, package exports, scripts, or output behavior, audit the full set rather than patching one file.
 
+- Treat the CLI as a core agent-first product surface, not a sidecar utility. The binary, exported functions, manifest, and context output are all part of the product contract.
 - Prefer `purvey manifest` as the primary machine-readable contract in docs and examples.
 - Keep `purvey context --json` in exact parity, but document it as a compatibility surface rather than the preferred entry point.
 - Keep `CLAUDE.md` and `GEMINI.md` as pointer files only.
