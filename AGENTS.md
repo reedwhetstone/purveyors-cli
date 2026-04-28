@@ -12,6 +12,7 @@ Use this file as the single maintained guide for humans and agents. `CLAUDE.md` 
 - Stack: TypeScript, Commander.js, Supabase JS, Vitest
 - Version source of truth: `package.json` and `purvey --version`
 - Binary entrypoint: `purvey` via package `bin` field
+- Package contract source of truth: `package.json` `exports` plus `src/lib/manifest.ts`
 - In-process product exports: `@purveyors/cli/catalog`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, `/artisan`, and `/ai`
 - In-process manifest export: `@purveyors/cli/manifest` via package export `./manifest`
 - Live docs: `/docs/cli/*` and `/docs/api/*` on `https://purveyors.io`
@@ -71,7 +72,7 @@ When documentation changes, verify against these files first:
 
 - `src/commands/*` for command names, flags, examples, and auth expectations
 - `src/program.ts` for global help text and docs links
-- `src/lib/manifest.ts` for the machine-readable contract and rendered context text
+- `src/lib/manifest.ts` for the machine-readable contract, rendered context text, package export list, ID guidance, and workflow examples
 - `package.json` for package metadata, Node engine, scripts, binary entrypoint, and exported subpaths
 - `README.md` for GitHub and npm landing-page coverage
 - `docs/CLI_STRATEGY.md` for historical architecture context that still needs to stay factually correct
@@ -118,6 +119,14 @@ Command files:
 - Keep docs aligned with actual handler behavior. If auth requirements change, update README, help text, and context in the same PR.
 - Exit code `3` is returned on any auth failure (not logged in, expired session, or insufficient role).
 
+### Machine contract and exports
+
+- Treat the CLI binary, exported subpaths, manifest payload, context text, stdout/stderr behavior, and exit codes as one product contract.
+- `coffee-app` and agent runtimes import exported functions directly; do not treat package exports as internal implementation details.
+- Prefer narrow subpath imports in app and agent code, for example `@purveyors/cli/catalog` instead of the package root for catalog workflows.
+- When package exports change, update `package.json`, `README.md`, `AGENTS.md`, `docs/CLI_STRATEGY.md`, `src/lib/manifest.ts`, and dist parity validation in the same PR.
+- `purvey manifest` is the primary shell-level machine contract. `@purveyors/cli/manifest` is the primary in-process machine contract.
+
 ### Output contract
 
 - Keep user-facing data on stdout.
@@ -132,6 +141,7 @@ Command files:
 - Prefer `outputData()` and `formatStructuredOutput()` so success/error JSON formatting shares one source of truth.
 - Avoid command-specific human-readable defaults for data commands unless there is a strong reason and the divergence is documented.
 - `auth status` is the intentional auth exception: in machine mode it can emit structured auth-state JSON on stdout even when unauthenticated.
+- `auth status --csv` is supported, but JSON remains the preferred integration format.
 - `config list/get/set/reset` are the intentional local-command exception: interactive TTYs stay human-readable, but `--json` / `--pretty` and non-interactive use emit structured JSON on stdout. `--csv` is not supported.
 
 ### Help text
@@ -145,7 +155,7 @@ Command files:
 
 This repo has several documentation surfaces that drift easily. When changing commands, options, auth behavior, package exports, scripts, or output behavior, audit the full set rather than patching one file.
 
-- Treat the CLI as a core agent-first product surface, not a sidecar utility. The binary, exported functions, manifest, and context output are all part of the product contract.
+- Treat the CLI as a core agent-first product surface, not a sidecar utility. The binary, exported functions, manifest, context output, and headless auth flow are all part of the product contract.
 - Prefer `purvey manifest` as the primary machine-readable contract in docs and examples.
 - Keep `purvey context --json` in exact parity, but document it as a compatibility surface rather than the preferred entry point.
 - Keep `CLAUDE.md` and `GEMINI.md` as pointer files only.
@@ -178,6 +188,17 @@ The published package and binary run from `dist/`, not `src/`. Any command-surfa
 - After merge, tag `vX.Y.Z` to publish to npm through GitHub Actions.
 - Do not rely on hardcoded version strings in docs when they can drift.
 - `prepack` runs `npm run verify:prepublish`, which rebuilds first, so release artifacts fail fast if command contracts, dist parity, docs, or package exports drift.
+
+## Docs Audit Checklist
+
+When doing a docs-only refresh, confirm these before opening a PR:
+
+- README command reference matches `src/commands/*` and `src/lib/manifest.ts`.
+- Auth and role claims match the actual `requireAuth` boundary: catalog is viewer; inventory, roast, sales, and tasting are member; auth, config, context, and manifest are local or unauthenticated.
+- Headless OAuth remains documented as first-class, not as a fallback.
+- `purvey manifest` is documented as the preferred shell contract; `purvey context --json` is documented as compatibility.
+- `@purveyors/cli/manifest` and package subpath exports are documented as supported in-process contracts.
+- Live docs links point to `/docs/cli/overview` and `/docs/api/overview`.
 
 ## PR Checklist
 
