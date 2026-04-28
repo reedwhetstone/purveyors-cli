@@ -1,7 +1,7 @@
 # Purveyors CLI Architecture Retrospective
 
 _Created: 2026-03-14_
-_Refreshed: 2026-04-17_
+_Refreshed: 2026-04-28_
 _Status: Historical architecture note for the shipped `purvey` CLI_
 
 ## Why this file exists
@@ -63,6 +63,13 @@ Those ideas may still be useful as future exploration themes, but they are not p
 
 ### Source of truth
 
+Authority order for the shipped contract:
+
+1. `src/program.ts`, `src/commands/*.ts`, and `src/lib/manifest.ts` define behavior, help text, command metadata, ID guidance, and rendered context.
+2. `package.json` defines versioning, scripts, the binary entrypoint, Node engine, and package exports.
+3. `README.md`, `AGENTS.md`, and this file explain how to use and maintain the contract.
+4. Live product docs on purveyors.io are the external reference surface.
+
 When documentation or help text needs verification, use these files first:
 
 - `src/program.ts` for top-level program description, global options, and docs links
@@ -105,11 +112,13 @@ The CLI is designed for both humans and automation:
 
 Reference surfaces:
 
-- `purvey manifest` is the preferred machine-readable contract.
+- `purvey manifest` is the preferred shell-level machine-readable contract.
 - `purvey context` is the dense human-readable reference.
 - `purvey context --json` emits the same JSON as `purvey manifest`, but is maintained for compatibility with existing wrappers and parity checks.
 - `@purveyors/cli/manifest` exposes the same contract in-process for Node.js consumers.
-- `@purveyors/cli/catalog`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/artisan`, and `/ai` expose the shared function layer used by agents and the website.
+- `@purveyors/cli/catalog`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, `/artisan`, and `/ai` expose the shared function layer used by agents and the website.
+
+Package export changes are product changes. They need the same care as CLI command changes because coffee-app and agent runtimes consume those paths directly.
 
 ### Data and ID boundaries
 
@@ -139,6 +148,7 @@ It provides:
 - a documented auth and role model
 - explicit machine-readable and human-readable reference surfaces
 - reusable in-process exports for catalog, inventory, roast, sales, tasting, shared library helpers, manifest, Artisan import, and AI workflows
+- a first-class headless OAuth path for agents, CI, SSH sessions, and remote containers
 - compiled artifact checks that keep the published package aligned with source
 - a shared execution layer whose ergonomics directly affect the website and agent
   product surfaces
@@ -161,6 +171,8 @@ When the command surface, output behavior, auth model, IDs, or docs links change
 
 For shared workflow changes, also test the CLI or exported function directly instead
 of relying only on website flows. The CLI is part of the core product contract.
+
+Docs refreshes should keep headless auth, manifest-first machine discovery, context as readable operator reference, and exported subpaths legible as one system rather than separate conveniences.
 
 ## Live docs links
 

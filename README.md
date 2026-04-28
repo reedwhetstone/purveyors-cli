@@ -48,6 +48,17 @@ purvey --version
 
 Use the live docs on purveyors.io as the primary external reference. Use this README and `AGENTS.md` for repo-specific contributor detail.
 
+## Source-of-truth hierarchy
+
+Use this hierarchy when references disagree:
+
+1. `src/program.ts`, `src/commands/*`, and `src/lib/manifest.ts` define the shipped command surface, help text, auth requirements, output modes, ID guidance, and manifest payload.
+2. `package.json` defines the package version, Node engine, binary entrypoint, scripts, and exported subpaths.
+3. `README.md`, `AGENTS.md`, and `docs/CLI_STRATEGY.md` explain the repo-specific contract for users, contributors, and agents.
+4. `https://purveyors.io/docs/cli/overview` and `https://purveyors.io/docs/api/overview` are the primary live product docs for external readers.
+
+The CLI is an agent-first product surface. Treat the binary, exported functions, `purvey manifest`, `purvey context`, stdout/stderr behavior, and role-gated command boundaries as one contract.
+
 ## Quick Start
 
 ```bash
@@ -103,6 +114,13 @@ The npm package is both a binary and a shared TypeScript product surface. `coffe
 | `@purveyors/cli/ai`        | AI helper surface used by CLI workflows        |
 
 Shell integrations should usually start with `purvey manifest`. In-process agent and website integrations should import the smallest relevant subpath instead of shelling out when they are already running in Node.js.
+
+Export discipline:
+
+- Add or remove subpaths only when the package contract intentionally changes.
+- Keep `package.json`, `README.md`, `AGENTS.md`, `docs/CLI_STRATEGY.md`, `src/lib/manifest.ts`, and dist parity checks aligned in the same PR.
+- Prefer the narrowest import path for application and agent code. For example, use `@purveyors/cli/catalog` for catalog operations instead of importing the package root.
+- Treat export-shape changes as product changes because coffee-app and agent runtimes import these functions directly.
 
 ## Authentication and access model
 
@@ -160,6 +178,8 @@ Commands that require a higher role exit with code `3` on auth failure. That inc
 ## Output contract and scripting
 
 Most commands write compact JSON to stdout by default. Use `--json` if you want to request that mode explicitly.
+
+Machine-contract rule of thumb: stdout is for successful payloads, stderr is for status or errors, and exit codes communicate the failure class. That rule is more important than making terminal output look conversational.
 
 Pretty JSON:
 
@@ -237,6 +257,9 @@ fi
 - `purvey auth login`
 - `purvey auth login --headless`
 - `purvey auth status`
+- `purvey auth status --json`
+- `purvey auth status --pretty`
+- `purvey auth status --csv`
 - `purvey auth logout`
 
 Examples:
@@ -245,6 +268,7 @@ Examples:
 purvey auth login
 purvey auth login --headless
 purvey auth status --pretty
+purvey auth status --csv
 purvey auth logout
 ```
 
@@ -253,6 +277,7 @@ Notes:
 - `auth login` uses browser-based Google OAuth.
 - `auth login --headless` prints an OAuth URL and accepts a pasted callback URL.
 - `auth status --json` is the safest mode for scripts.
+- `auth status --csv` is supported for spreadsheet-style checks, but JSON remains the better integration format.
 
 ### catalog
 
@@ -580,14 +605,16 @@ Notes:
 ### manifest
 
 - `purvey manifest`
+- `purvey manifest --json`
 - `purvey manifest --pretty`
 
 Notes:
 
 - `purvey manifest` emits the preferred stable machine-readable CLI contract on stdout.
+- `purvey manifest` and `purvey manifest --json` both emit compact JSON.
+- `purvey manifest --pretty` emits indented JSON.
 - `purvey manifest` and `purvey context --json` emit the same JSON payload.
 - Use `purvey manifest` for new automation and treat `purvey context --json` as a compatibility alias.
-- Add `--pretty` for indented output.
 - `--csv` is not supported.
 
 ### In-process manifest export
@@ -747,7 +774,7 @@ Key files:
 - `src/lib/`: business logic and Supabase integration
 - `src/commands/context.ts`: dense human-readable agent reference
 - `src/commands/manifest.ts`: machine-readable CLI manifest command
-- `src/lib/manifest.ts`: shared manifest contract and renderer
+- `src/lib/manifest.ts`: shared manifest contract, package export list, command metadata, ID guidance, and context renderer
 - `package.json`: package metadata and export surface, including `./manifest`
 - `tests/dist-contract.test.ts`: compiled artifact parity guardrails
 - `AGENTS.md`: canonical contributor guide
