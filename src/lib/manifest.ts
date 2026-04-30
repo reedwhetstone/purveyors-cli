@@ -256,6 +256,11 @@ const commandGroups: CliCommandGroupContract[] = [
         options: [
           { flags: '--origin <origin>' },
           { flags: '--process <method>' },
+          { flags: '--processing-base-method <method>' },
+          { flags: '--fermentation-type <type>' },
+          { flags: '--process-additive <additive>' },
+          { flags: '--processing-disclosure-level <level>' },
+          { flags: '--processing-confidence-min <n>' },
           { flags: '--price-min <n>' },
           { flags: '--price-max <n>' },
           { flags: '--flavor <keywords>' },
@@ -272,11 +277,14 @@ const commandGroups: CliCommandGroupContract[] = [
         ],
         notes: [
           'All filters are optional. Without flags, returns up to --limit results.',
+          'Structured process filters map to canonical /v1/catalog query names.',
           '--ids fetches specific catalog items by ID, ignoring --limit and --offset.',
           '--offset + --limit enables pagination through large result sets.',
         ],
         examples: [
           'purvey catalog search --origin "Ethiopia" --process "natural" --pretty',
+          'purvey catalog search --processing-base-method "Natural" --fermentation-type "Anaerobic" --pretty',
+          'purvey catalog search --process-additive "hops" --processing-confidence-min 0.8 --pretty',
           'purvey catalog search --variety "gesha" --stocked --pretty',
           'purvey catalog search --drying-method "sun" --origin "Ethiopia" --pretty',
           'purvey catalog search --stocked-days 30 --pretty',

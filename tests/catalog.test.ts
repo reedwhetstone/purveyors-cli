@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   computeCatalogStats,
+  searchCatalog,
   searchCatalogSchema,
   sanitizeFilterValue,
   findSimilarBeansSchema,
@@ -19,6 +20,15 @@ function makeItem(overrides: Partial<CatalogItem> = {}): CatalogItem {
     country: 'Ethiopia',
     region: null,
     processing: 'natural',
+    processing_base_method: null,
+    fermentation_type: null,
+    process_additives: null,
+    process_additive_detail: null,
+    fermentation_duration_hours: null,
+    processing_notes: null,
+    processing_disclosure_level: null,
+    processing_confidence: null,
+    processing_evidence_available: null,
     drying_method: null,
     cultivar_detail: null,
     grade: null,
@@ -326,6 +336,27 @@ describe('searchCatalogSchema', () => {
     expect(result.stockedDays).toBeUndefined();
   });
 
+  it('accepts structured process filters', () => {
+    const result = searchCatalogSchema.parse({
+      processingBaseMethod: 'Natural',
+      fermentationType: 'Anaerobic',
+      processAdditive: 'hops',
+      processingDisclosureLevel: 'high_detail',
+      processingConfidenceMin: 0.8,
+    });
+
+    expect(result.processingBaseMethod).toBe('Natural');
+    expect(result.fermentationType).toBe('Anaerobic');
+    expect(result.processAdditive).toBe('hops');
+    expect(result.processingDisclosureLevel).toBe('high_detail');
+    expect(result.processingConfidenceMin).toBe(0.8);
+  });
+
+  it('rejects process confidence thresholds outside 0-1', () => {
+    expect(() => searchCatalogSchema.parse({ processingConfidenceMin: -0.1 })).toThrow();
+    expect(() => searchCatalogSchema.parse({ processingConfidenceMin: 1.1 })).toThrow();
+  });
+
   it('combines variety and dryingMethod with existing fields', () => {
     const result = searchCatalogSchema.parse({
       origin: 'Ethiopia',
@@ -352,6 +383,48 @@ describe('sanitizeFilterValue', () => {
   it('passes clean strings through unchanged', () => {
     expect(sanitizeFilterValue('Ethiopia Guji')).toBe('Ethiopia Guji');
     expect(sanitizeFilterValue('Royal Coffee')).toBe('Royal Coffee');
+  });
+});
+
+// ─── searchCatalog query mapping ─────────────────────────────────────────────
+
+function makeSearchSupabase(response: { data?: unknown; error?: unknown | null } = {}) {
+  const query = {
+    data: response.data ?? [],
+    error: response.error ?? null,
+    or: vi.fn(() => query),
+    ilike: vi.fn(() => query),
+    eq: vi.fn(() => query),
+    contains: vi.fn(() => query),
+    gte: vi.fn(() => query),
+    lte: vi.fn(() => query),
+    in: vi.fn(() => query),
+    order: vi.fn(() => query),
+    range: vi.fn(() => query),
+  };
+  const select = vi.fn(() => query);
+  const from = vi.fn(() => ({ select }));
+
+  return { supabase: { from } as unknown as SupabaseClient, query, select, from };
+}
+
+describe('searchCatalog', () => {
+  it('maps structured process filters to canonical catalog columns', async () => {
+    const { supabase, query } = makeSearchSupabase();
+
+    await searchCatalog(supabase, {
+      processingBaseMethod: 'Natural',
+      fermentationType: 'Anaerobic',
+      processAdditive: 'hops',
+      processingDisclosureLevel: 'high_detail',
+      processingConfidenceMin: 0.8,
+    });
+
+    expect(query.eq).toHaveBeenCalledWith('processing_base_method', 'Natural');
+    expect(query.eq).toHaveBeenCalledWith('fermentation_type', 'Anaerobic');
+    expect(query.contains).toHaveBeenCalledWith('process_additives', ['hops']);
+    expect(query.eq).toHaveBeenCalledWith('processing_disclosure_level', 'high_detail');
+    expect(query.gte).toHaveBeenCalledWith('processing_confidence', 0.8);
   });
 });
 

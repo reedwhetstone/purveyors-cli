@@ -290,6 +290,11 @@ Notes:
 
 - `--origin <text>`; origin, country, continent, or region
 - `--process <method>`; processing method
+- `--processing-base-method <method>`; canonical structured process base method
+- `--fermentation-type <type>`; structured fermentation type
+- `--process-additive <additive>`; disclosed process additive
+- `--processing-disclosure-level <level>`; structured process disclosure level
+- `--processing-confidence-min <n>`; minimum structured process confidence from `0` to `1`
 - `--price-min <n>`; minimum USD/lb
 - `--price-max <n>`; maximum USD/lb
 - `--flavor <keywords>`; comma-separated flavor terms
@@ -314,6 +319,8 @@ Examples:
 
 ```bash
 purvey catalog search --origin "Ethiopia" --pretty
+purvey catalog search --processing-base-method "Natural" --fermentation-type "Anaerobic" --pretty
+purvey catalog search --process-additive "hops" --processing-confidence-min 0.8 --pretty
 purvey catalog search --supplier "Royal Coffee" --stocked --pretty
 purvey catalog search --ids "1182,1183,1200"
 purvey catalog search --stocked --sort price --offset 10 --limit 10
@@ -325,6 +332,7 @@ purvey catalog get 1182 --pretty
 Notes:
 
 - Catalog commands require an authenticated `viewer` role.
+- Structured process filters use the canonical `/v1/catalog` query contract names while preserving the legacy `--process` label filter.
 - `catalog get` and `catalog similar` both take `coffee_catalog.catalog_id`.
 - `catalog stats` returns aggregate catalog metrics, not your personal inventory metrics.
 
