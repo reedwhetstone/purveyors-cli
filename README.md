@@ -128,7 +128,8 @@ No pre-existing session is required for `auth`, `config`, `context`, or `manifes
 
 All remote data commands require a valid authenticated session:
 
-- `catalog` requires the `viewer` role
+- `catalog` requires the `viewer` role by default
+- `catalog search` structured process filters require the `member` role under the current session-authenticated CLI path
 - `inventory`, `roast`, `sales`, and `tasting` require the `member` role
 
 `purvey` uses Google OAuth through purveyors.io.
@@ -166,10 +167,10 @@ Credentials are stored at `~/.config/purvey/credentials.json`.
 
 ### Auth roles
 
-| Role     | Access                                                              |
-| -------- | ------------------------------------------------------------------- |
-| `viewer` | `catalog search`, `catalog get`, `catalog stats`, `catalog similar` |
-| `member` | All viewer commands, plus `inventory`, `roast`, `sales`, `tasting`  |
+| Role     | Access                                                                                                                                                      |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `viewer` | `catalog search`, `catalog get`, `catalog stats`, `catalog similar`, excluding structured process filters                                                   |
+| `member` | All viewer commands, structured process filters on `catalog search`, plus `inventory`, `roast`, `sales`, `tasting` under the session-authenticated CLI path |
 
 `auth`, `config`, `context`, and `manifest` remain available without a pre-existing session.
 
@@ -331,7 +332,8 @@ purvey catalog get 1182 --pretty
 
 Notes:
 
-- Catalog commands require an authenticated `viewer` role.
+- Catalog commands require an authenticated `viewer` role by default.
+- Structured process filters on `catalog search` require an authenticated `member` role under the current session-authenticated CLI path.
 - Structured process filters use the canonical `/v1/catalog` query contract names while preserving the legacy `--process` label filter.
 - `catalog get` and `catalog similar` both take `coffee_catalog.catalog_id`.
 - `catalog stats` returns aggregate catalog metrics, not your personal inventory metrics.

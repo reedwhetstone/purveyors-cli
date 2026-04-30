@@ -54,7 +54,9 @@ function parseNonNegativeIntegerArg(rawValue: string, message: string): number {
 
 /**
  * `purvey catalog` — Browse the coffee catalog.
- * Requires an authenticated viewer session.
+ * Requires an authenticated viewer session. Structured process filters on
+ * `catalog search` require member access under the current session-authenticated
+ * CLI path.
  */
 export function buildCatalogCommand(): Command {
   const catalog = new Command('catalog').description('Browse the coffee catalog');
@@ -117,6 +119,9 @@ Notes:
   --origin accepts partial matches (e.g. "Ethiopia" matches "Ethiopia Guji").
   Structured process filters map to canonical /v1/catalog query names.
   --process remains the legacy broad processing-label filter.
+  --processing-base-method, --fermentation-type, --process-additive,
+  --processing-disclosure-level, and --processing-confidence-min require member
+  access under the current session-authenticated CLI path.
   --processing-base-method, --fermentation-type, --process-additive, and
   --processing-disclosure-level require exact structured metadata matches.
   --processing-confidence-min accepts a decimal from 0 to 1.
@@ -210,7 +215,14 @@ Notes:
           `Invalid --limit: "${opts.limit}". Must be a positive integer.`
         );
 
-        const { supabase } = await requireAuth('viewer');
+        const hasStructuredProcessFilters =
+          opts.processingBaseMethod !== undefined ||
+          opts.fermentationType !== undefined ||
+          opts.processAdditive !== undefined ||
+          opts.processingDisclosureLevel !== undefined ||
+          opts.processingConfidenceMin !== undefined;
+        const requiredRole = hasStructuredProcessFilters ? 'member' : 'viewer';
+        const { supabase } = await requireAuth(requiredRole);
 
         const data = await searchCatalog(supabase, {
           origin: opts.origin as string | undefined,
