@@ -89,7 +89,7 @@ The shipped auth model is role-based:
 
 Google OAuth is available in two supported flows:
 
-- `purvey auth login` for local interactive browser-based sign-in
+- `purvey auth login` for local interactive browser-based sign-in. It listens for the localhost callback and also offers a pasted-callback fallback when the browser lands on a URL the CLI cannot receive.
 - `purvey auth login --headless` for agents, CI, and remote machines
 
 The headless path is a first-class supported environment, not a fallback edge case.

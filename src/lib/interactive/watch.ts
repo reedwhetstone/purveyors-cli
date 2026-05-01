@@ -75,7 +75,38 @@ export interface StartWatchRuntime {
   watchImpl?: typeof watch;
   addSignalListener?: (signal: 'SIGINT' | 'SIGTERM', listener: () => void) => void;
   removeSignalListener?: (signal: 'SIGINT' | 'SIGTERM', listener: () => void) => void;
+  addExitKeyListener?: (listener: () => void) => () => void;
   debounceMs?: number;
+}
+
+function addDefaultExitKeyListener(listener: () => void): () => void {
+  const stdin = process.stdin as NodeJS.ReadStream & {
+    isRaw?: boolean;
+    setRawMode?: (mode: boolean) => void;
+  };
+
+  if (!stdin.isTTY) return () => {};
+
+  const wasRaw = stdin.isRaw ?? false;
+  const wasPaused = stdin.isPaused();
+  const onData = (chunk: Buffer | string): void => {
+    const value = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : chunk;
+    if (value.includes('\u0003')) {
+      listener();
+    }
+  };
+
+  stdin.on('data', onData);
+  stdin.setRawMode?.(true);
+  stdin.resume();
+
+  return () => {
+    stdin.off('data', onData);
+    stdin.setRawMode?.(wasRaw);
+    if (wasPaused) {
+      stdin.pause();
+    }
+  };
 }
 
 interface QueuedImport {
@@ -361,6 +392,7 @@ export async function startWatch(
   const watchDirectory = runtime.watchImpl ?? watch;
   const addSignalListener = runtime.addSignalListener ?? process.on.bind(process);
   const removeSignalListener = runtime.removeSignalListener ?? process.removeListener.bind(process);
+  const addExitKeyListener = runtime.addExitKeyListener ?? addDefaultExitKeyListener;
   const debounceMs = runtime.debounceMs ?? 2000;
 
   // 1. Validate directory exists
@@ -654,9 +686,13 @@ export async function startWatch(
     let shutdownPromise: Promise<void> | null = null;
     let repeatedSignalNoticePrinted = false;
 
+    let cleanupExitKeyListener: (() => void) | null = null;
+
     const cleanupSignalHandlers = (): void => {
       removeSignalListener('SIGINT', onSigint);
       removeSignalListener('SIGTERM', onSigterm);
+      cleanupExitKeyListener?.();
+      cleanupExitKeyListener = null;
     };
 
     const printRepeatedSignalNotice = (signal: 'SIGINT' | 'SIGTERM'): void => {
@@ -738,6 +774,7 @@ export async function startWatch(
 
     addSignalListener('SIGINT', onSigint);
     addSignalListener('SIGTERM', onSigterm);
+    cleanupExitKeyListener = addExitKeyListener(onSigint);
   });
 
   return session;

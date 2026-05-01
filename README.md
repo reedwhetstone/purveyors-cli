@@ -274,7 +274,7 @@ purvey auth logout
 
 Notes:
 
-- `auth login` uses browser-based Google OAuth.
+- `auth login` uses browser-based Google OAuth, listens for the localhost callback, and also accepts a pasted callback URL if the browser cannot return to the CLI.
 - `auth login --headless` prints an OAuth URL and accepts a pasted callback URL.
 - `auth status --json` is the safest mode for scripts.
 - `auth status --csv` is supported for spreadsheet-style checks, but JSON remains the better integration format.
