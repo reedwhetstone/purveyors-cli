@@ -64,6 +64,10 @@ function createRuntime() {
   const saveWatchSessionImpl = vi.fn().mockResolvedValue(undefined);
   const importRoastFromFileImpl = vi.fn();
   const signalListeners = new Map<'SIGINT' | 'SIGTERM', () => void>();
+  let exitKeyListener: (() => void) | null = null;
+  const cleanupExitKeyListener = vi.fn(() => {
+    exitKeyListener = null;
+  });
 
   const runtime: StartWatchRuntime = {
     debounceMs: 1,
@@ -74,6 +78,10 @@ function createRuntime() {
     }),
     removeSignalListener: vi.fn((signal) => {
       signalListeners.delete(signal);
+    }),
+    addExitKeyListener: vi.fn((listener) => {
+      exitKeyListener = listener;
+      return cleanupExitKeyListener;
     }),
     watchImpl: vi.fn((_directory, _options, registeredCallback) => {
       callback = registeredCallback as (eventType: string, filename: string) => void;
@@ -99,9 +107,19 @@ function createRuntime() {
       }
       listener();
     },
+    emitExitKey() {
+      if (!exitKeyListener) {
+        throw new Error('exit key listener not registered');
+      }
+      exitKeyListener();
+    },
     hasSignalListener(signal: 'SIGINT' | 'SIGTERM') {
       return signalListeners.has(signal);
     },
+    hasExitKeyListener() {
+      return exitKeyListener !== null;
+    },
+    cleanupExitKeyListener,
   };
 }
 
@@ -207,6 +225,45 @@ describe('startWatch', () => {
     );
 
     await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('treats Ctrl+C key bytes as shutdown when the terminal is in raw mode', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-exit-key-'));
+    const { runtime, emitFileEvent, emitExitKey, hasExitKeyListener, cleanupExitKeyListener } =
+      createRuntime();
+
+    processAlogFileMock.mockReturnValue({ title: 'Exit Key Roast' });
+    pickBeanMock.mockResolvedValue({ id: 7, name: 'Test Coffee' });
+    runtime.importRoastFromFileImpl?.mockResolvedValue(createImportResult(456));
+
+    const promise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      {
+        coffeeId: 7,
+        coffeeName: 'Test Coffee',
+        batchPrefix: 'Exit Key',
+        commitMode: 'batch',
+      },
+      runtime
+    );
+
+    await sleep(10);
+    expect(hasExitKeyListener()).toBe(true);
+
+    await writeFile(join(watchDir, 'exit-key.alog'), 'exit key content');
+    emitFileEvent('exit-key.alog');
+    await sleep(5);
+    await flushPromises();
+
+    emitExitKey();
+    const session = await promise;
+
+    expect(session.imports[0]?.status).toBe('success');
+    expect(runtime.importRoastFromFileImpl).toHaveBeenCalledOnce();
+    expect(cleanupExitKeyListener).toHaveBeenCalledOnce();
+    expect(hasExitKeyListener()).toBe(false);
   });
 
   it('rehydrates pending resume imports and finalizes them on shutdown', async () => {
