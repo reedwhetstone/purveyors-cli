@@ -7,6 +7,7 @@ import { withErrorHandling, AuthError, exitCodeForError } from '../lib/errors.js
 import type { OutputOptions, StoredCredentials } from '../types/index.js';
 import chalk from 'chalk';
 import ora from 'ora';
+import { createInterface, type Interface as ReadlineInterface } from 'readline';
 
 const DEFAULT_CALLBACK_HOST = 'localhost';
 const CALLBACK_PATH = '/auth/callback';
@@ -20,6 +21,12 @@ interface CallbackResult {
 interface CallbackServer {
   port: number;
   tokenPromise: Promise<CallbackResult>;
+  close: () => void;
+}
+
+interface ManualCallbackReader {
+  promise: Promise<CallbackResult>;
+  close: () => void;
 }
 
 /**
@@ -112,7 +119,17 @@ function startCallbackServer(): Promise<CallbackServer> {
         reject(new AuthError('Failed to start callback server.'));
         return;
       }
-      resolve({ port: addr.port, tokenPromise });
+      resolve({
+        port: addr.port,
+        tokenPromise,
+        close: () => {
+          try {
+            server.close();
+          } catch {
+            // Server may already be closed after an automatic callback.
+          }
+        },
+      });
     });
 
     server.on('error', (err) => reject(err));
@@ -120,64 +137,168 @@ function startCallbackServer(): Promise<CallbackServer> {
 }
 
 /**
+ * Extract Supabase OAuth tokens from a full callback URL, URL fragment, or
+ * query string. Exported for auth-flow contract tests.
+ */
+export function parseOAuthCallbackUrl(callbackUrl: string): CallbackResult {
+  const trimmed = callbackUrl.trim();
+
+  if (!trimmed) {
+    throw new AuthError('No URL provided.');
+  }
+
+  // Supabase usually puts tokens in the fragment:
+  // #access_token=...&refresh_token=...
+  let tokenStr = '';
+  if (trimmed.includes('#')) {
+    tokenStr = trimmed.split('#')[1] ?? '';
+  } else if (trimmed.includes('?')) {
+    tokenStr = trimmed.split('?').slice(1).join('?');
+  } else {
+    // Allow pasting just the fragment/query content.
+    tokenStr = trimmed;
+  }
+
+  const params = new URLSearchParams(tokenStr);
+  const accessToken = params.get('access_token');
+  const refreshToken = params.get('refresh_token');
+  const expiresIn = params.get('expires_in');
+
+  if (!accessToken || !refreshToken) {
+    throw new AuthError(
+      'Could not extract tokens from the URL.\n' +
+        '  Make sure you copied the full callback URL including the #access_token=... part.'
+    );
+  }
+
+  return {
+    accessToken,
+    refreshToken,
+    expiresIn: parseInt(expiresIn ?? '3600', 10),
+  };
+}
+
+function createManualCallbackReader(): ManualCallbackReader | null {
+  if (!process.stdin.isTTY) return null;
+
+  let rl: ReadlineInterface | null = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const promise = new Promise<CallbackResult>((resolve, reject) => {
+    rl?.question(
+      chalk.bold('  If the browser cannot return here, paste the full callback URL: '),
+      (answer) => {
+        const currentRl = rl;
+        rl = null;
+        currentRl?.close();
+
+        try {
+          resolve(parseOAuthCallbackUrl(answer));
+        } catch (error) {
+          reject(error instanceof Error ? error : new AuthError('Failed to parse callback URL.'));
+        }
+      }
+    );
+  });
+
+  return {
+    promise,
+    close: () => {
+      const currentRl = rl;
+      rl = null;
+      currentRl?.close();
+    },
+  };
+}
+
+/**
  * `purvey auth login`
  * Opens a browser for Google OAuth via Supabase, captures the callback token.
  */
 const loginAction = withErrorHandling(async () => {
-  const { port, tokenPromise } = await startCallbackServer();
+  const callbackServer = await startCallbackServer();
+  const { port, tokenPromise } = callbackServer;
   const redirectTo = `http://${DEFAULT_CALLBACK_HOST}:${port}${CALLBACK_PATH}`;
 
-  const supabase = createAnonClient();
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: { redirectTo },
-  });
-
-  if (error || !data.url) {
-    throw new AuthError('Failed to generate OAuth URL.', error);
-  }
-
-  console.log(chalk.bold('\n  Opening browser for authentication...'));
-  console.log(chalk.dim(`  If the browser does not open, visit:\n  ${data.url}\n`));
-
-  // Open browser cross-platform (graceful fallback for headless)
   try {
-    const { spawn } = await import('child_process');
-    const openCmd =
-      process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-    const child = spawn(openCmd, [data.url], { detached: true, stdio: 'ignore' });
-    child.on('error', () => {
-      // Browser open failed (headless environment) — user can visit URL manually
+    const supabase = createAnonClient();
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo },
     });
-    child.unref();
-  } catch {
-    // Gracefully ignore — URL is already printed above
+
+    if (error || !data.url) {
+      throw new AuthError('Failed to generate OAuth URL.', error);
+    }
+
+    console.log(chalk.bold('\n  Opening browser for authentication...'));
+    console.log(chalk.dim(`  If the browser does not open, visit:\n  ${data.url}\n`));
+    console.log(
+      chalk.dim(
+        '  Waiting for the browser callback. If the browser lands on a localhost URL but\n' +
+          '  the CLI does not finish, copy that full URL and paste it below.\n'
+      )
+    );
+
+    // Open browser cross-platform (graceful fallback for headless)
+    try {
+      const { spawn } = await import('child_process');
+      const openCmd =
+        process.platform === 'darwin'
+          ? 'open'
+          : process.platform === 'win32'
+            ? 'start'
+            : 'xdg-open';
+      const child = spawn(openCmd, [data.url], { detached: true, stdio: 'ignore' });
+      child.on('error', () => {
+        // Browser open failed (headless environment) — user can visit URL manually
+      });
+      child.unref();
+    } catch {
+      // Gracefully ignore — URL is already printed above
+    }
+
+    const manualReader = createManualCallbackReader();
+    const spinner = ora({ text: 'Waiting for authentication...', stream: process.stderr }).start();
+
+    let callbackResult: CallbackResult;
+    try {
+      callbackResult = await Promise.race([
+        tokenPromise,
+        ...(manualReader ? [manualReader.promise] : []),
+      ]);
+    } finally {
+      manualReader?.close();
+    }
+
+    const { accessToken, refreshToken, expiresIn } = callbackResult;
+    spinner.succeed('Authentication received');
+
+    // Fetch user info to confirm identity
+    const client = createAnonClient();
+    await client.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+    const {
+      data: { user },
+    } = await client.auth.getUser();
+
+    const creds: StoredCredentials = {
+      accessToken,
+      refreshToken,
+      expiresAt: Date.now() + expiresIn * 1000,
+      user: {
+        id: user?.id ?? 'unknown',
+        email: user?.email ?? 'unknown',
+        role: user?.role,
+      },
+    };
+
+    await writeCredentials(creds);
+    success(`Logged in as ${chalk.bold(creds.user.email)}`);
+  } finally {
+    callbackServer.close();
   }
-
-  const spinner = ora({ text: 'Waiting for authentication...', stream: process.stderr }).start();
-  const { accessToken, refreshToken, expiresIn } = await tokenPromise;
-  spinner.succeed('Authentication received');
-
-  // Fetch user info to confirm identity
-  const client = createAnonClient();
-  await client.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
-  const {
-    data: { user },
-  } = await client.auth.getUser();
-
-  const creds: StoredCredentials = {
-    accessToken,
-    refreshToken,
-    expiresAt: Date.now() + expiresIn * 1000,
-    user: {
-      id: user?.id ?? 'unknown',
-      email: user?.email ?? 'unknown',
-      role: user?.role,
-    },
-  };
-
-  await writeCredentials(creds);
-  success(`Logged in as ${chalk.bold(creds.user.email)}`);
 });
 
 /**
@@ -265,29 +386,7 @@ const headlessLoginAction = withErrorHandling(async () => {
     throw new AuthError('No URL provided.');
   }
 
-  // Extract tokens from the URL fragment or query params
-  // Supabase puts them in the fragment: #access_token=...&refresh_token=...
-  let tokenStr = '';
-  if (callbackUrl.includes('#')) {
-    tokenStr = callbackUrl.split('#')[1];
-  } else if (callbackUrl.includes('?')) {
-    tokenStr = callbackUrl.split('?').slice(1).join('?');
-  } else {
-    // Maybe they pasted just the fragment part
-    tokenStr = callbackUrl;
-  }
-
-  const params = new URLSearchParams(tokenStr);
-  const accessToken = params.get('access_token');
-  const refreshToken = params.get('refresh_token');
-  const expiresIn = params.get('expires_in');
-
-  if (!accessToken || !refreshToken) {
-    throw new AuthError(
-      'Could not extract tokens from the URL.\n' +
-        '  Make sure you copied the full callback URL including the #access_token=... part.'
-    );
-  }
+  const { accessToken, refreshToken, expiresIn } = parseOAuthCallbackUrl(callbackUrl);
 
   const spinner = ora({ text: 'Validating session...', stream: process.stderr }).start();
   const client = createAnonClient();
@@ -304,7 +403,7 @@ const headlessLoginAction = withErrorHandling(async () => {
   const creds: StoredCredentials = {
     accessToken,
     refreshToken,
-    expiresAt: Date.now() + parseInt(expiresIn ?? '3600', 10) * 1000,
+    expiresAt: Date.now() + expiresIn * 1000,
     user: {
       id: user.id,
       email: user.email ?? 'unknown',

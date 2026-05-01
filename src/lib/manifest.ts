@@ -959,6 +959,7 @@ function renderAuthSection(): string[] {
     '----',
     'Interactive login:',
     '  purvey auth login',
+    '  Opens browser, listens for localhost callback, and accepts pasted callback URL if needed',
     '',
     'Headless login:',
     '  purvey auth login --headless',
