@@ -22,6 +22,12 @@ describe('normalizePathInput', () => {
     );
   });
 
+  it('preserves Windows UNC prefixes and backslash path separators', () => {
+    expect(normalizePathInput('\\\\server\\share\\roasts\\brazil\\ boa.alog')).toBe(
+      '\\\\server\\share\\roasts\\brazil boa.alog'
+    );
+  });
+
   it('does not strip unmatched quotes', () => {
     expect(normalizePathInput('"/tmp/unfinished')).toBe('"/tmp/unfinished');
   });

@@ -10,5 +10,5 @@ export function normalizePathInput(value: string): string {
     }
   }
 
-  return normalized.replace(/\\([\\ \"'()&;<>|?*\[\]{}$`!#~])/g, '$1');
+  return normalized.replace(/\\([ \"'()&;<>|?*\[\]{}$`!#~])/g, '$1');
 }
