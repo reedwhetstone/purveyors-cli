@@ -29,6 +29,8 @@ interface ManualCallbackReader {
   close: () => void;
 }
 
+type ManualCallbackQuestion = (query: string, callback: (answer: string) => void) => void;
+
 /**
  * Start a one-shot local HTTP server to receive the Supabase OAuth callback.
  *
@@ -178,39 +180,65 @@ export function parseOAuthCallbackUrl(callbackUrl: string): CallbackResult {
   };
 }
 
-function createManualCallbackReader(): ManualCallbackReader | null {
-  if (!process.stdin.isTTY) return null;
+export function createManualCallbackReaderForQuestion(
+  question: ManualCallbackQuestion,
+  closeQuestion: () => void,
+  canRead: boolean
+): ManualCallbackReader | null {
+  if (!canRead) return null;
 
-  let rl: ReadlineInterface | null = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  let closed = false;
+  const prompt = chalk.bold('  If the browser cannot return here, paste the full callback URL: ');
 
-  const promise = new Promise<CallbackResult>((resolve, reject) => {
-    rl?.question(
-      chalk.bold('  If the browser cannot return here, paste the full callback URL: '),
-      (answer) => {
-        const currentRl = rl;
-        rl = null;
-        currentRl?.close();
+  const promise = new Promise<CallbackResult>((resolve) => {
+    const ask = () => {
+      if (closed) return;
+
+      question(prompt, (answer) => {
+        if (closed) return;
 
         try {
-          resolve(parseOAuthCallbackUrl(answer));
+          const callbackResult = parseOAuthCallbackUrl(answer);
+          closed = true;
+          closeQuestion();
+          resolve(callbackResult);
         } catch (error) {
-          reject(error instanceof Error ? error : new AuthError('Failed to parse callback URL.'));
+          const message = error instanceof Error ? error.message : 'Failed to parse callback URL.';
+          console.log(chalk.yellow(`  Ignoring invalid callback URL: ${message}`));
+          console.log(
+            chalk.dim('  Still waiting for the browser callback; paste a valid URL to retry.')
+          );
+          ask();
         }
-      }
-    );
+      });
+    };
+
+    ask();
   });
 
   return {
     promise,
     close: () => {
-      const currentRl = rl;
-      rl = null;
-      currentRl?.close();
+      if (closed) return;
+      closed = true;
+      closeQuestion();
     },
   };
+}
+
+function createManualCallbackReader(): ManualCallbackReader | null {
+  if (!process.stdin.isTTY) return null;
+
+  const rl: ReadlineInterface = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return createManualCallbackReaderForQuestion(
+    rl.question.bind(rl),
+    () => rl.close(),
+    process.stdin.isTTY
+  );
 }
 
 /**
