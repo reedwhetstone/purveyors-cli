@@ -274,7 +274,7 @@ purvey auth logout
 
 Notes:
 
-- `auth login` uses browser-based Google OAuth, listens for the localhost callback, and also accepts a pasted callback URL if the browser cannot return to the CLI.
+- `auth login` uses browser-based Google OAuth, listens for the localhost callback, and also accepts a pasted callback URL if the browser cannot return to the CLI. Invalid pasted callback URLs are ignored so you can paste again while the CLI keeps waiting.
 - `auth login --headless` prints an OAuth URL and accepts a pasted callback URL.
 - `auth status --json` is the safest mode for scripts.
 - `auth status --csv` is supported for spreadsheet-style checks, but JSON remains the better integration format.
@@ -466,6 +466,7 @@ Notes:
 
 - Roast commands require an authenticated `member` role.
 - `--coffee-id` uses inventory IDs.
+- `roast import` and `roast watch` normalize pasted paths by trimming whitespace, removing one layer of matching quotes, and accepting common shell-escaped characters.
 - `roast watch --auto-match` is mutually exclusive with `--coffee-id`.
 - `roast watch --commit-mode` defaults to `batch`.
 
@@ -648,6 +649,8 @@ purvey roast watch ~/artisan/ --coffee-id 7
 purvey roast watch ~/artisan/ --auto-match
 purvey roast watch --resume
 ```
+
+Watch mode runs until Ctrl+C or SIGTERM. On shutdown it waits for active imports, commits queued batch-mode roasts, prints the verification summary, and leaves session state available for `--resume`.
 
 ### Export records for spreadsheets
 

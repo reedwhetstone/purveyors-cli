@@ -89,7 +89,7 @@ The shipped auth model is role-based:
 
 Google OAuth is available in two supported flows:
 
-- `purvey auth login` for local interactive browser-based sign-in. It listens for the localhost callback and also offers a pasted-callback fallback when the browser lands on a URL the CLI cannot receive.
+- `purvey auth login` for local interactive browser-based sign-in. It listens for the localhost callback and also offers a pasted-callback fallback when the browser lands on a URL the CLI cannot receive. Invalid pasted callback URLs are ignored and retried while the listener remains active.
 - `purvey auth login --headless` for agents, CI, and remote machines
 
 The headless path is a first-class supported environment, not a fallback edge case.
@@ -97,6 +97,12 @@ Auth changes that preserve browser UX but degrade headless agent usability shoul
 treated as product regressions.
 
 Credentials are stored locally in `~/.config/purvey/credentials.json`.
+
+### Artisan path and watch behavior
+
+`roast import` and `roast watch` normalize file and directory path input before filesystem access. They trim whitespace, remove one matching layer of single or double quotes, and unescape common shell-escaped characters so pasted paths from terminals and file pickers behave predictably.
+
+`roast watch` is a long-running operator workflow. It reacts only to new `.alog` files, saves session state for `--resume`, and treats Ctrl+C or SIGTERM as graceful shutdown signals that wait for active imports, commit queued batch-mode roasts, and print a verification summary.
 
 ### Output and reference surfaces
 
