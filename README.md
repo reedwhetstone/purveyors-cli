@@ -68,6 +68,8 @@ purvey auth login
 # For agents, CI, or remote machines, use headless flow:
 # purvey auth login --headless
 
+# If automatic browser callback handling fails, paste the full callback URL back into the terminal.
+
 # 2. Confirm the session and role
 purvey auth status
 
@@ -148,6 +150,8 @@ purvey auth login --headless
 # Open it in any browser and sign in
 # Paste the full callback URL back into the terminal
 ```
+
+If the browser cannot return to the CLI during interactive login, paste the full callback URL back into the terminal. Use `purvey auth login --headless` when you need the CLI to print the OAuth URL for another browser.
 
 Status:
 
@@ -712,7 +716,7 @@ Why this CLI works well for agents:
 
 - stable command names
 - structured stdout by default
-- headless auth flow
+- browser auth with pasted-callback fallback and headless auth
 - documented exit codes and role boundaries
 - dedicated machine-readable manifest command
 - dedicated dense human-readable reference command
