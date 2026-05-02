@@ -1,6 +1,23 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+
+vi.mock('../src/lib/auth-guard.js', () => ({
+  requireAuth: vi.fn(),
+}));
+
+vi.mock('../src/lib/output.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/output.js')>();
+  return {
+    ...actual,
+    info: vi.fn(),
+    outputData: vi.fn(),
+  };
+});
+
+import { buildCatalogCommand } from '../src/commands/catalog.js';
+import { requireAuth } from '../src/lib/auth-guard.js';
 import {
   computeCatalogStats,
+  searchCatalog,
   searchCatalogSchema,
   sanitizeFilterValue,
   findSimilarBeansSchema,
@@ -8,6 +25,10 @@ import {
 } from '../src/lib/catalog.js';
 import type { CatalogItem, SimilarBean } from '../src/lib/catalog.js';
 import type { SupabaseClient } from '@supabase/supabase-js';
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 // Minimal factory so tests are readable without full item payloads
 function makeItem(overrides: Partial<CatalogItem> = {}): CatalogItem {
@@ -19,6 +40,15 @@ function makeItem(overrides: Partial<CatalogItem> = {}): CatalogItem {
     country: 'Ethiopia',
     region: null,
     processing: 'natural',
+    processing_base_method: null,
+    fermentation_type: null,
+    process_additives: null,
+    process_additive_detail: null,
+    fermentation_duration_hours: null,
+    processing_notes: null,
+    processing_disclosure_level: null,
+    processing_confidence: null,
+    processing_evidence_available: null,
     drying_method: null,
     cultivar_detail: null,
     grade: null,
@@ -326,6 +356,27 @@ describe('searchCatalogSchema', () => {
     expect(result.stockedDays).toBeUndefined();
   });
 
+  it('accepts structured process filters', () => {
+    const result = searchCatalogSchema.parse({
+      processingBaseMethod: 'Natural',
+      fermentationType: 'Anaerobic',
+      processAdditive: 'hops',
+      processingDisclosureLevel: 'high_detail',
+      processingConfidenceMin: 0.8,
+    });
+
+    expect(result.processingBaseMethod).toBe('Natural');
+    expect(result.fermentationType).toBe('Anaerobic');
+    expect(result.processAdditive).toBe('hops');
+    expect(result.processingDisclosureLevel).toBe('high_detail');
+    expect(result.processingConfidenceMin).toBe(0.8);
+  });
+
+  it('rejects process confidence thresholds outside 0-1', () => {
+    expect(() => searchCatalogSchema.parse({ processingConfidenceMin: -0.1 })).toThrow();
+    expect(() => searchCatalogSchema.parse({ processingConfidenceMin: 1.1 })).toThrow();
+  });
+
   it('combines variety and dryingMethod with existing fields', () => {
     const result = searchCatalogSchema.parse({
       origin: 'Ethiopia',
@@ -352,6 +403,143 @@ describe('sanitizeFilterValue', () => {
   it('passes clean strings through unchanged', () => {
     expect(sanitizeFilterValue('Ethiopia Guji')).toBe('Ethiopia Guji');
     expect(sanitizeFilterValue('Royal Coffee')).toBe('Royal Coffee');
+  });
+});
+
+// ─── searchCatalog query mapping ─────────────────────────────────────────────
+
+function makeSearchSupabase(response: { data?: unknown; error?: unknown | null } = {}) {
+  const query = {
+    data: response.data ?? [],
+    error: response.error ?? null,
+    or: vi.fn(() => query),
+    ilike: vi.fn(() => query),
+    eq: vi.fn(() => query),
+    contains: vi.fn(() => query),
+    gte: vi.fn(() => query),
+    lte: vi.fn(() => query),
+    in: vi.fn(() => query),
+    order: vi.fn(() => query),
+    range: vi.fn(() => query),
+  };
+  const select = vi.fn(() => query);
+  const from = vi.fn(() => ({ select }));
+
+  return { supabase: { from } as unknown as SupabaseClient, query, select, from };
+}
+
+async function runCatalogCommand(args: string[]): Promise<void> {
+  const command = buildCatalogCommand();
+  command.exitOverride();
+  command.configureOutput({
+    writeOut: () => undefined,
+    writeErr: () => undefined,
+    outputError: () => undefined,
+  });
+
+  await command.parseAsync(['node', 'catalog', ...args], { from: 'node' });
+}
+
+describe('catalog command auth and structured filter parsing', () => {
+  it('requires viewer auth for normal catalog search', async () => {
+    const { supabase } = makeSearchSupabase();
+    vi.mocked(requireAuth).mockResolvedValue({ supabase, userId: 'user-1' });
+
+    await runCatalogCommand(['search', '--origin', 'Ethiopia']);
+
+    expect(requireAuth).toHaveBeenCalledWith('viewer');
+  });
+
+  it('requires member auth when any structured process filter is requested', async () => {
+    const structuredFlags = [
+      ['--processing-base-method', 'Natural'],
+      ['--fermentation-type', 'Anaerobic'],
+      ['--process-additive', 'hops'],
+      ['--processing-disclosure-level', 'high_detail'],
+      ['--processing-confidence-min', '0.8'],
+    ];
+
+    for (const args of structuredFlags) {
+      const { supabase } = makeSearchSupabase();
+      vi.mocked(requireAuth).mockResolvedValueOnce({ supabase, userId: 'user-1' });
+
+      await runCatalogCommand(['search', ...args]);
+    }
+
+    expect(vi.mocked(requireAuth).mock.calls).toEqual([
+      ['member'],
+      ['member'],
+      ['member'],
+      ['member'],
+      ['member'],
+    ]);
+  });
+
+  it('parses and forwards structured process flags to catalog search filters', async () => {
+    const { supabase, query } = makeSearchSupabase();
+    vi.mocked(requireAuth).mockResolvedValue({ supabase, userId: 'user-1' });
+
+    await runCatalogCommand([
+      'search',
+      '--processing-base-method',
+      'Natural',
+      '--fermentation-type',
+      'Anaerobic',
+      '--process-additive',
+      'hops',
+      '--processing-disclosure-level',
+      'high_detail',
+      '--processing-confidence-min',
+      '0.8',
+    ]);
+
+    expect(requireAuth).toHaveBeenCalledWith('member');
+    expect(query.eq).toHaveBeenCalledWith('processing_base_method', 'Natural');
+    expect(query.eq).toHaveBeenCalledWith('fermentation_type', 'Anaerobic');
+    expect(query.contains).toHaveBeenCalledWith('process_additives', ['hops']);
+    expect(query.eq).toHaveBeenCalledWith('processing_disclosure_level', 'high_detail');
+    expect(query.gte).toHaveBeenCalledWith('processing_confidence', 0.8);
+  });
+
+  it('rejects invalid processing confidence before auth', async () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((
+      code?: number | string | null
+    ) => {
+      throw new Error(`process.exit:${code}`);
+    }) as never);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    try {
+      await expect(
+        runCatalogCommand(['search', '--processing-confidence-min', '1.5'])
+      ).rejects.toThrow('process.exit:2');
+
+      expect(requireAuth).not.toHaveBeenCalled();
+      expect(String(stderrSpy.mock.calls[0]?.[0])).toContain('INVALID_ARGUMENT');
+    } finally {
+      stderrSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+  });
+});
+
+describe('searchCatalog', () => {
+  it('maps structured process filters to canonical catalog columns', async () => {
+    const { supabase, query } = makeSearchSupabase();
+
+    await searchCatalog(supabase, {
+      processingBaseMethod: 'Natural',
+      fermentationType: 'Anaerobic',
+      processAdditive: 'hops',
+      processingDisclosureLevel: 'high_detail',
+      processingConfidenceMin: 0.8,
+    });
+
+    expect(query.eq).toHaveBeenCalledWith('processing_base_method', 'Natural');
+    expect(query.eq).toHaveBeenCalledWith('fermentation_type', 'Anaerobic');
+    expect(query.contains).toHaveBeenCalledWith('process_additives', ['hops']);
+    expect(query.eq).toHaveBeenCalledWith('processing_disclosure_level', 'high_detail');
+    expect(query.gte).toHaveBeenCalledWith('processing_confidence', 0.8);
   });
 });
 

@@ -11,6 +11,15 @@ export interface CatalogItem {
   country: string | null;
   region: string | null;
   processing: string | null;
+  processing_base_method: string | null;
+  fermentation_type: string | null;
+  process_additives: string[] | null;
+  process_additive_detail: string | null;
+  fermentation_duration_hours: number | null;
+  processing_notes: string | null;
+  processing_disclosure_level: string | null;
+  processing_confidence: number | null;
+  processing_evidence_available: boolean | null;
   drying_method: string | null;
   cultivar_detail: string | null;
   grade: string | null;
@@ -79,6 +88,11 @@ export const searchCatalogSchema = z.object({
   variety: z.string().optional(),
   dryingMethod: z.string().optional(),
   stockedDays: z.number().int().positive().optional(),
+  processingBaseMethod: z.string().optional(),
+  fermentationType: z.string().optional(),
+  processAdditive: z.string().optional(),
+  processingDisclosureLevel: z.string().optional(),
+  processingConfidenceMin: z.number().min(0).max(1).optional(),
 });
 
 export type SearchCatalogInput = z.input<typeof searchCatalogSchema>;
@@ -185,6 +199,29 @@ export async function searchCatalog(
   if (parsed.process) {
     const p = sanitizeFilterValue(parsed.process);
     query = query.ilike('processing', `%${p}%`);
+  }
+
+  if (parsed.processingBaseMethod) {
+    query = query.eq('processing_base_method', sanitizeFilterValue(parsed.processingBaseMethod));
+  }
+
+  if (parsed.fermentationType) {
+    query = query.eq('fermentation_type', sanitizeFilterValue(parsed.fermentationType));
+  }
+
+  if (parsed.processAdditive) {
+    query = query.contains('process_additives', [sanitizeFilterValue(parsed.processAdditive)]);
+  }
+
+  if (parsed.processingDisclosureLevel) {
+    query = query.eq(
+      'processing_disclosure_level',
+      sanitizeFilterValue(parsed.processingDisclosureLevel)
+    );
+  }
+
+  if (parsed.processingConfidenceMin !== undefined) {
+    query = query.gte('processing_confidence', parsed.processingConfidenceMin);
   }
 
   if (parsed.priceMin !== undefined) {

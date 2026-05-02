@@ -54,7 +54,9 @@ function parseNonNegativeIntegerArg(rawValue: string, message: string): number {
 
 /**
  * `purvey catalog` — Browse the coffee catalog.
- * Requires an authenticated viewer session.
+ * Requires an authenticated viewer session. Structured process filters on
+ * `catalog search` require member access under the current session-authenticated
+ * CLI path.
  */
 export function buildCatalogCommand(): Command {
   const catalog = new Command('catalog').description('Browse the coffee catalog');
@@ -65,6 +67,11 @@ export function buildCatalogCommand(): Command {
     .description('Search coffees by origin, process, price, or flavor')
     .option('--origin <origin>', 'Filter by origin (country, continent, or region)')
     .option('--process <method>', 'Filter by processing method (e.g. natural, washed)')
+    .option('--processing-base-method <method>', 'Filter by canonical process base method')
+    .option('--fermentation-type <type>', 'Filter by structured fermentation type')
+    .option('--process-additive <additive>', 'Filter by disclosed process additive')
+    .option('--processing-disclosure-level <level>', 'Filter by process disclosure level')
+    .option('--processing-confidence-min <n>', 'Minimum process metadata confidence (0-1)')
     .option('--price-min <n>', 'Minimum price per lb (USD)')
     .option('--price-max <n>', 'Maximum price per lb (USD)')
     .option('--flavor <keywords>', 'Flavor keywords, comma-separated (e.g. "berry,chocolate")')
@@ -85,6 +92,8 @@ Examples:
   purvey catalog search --origin "Ethiopia" --pretty
   purvey catalog search --origin "Colombia" --process "honey" --pretty
   purvey catalog search --process "natural" --flavor "blueberry,citrus" --stocked
+  purvey catalog search --processing-base-method "Natural" --fermentation-type "Anaerobic" --pretty
+  purvey catalog search --process-additive "hops" --processing-confidence-min 0.8 --pretty
   purvey catalog search --price-min 5 --price-max 12 --stocked --limit 20
   purvey catalog search --stocked --sort price --pretty
   purvey catalog search --sort newest --limit 20
@@ -108,6 +117,14 @@ Sort fields:
 Notes:
   All filters are optional. Without flags, returns up to --limit results.
   --origin accepts partial matches (e.g. "Ethiopia" matches "Ethiopia Guji").
+  Structured process filters map to canonical /v1/catalog query names.
+  --process remains the legacy broad processing-label filter.
+  --processing-base-method, --fermentation-type, --process-additive,
+  --processing-disclosure-level, and --processing-confidence-min require member
+  access under the current session-authenticated CLI path.
+  --processing-base-method, --fermentation-type, --process-additive, and
+  --processing-disclosure-level require exact structured metadata matches.
+  --processing-confidence-min accepts a decimal from 0 to 1.
   --name and --supplier accept partial matches (case-insensitive).
   --variety filters on cultivar_detail (partial match, case-insensitive).
   --drying-method filters on drying_method (partial match, case-insensitive).
@@ -170,6 +187,22 @@ Notes:
                 `Invalid --stocked-days: "${opts.stockedDays}". Must be a positive integer.`
               )
             : undefined;
+        const processingConfidenceMin =
+          opts.processingConfidenceMin !== undefined
+            ? parseFiniteNumberArg(
+                opts.processingConfidenceMin as string,
+                `Invalid --processing-confidence-min: "${opts.processingConfidenceMin}". Must be a number from 0 to 1.`
+              )
+            : undefined;
+        if (
+          processingConfidenceMin !== undefined &&
+          (processingConfidenceMin < 0 || processingConfidenceMin > 1)
+        ) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid --processing-confidence-min: "${opts.processingConfidenceMin}". Must be a number from 0 to 1.`
+          );
+        }
         const offset =
           opts.offset !== undefined
             ? parseNonNegativeIntegerArg(
@@ -182,7 +215,14 @@ Notes:
           `Invalid --limit: "${opts.limit}". Must be a positive integer.`
         );
 
-        const { supabase } = await requireAuth('viewer');
+        const hasStructuredProcessFilters =
+          opts.processingBaseMethod !== undefined ||
+          opts.fermentationType !== undefined ||
+          opts.processAdditive !== undefined ||
+          opts.processingDisclosureLevel !== undefined ||
+          opts.processingConfidenceMin !== undefined;
+        const requiredRole = hasStructuredProcessFilters ? 'member' : 'viewer';
+        const { supabase } = await requireAuth(requiredRole);
 
         const data = await searchCatalog(supabase, {
           origin: opts.origin as string | undefined,
@@ -196,6 +236,11 @@ Notes:
           variety: opts.variety as string | undefined,
           dryingMethod: opts.dryingMethod as string | undefined,
           stockedDays,
+          processingBaseMethod: opts.processingBaseMethod as string | undefined,
+          fermentationType: opts.fermentationType as string | undefined,
+          processAdditive: opts.processAdditive as string | undefined,
+          processingDisclosureLevel: opts.processingDisclosureLevel as string | undefined,
+          processingConfidenceMin,
           stocked: opts.stocked ? true : undefined,
           sort: sortValue as CatalogSortField | undefined,
           offset,

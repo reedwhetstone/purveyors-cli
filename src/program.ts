@@ -69,7 +69,7 @@ Authentication:
   auth status       Show current login status and role
   auth logout       Clear stored credentials
 
-Catalog (viewer role required, authentication needed):
+Catalog (viewer role required, member role required for structured process filters):
   catalog search    Search the coffee catalog with filters
   catalog get       Get details for a specific coffee by ID
   catalog stats     Aggregate statistics for the catalog
