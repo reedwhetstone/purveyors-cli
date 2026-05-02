@@ -68,6 +68,10 @@ purvey auth login
 # For agents, CI, or remote machines, use headless flow:
 # purvey auth login --headless
 
+# If automatic browser callback handling fails, use manual flow:
+# purvey auth login --manual
+# Open the printed OAuth URL, then paste the full callback URL back into the terminal
+
 # 2. Confirm the session and role
 purvey auth status
 
@@ -143,6 +147,15 @@ Headless login for agents, CI, and remote machines:
 
 ```bash
 purvey auth login --headless
+# CLI prints a Google OAuth URL
+# Open it in any browser and sign in
+# Paste the full callback URL back into the terminal
+```
+
+Manual login for cases where automatic browser opening or callback handling fails:
+
+```bash
+purvey auth login --manual
 # CLI prints a Google OAuth URL
 # Open it in any browser and sign in
 # Paste the full callback URL back into the terminal
@@ -256,6 +269,7 @@ fi
 
 - `purvey auth login`
 - `purvey auth login --headless`
+- `purvey auth login --manual`
 - `purvey auth status`
 - `purvey auth status --json`
 - `purvey auth status --pretty`
@@ -267,6 +281,7 @@ Examples:
 ```bash
 purvey auth login
 purvey auth login --headless
+purvey auth login --manual
 purvey auth status --pretty
 purvey auth status --csv
 purvey auth logout
@@ -276,6 +291,7 @@ Notes:
 
 - `auth login` uses browser-based Google OAuth, listens for the localhost callback, and also accepts a pasted callback URL if the browser cannot return to the CLI.
 - `auth login --headless` prints an OAuth URL and accepts a pasted callback URL.
+- `auth login --manual` forces the pasted-callback flow when automatic browser handling is unreliable.
 - `auth status --json` is the safest mode for scripts.
 - `auth status --csv` is supported for spreadsheet-style checks, but JSON remains the better integration format.
 
@@ -699,7 +715,7 @@ Why this CLI works well for agents:
 
 - stable command names
 - structured stdout by default
-- headless auth flow
+- headless and manual auth flows
 - documented exit codes and role boundaries
 - dedicated machine-readable manifest command
 - dedicated dense human-readable reference command
@@ -717,6 +733,8 @@ The scripting contract is simple: stdout carries successful payloads, stderr car
 purvey auth login
 # or
 purvey auth login --headless
+# or
+purvey auth login --manual
 ```
 
 **Catalog commands fail after logging in**

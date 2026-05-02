@@ -28,7 +28,7 @@ Use this file as the single maintained guide for humans and agents. `CLAUDE.md` 
 
 Current command groups:
 
-- `auth`: `login`, `status`, `logout`
+- `auth`: `login` (`--headless`, `--manual`), `status`, `logout`
 - `catalog`: `search` (filters: origin, process, price-min/max, flavor, name, supplier, ids, stocked, variety, drying-method, stocked-days, sort, offset, limit), `get <id>`, `stats`, `similar <id>`
 - `inventory`: `list` (filters: stocked, catalog-id, purchase-date-start, purchase-date-end, origin, limit, offset), `get <id>`, `add`, `update <id>`, `delete <id>` (`--force` for cascade delete)
 - `roast`: `list` (filters: coffee-id, roast-id, batch-name, coffee-name, date-start, date-end, stocked, catalog-id, limit, offset), `get <id>`, `create`, `update <id>`, `delete <id>`, `import [file]`, `watch [directory]`
@@ -98,7 +98,7 @@ tests/                Vitest coverage
 
 Command files:
 
-- `auth.ts`: browser and headless OAuth, status, logout
+- `auth.ts`: browser, headless, and manual OAuth, status, logout
 - `catalog.ts`: catalog search, fetch, stats, similar-bean lookup
 - `inventory.ts`: personal green coffee inventory CRUD
 - `roast.ts`: roast CRUD, Artisan import, watch mode
