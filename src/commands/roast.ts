@@ -21,6 +21,7 @@ import type {
   ImportRoastResult,
 } from '../lib/roast.js';
 import { pickBean, guardCancel } from '../lib/interactive/forms.js';
+import { normalizePathInput } from '../lib/path-input.js';
 import { startWatch, loadWatchSession } from '../lib/interactive/watch.js';
 import { getConfigValue } from '../lib/config.js';
 import type { OutputOptions } from '../types/index.js';
@@ -489,7 +490,7 @@ Required: <file> path and --coffee-id (unless using --form)
             });
             guardCancel(filePathRaw);
 
-            const filePath = String(filePathRaw).trim();
+            const filePath = normalizePathInput(String(filePathRaw));
 
             // Validate file exists (async check after prompt)
             try {
@@ -581,15 +582,20 @@ Required: <file> path and --coffee-id (unless using --form)
           }
 
           // 1. Validate file exists and is readable
+          const filePath = normalizePathInput(file);
+
           try {
-            await access(file);
+            await access(filePath);
           } catch {
-            throw new PrvrsError('INVALID_ARGUMENT', `File not found or not readable: "${file}"`);
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              `File not found or not readable: "${filePath}"`
+            );
           }
 
           // 2. Read file content
-          const fileContent = await readFile(file, 'utf-8');
-          const fileName = basename(file);
+          const fileContent = await readFile(filePath, 'utf-8');
+          const fileName = basename(filePath);
 
           // 3. Authenticate
           const { supabase, userId } = await requireAuth('member');
@@ -763,7 +769,7 @@ Notes:
           });
           guardCancel(dirRaw);
 
-          const watchDir = String(dirRaw).trim();
+          const watchDir = normalizePathInput(String(dirRaw));
 
           try {
             await access(watchDir);
@@ -949,7 +955,9 @@ Notes:
 
         const batchPrefix = (opts.batchPrefix as string | undefined) ?? coffeeName;
 
-        await startWatch(supabase, userId, directory, {
+        const watchDir = normalizePathInput(directory);
+
+        await startWatch(supabase, userId, watchDir, {
           coffeeId,
           coffeeName,
           batchPrefix,
