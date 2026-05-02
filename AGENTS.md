@@ -28,7 +28,7 @@ Use this file as the single maintained guide for humans and agents. `CLAUDE.md` 
 
 Current command groups:
 
-- `auth`: `login` (`--headless`, `--manual`), `status`, `logout`
+- `auth`: `login`, `status`, `logout`
 - `catalog`: `search` (filters: origin, process, price-min/max, flavor, name, supplier, ids, stocked, variety, drying-method, stocked-days, sort, offset, limit), `get <id>`, `stats`, `similar <id>`
 - `inventory`: `list` (filters: stocked, catalog-id, purchase-date-start, purchase-date-end, origin, limit, offset), `get <id>`, `add`, `update <id>`, `delete <id>` (`--force` for cascade delete)
 - `roast`: `list` (filters: coffee-id, roast-id, batch-name, coffee-name, date-start, date-end, stocked, catalog-id, limit, offset), `get <id>`, `create`, `update <id>`, `delete <id>`, `import [file]`, `watch [directory]`
@@ -98,7 +98,7 @@ tests/                Vitest coverage
 
 Command files:
 
-- `auth.ts`: browser, headless, and manual OAuth, status, logout
+- `auth.ts`: browser OAuth with pasted-callback fallback, headless OAuth, status, logout
 - `catalog.ts`: catalog search, fetch, stats, similar-bean lookup
 - `inventory.ts`: personal green coffee inventory CRUD
 - `roast.ts`: roast CRUD, Artisan import, watch mode
@@ -117,6 +117,8 @@ Command files:
 - `auth`, `config`, `context`, and `manifest` do not require a pre-existing authenticated session.
 - `catalog`, `inventory`, `roast`, `sales`, and `tasting` require authentication.
 - Keep docs aligned with actual handler behavior. If auth requirements change, update README, help text, and context in the same PR.
+- Preserve both supported login paths: browser OAuth with localhost callback capture plus pasted-callback fallback, and `auth login --headless` for agents, CI, SSH sessions, and remote hosts.
+- The browser-login pasted-callback fallback must ignore invalid callback URLs and keep waiting so users can retry while the localhost callback listener remains active.
 - Exit code `3` is returned on any auth failure (not logged in, expired session, or insufficient role).
 
 ### Machine contract and exports
@@ -180,6 +182,8 @@ The published package and binary run from `dist/`, not `src/`. Any command-surfa
 - `sales --roast-id` expects a roast ID, not an inventory ID or catalog ID.
 - `context.ts` and `manifest.ts` are easy to forget when command flags or output behavior change.
 - `inventory list`, `roast list`, and `sales list` all support `--offset` for pagination. Keep docs in sync when adding new list flags.
+- `roast import` and `roast watch` normalize file and directory path input by trimming whitespace, removing one layer of matching quotes, and unescaping common shell-escaped characters. Preserve this when changing Artisan workflows.
+- `roast watch` must remain graceful on shutdown: Ctrl+C, raw Ctrl+C key input, or SIGTERM should wait for active imports, commit queued batch-mode roasts, print the verification summary, and keep `--resume` state coherent.
 - Catalog commands require viewer auth. Downstream docs (coffee-app site, etc.) that claim catalog access is unauthenticated are wrong and should align with this repo.
 
 ## Release Notes

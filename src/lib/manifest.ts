@@ -133,8 +133,16 @@ const docs: CliDocLink[] = [
 ];
 
 const roles: CliRoleContract[] = [
-  { role: 'viewer', description: 'valid authenticated session; required for all catalog commands' },
-  { role: 'member', description: 'required for inventory, roast, sales, and tasting commands' },
+  {
+    role: 'viewer',
+    description:
+      'valid authenticated session; required for catalog commands except structured process filters',
+  },
+  {
+    role: 'member',
+    description:
+      'required for inventory, roast, sales, tasting, and catalog search structured process filters under the current session-authenticated CLI path',
+  },
 ];
 
 const globalOptions: CliOptionContract[] = [
@@ -246,16 +254,22 @@ const commandGroups: CliCommandGroupContract[] = [
   },
   {
     name: 'catalog',
-    summary: 'Browse the coffee catalog',
+    summary: 'Browse the coffee catalog; structured process filters require member access',
     auth: 'viewer',
     subcommands: [
       {
         name: 'search',
-        summary: 'Search coffees by origin, process, price, flavor, and catalog metadata',
+        summary:
+          'Search coffees by origin, process, price, flavor, and catalog metadata; structured process filters require member access',
         auth: 'viewer',
         options: [
           { flags: '--origin <origin>' },
           { flags: '--process <method>' },
+          { flags: '--processing-base-method <method>' },
+          { flags: '--fermentation-type <type>' },
+          { flags: '--process-additive <additive>' },
+          { flags: '--processing-disclosure-level <level>' },
+          { flags: '--processing-confidence-min <n>' },
           { flags: '--price-min <n>' },
           { flags: '--price-max <n>' },
           { flags: '--flavor <keywords>' },
@@ -272,11 +286,15 @@ const commandGroups: CliCommandGroupContract[] = [
         ],
         notes: [
           'All filters are optional. Without flags, returns up to --limit results.',
+          'Structured process filters map to canonical /v1/catalog query names.',
+          'Structured process filters require member access under the current session-authenticated CLI path.',
           '--ids fetches specific catalog items by ID, ignoring --limit and --offset.',
           '--offset + --limit enables pagination through large result sets.',
         ],
         examples: [
           'purvey catalog search --origin "Ethiopia" --process "natural" --pretty',
+          'purvey catalog search --processing-base-method "Natural" --fermentation-type "Anaerobic" --pretty',
+          'purvey catalog search --process-additive "hops" --processing-confidence-min 0.8 --pretty',
           'purvey catalog search --variety "gesha" --stocked --pretty',
           'purvey catalog search --drying-method "sun" --origin "Ethiopia" --pretty',
           'purvey catalog search --stocked-days 30 --pretty',

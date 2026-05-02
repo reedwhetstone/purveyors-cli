@@ -68,9 +68,7 @@ purvey auth login
 # For agents, CI, or remote machines, use headless flow:
 # purvey auth login --headless
 
-# If automatic browser callback handling fails, use manual flow:
-# purvey auth login --manual
-# Open the printed OAuth URL, then paste the full callback URL back into the terminal
+# If automatic browser callback handling fails, paste the full callback URL back into the terminal.
 
 # 2. Confirm the session and role
 purvey auth status
@@ -132,7 +130,8 @@ No pre-existing session is required for `auth`, `config`, `context`, or `manifes
 
 All remote data commands require a valid authenticated session:
 
-- `catalog` requires the `viewer` role
+- `catalog` requires the `viewer` role by default
+- `catalog search` structured process filters require the `member` role under the current session-authenticated CLI path
 - `inventory`, `roast`, `sales`, and `tasting` require the `member` role
 
 `purvey` uses Google OAuth through purveyors.io.
@@ -152,14 +151,7 @@ purvey auth login --headless
 # Paste the full callback URL back into the terminal
 ```
 
-Manual login for cases where automatic browser opening or callback handling fails:
-
-```bash
-purvey auth login --manual
-# CLI prints a Google OAuth URL
-# Open it in any browser and sign in
-# Paste the full callback URL back into the terminal
-```
+If the browser cannot return to the CLI during interactive login, paste the full callback URL back into the terminal. Use `purvey auth login --headless` when you need the CLI to print the OAuth URL for another browser.
 
 Status:
 
@@ -179,10 +171,10 @@ Credentials are stored at `~/.config/purvey/credentials.json`.
 
 ### Auth roles
 
-| Role     | Access                                                              |
-| -------- | ------------------------------------------------------------------- |
-| `viewer` | `catalog search`, `catalog get`, `catalog stats`, `catalog similar` |
-| `member` | All viewer commands, plus `inventory`, `roast`, `sales`, `tasting`  |
+| Role     | Access                                                                                                                                                      |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `viewer` | `catalog search`, `catalog get`, `catalog stats`, `catalog similar`, excluding structured process filters                                                   |
+| `member` | All viewer commands, structured process filters on `catalog search`, plus `inventory`, `roast`, `sales`, `tasting` under the session-authenticated CLI path |
 
 `auth`, `config`, `context`, and `manifest` remain available without a pre-existing session.
 
@@ -269,7 +261,6 @@ fi
 
 - `purvey auth login`
 - `purvey auth login --headless`
-- `purvey auth login --manual`
 - `purvey auth status`
 - `purvey auth status --json`
 - `purvey auth status --pretty`
@@ -281,7 +272,6 @@ Examples:
 ```bash
 purvey auth login
 purvey auth login --headless
-purvey auth login --manual
 purvey auth status --pretty
 purvey auth status --csv
 purvey auth logout
@@ -289,9 +279,8 @@ purvey auth logout
 
 Notes:
 
-- `auth login` uses browser-based Google OAuth, listens for the localhost callback, and also accepts a pasted callback URL if the browser cannot return to the CLI.
+- `auth login` uses browser-based Google OAuth, listens for the localhost callback, and also accepts a pasted callback URL if the browser cannot return to the CLI. Invalid pasted callback URLs are ignored so you can paste again while the CLI keeps waiting.
 - `auth login --headless` prints an OAuth URL and accepts a pasted callback URL.
-- `auth login --manual` forces the pasted-callback flow when automatic browser handling is unreliable.
 - `auth status --json` is the safest mode for scripts.
 - `auth status --csv` is supported for spreadsheet-style checks, but JSON remains the better integration format.
 
@@ -306,6 +295,11 @@ Notes:
 
 - `--origin <text>`; origin, country, continent, or region
 - `--process <method>`; processing method
+- `--processing-base-method <method>`; canonical structured process base method
+- `--fermentation-type <type>`; structured fermentation type
+- `--process-additive <additive>`; disclosed process additive
+- `--processing-disclosure-level <level>`; structured process disclosure level
+- `--processing-confidence-min <n>`; minimum structured process confidence from `0` to `1`
 - `--price-min <n>`; minimum USD/lb
 - `--price-max <n>`; maximum USD/lb
 - `--flavor <keywords>`; comma-separated flavor terms
@@ -330,6 +324,8 @@ Examples:
 
 ```bash
 purvey catalog search --origin "Ethiopia" --pretty
+purvey catalog search --processing-base-method "Natural" --fermentation-type "Anaerobic" --pretty
+purvey catalog search --process-additive "hops" --processing-confidence-min 0.8 --pretty
 purvey catalog search --supplier "Royal Coffee" --stocked --pretty
 purvey catalog search --ids "1182,1183,1200"
 purvey catalog search --stocked --sort price --offset 10 --limit 10
@@ -340,7 +336,9 @@ purvey catalog get 1182 --pretty
 
 Notes:
 
-- Catalog commands require an authenticated `viewer` role.
+- Catalog commands require an authenticated `viewer` role by default.
+- Structured process filters on `catalog search` require an authenticated `member` role under the current session-authenticated CLI path.
+- Structured process filters use the canonical `/v1/catalog` query contract names while preserving the legacy `--process` label filter.
 - `catalog get` and `catalog similar` both take `coffee_catalog.catalog_id`.
 - `catalog stats` returns aggregate catalog metrics, not your personal inventory metrics.
 
@@ -482,6 +480,7 @@ Notes:
 
 - Roast commands require an authenticated `member` role.
 - `--coffee-id` uses inventory IDs.
+- `roast import` and `roast watch` normalize pasted paths by trimming whitespace, removing one layer of matching quotes, and accepting common shell-escaped characters.
 - `roast watch --auto-match` is mutually exclusive with `--coffee-id`.
 - `roast watch --commit-mode` defaults to `batch`.
 
@@ -665,6 +664,8 @@ purvey roast watch ~/artisan/ --auto-match
 purvey roast watch --resume
 ```
 
+Watch mode runs until Ctrl+C or SIGTERM. On shutdown it waits for active imports, commits queued batch-mode roasts, prints the verification summary, and leaves session state available for `--resume`.
+
 ### Export records for spreadsheets
 
 ```bash
@@ -715,7 +716,7 @@ Why this CLI works well for agents:
 
 - stable command names
 - structured stdout by default
-- headless and manual auth flows
+- browser auth with pasted-callback fallback and headless auth
 - documented exit codes and role boundaries
 - dedicated machine-readable manifest command
 - dedicated dense human-readable reference command
@@ -733,8 +734,6 @@ The scripting contract is simple: stdout carries successful payloads, stderr car
 purvey auth login
 # or
 purvey auth login --headless
-# or
-purvey auth login --manual
 ```
 
 **Catalog commands fail after logging in**
