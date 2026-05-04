@@ -675,6 +675,32 @@ describe('searchCatalog', () => {
     });
   });
 
+  it('ignores pagination flags for include-proof ID searches', async () => {
+    process.env.PURVEYORS_BASE_URL = 'https://example.test';
+    process.env.PARCHMENT_API_KEY = 'parchment-key';
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [makeItem({ id: 11 }), makeItem({ id: 12 })] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const supabase = { auth: { getSession: vi.fn() } } as unknown as SupabaseClient;
+
+    const data = await searchCatalog(supabase, {
+      ids: [11, 12],
+      offset: 5,
+      limit: 2,
+      includeProof: true,
+    });
+
+    const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(requestUrl.searchParams.getAll('ids')).toEqual(['11', '12']);
+    expect(requestUrl.searchParams.get('page')).toBeNull();
+    expect(requestUrl.searchParams.get('limit')).toBeNull();
+    expect(data.map((item) => item.id)).toEqual([11, 12]);
+  });
+
   it('uses API key env when available for include-proof catalog reads', async () => {
     process.env.PARCHMENT_API_KEY = 'parchment-key';
     const fetchMock = vi.fn().mockResolvedValue(
@@ -721,7 +747,7 @@ describe('searchCatalog', () => {
     const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
     expect(requestUrl.searchParams.get('include')).toBe('proof');
     expect(requestUrl.searchParams.getAll('ids')).toEqual(['42']);
-    expect(requestUrl.searchParams.get('limit')).toBe('1');
+    expect(requestUrl.searchParams.get('limit')).toBeNull();
     expect(data.proof).toEqual(proof);
   });
 

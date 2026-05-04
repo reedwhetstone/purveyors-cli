@@ -221,6 +221,10 @@ function appendSearchParam(
   params.append(name, String(value));
 }
 
+function hasCatalogIdFilter(parsed: Pick<z.infer<typeof searchCatalogSchema>, 'ids'>): boolean {
+  return parsed.ids !== undefined && parsed.ids.length > 0;
+}
+
 function assertCatalogApiCompatibleSearch(parsed: z.infer<typeof searchCatalogSchema>): void {
   const unsupportedFilters: string[] = [];
   if (parsed.flavor) unsupportedFilters.push('--flavor');
@@ -236,6 +240,8 @@ function assertCatalogApiCompatibleSearch(parsed: z.infer<typeof searchCatalogSc
       )} yet. Omit those filters or run the default catalog search without --include-proof.`
     );
   }
+
+  if (hasCatalogIdFilter(parsed)) return;
 
   const offset = parsed.offset ?? 0;
   if (offset > 0 && offset % parsed.limit !== 0) {
@@ -278,11 +284,13 @@ function buildCatalogApiUrl(parsed: z.infer<typeof searchCatalogSchema>): URL {
     params.set('sortDirection', sort.direction);
   }
 
-  const offset = parsed.offset ?? 0;
-  const limit = parsed.limit;
-  params.set('limit', String(limit));
-  if (offset > 0) {
-    params.set('page', String(Math.floor(offset / limit) + 1));
+  if (!hasCatalogIdFilter(parsed)) {
+    const offset = parsed.offset ?? 0;
+    const limit = parsed.limit;
+    params.set('limit', String(limit));
+    if (offset > 0) {
+      params.set('page', String(Math.floor(offset / limit) + 1));
+    }
   }
 
   return url;
