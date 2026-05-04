@@ -283,6 +283,14 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--sort <field>' },
           { flags: '--offset <n>', defaultValue: 0 },
           { flags: '--limit <n>', defaultValue: 10 },
+          {
+            flags: '--include-proof',
+            description: 'Request canonical proof summaries from /v1/catalog?include=proof',
+            notes: [
+              'Consumes the API proof summary; the CLI does not compute proof scores.',
+              'If the configured endpoint has not deployed include=proof, the CLI surfaces the structured API error.',
+            ],
+          },
         ],
         notes: [
           'All filters are optional. Without flags, returns up to --limit results.',
@@ -290,6 +298,8 @@ const commandGroups: CliCommandGroupContract[] = [
           'Structured process filters require member access under the current session-authenticated CLI path.',
           '--ids fetches specific catalog items by ID, ignoring --limit and --offset.',
           '--offset + --limit enables pagination through large result sets.',
+          '--include-proof uses the canonical /v1/catalog proof summary include and preserves the default output shape when omitted.',
+          '--include-proof rejects CLI-only filters that /v1/catalog cannot yet preserve exactly, including --flavor, --supplier, --drying-method, and --sort newest.',
         ],
         examples: [
           'purvey catalog search --origin "Ethiopia" --process "natural" --pretty',
@@ -298,6 +308,7 @@ const commandGroups: CliCommandGroupContract[] = [
           'purvey catalog search --variety "gesha" --stocked --pretty',
           'purvey catalog search --drying-method "sun" --origin "Ethiopia" --pretty',
           'purvey catalog search --stocked-days 30 --pretty',
+          'purvey catalog search --origin "Ethiopia" --include-proof --json',
         ],
       },
       {
@@ -313,7 +324,17 @@ const commandGroups: CliCommandGroupContract[] = [
             idType: 'catalog_id',
           },
         ],
-        examples: ['purvey catalog get 128 --pretty'],
+        options: [
+          {
+            flags: '--include-proof',
+            description: 'Request the canonical proof summary from /v1/catalog?include=proof',
+            notes: ['Consumes the API proof summary; the CLI does not compute proof scores.'],
+          },
+        ],
+        examples: [
+          'purvey catalog get 128 --pretty',
+          'purvey catalog get 128 --include-proof --json',
+        ],
       },
       {
         name: 'stats',

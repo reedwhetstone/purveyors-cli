@@ -313,6 +313,7 @@ Notes:
 - `--sort <price|price-desc|name|origin|newest>`
 - `--offset <n>`; pagination offset
 - `--limit <n>`; default `10`
+- `--include-proof`; request canonical proof summaries from `/v1/catalog?include=proof`
 
 `catalog similar <id>` options:
 
@@ -329,9 +330,12 @@ purvey catalog search --process-additive "hops" --processing-confidence-min 0.8 
 purvey catalog search --supplier "Royal Coffee" --stocked --pretty
 purvey catalog search --ids "1182,1183,1200"
 purvey catalog search --stocked --sort price --offset 10 --limit 10
+purvey catalog search --origin "Ethiopia" --include-proof --json
+PARCHMENT_API_KEY="$PURVEYORS_API_KEY" purvey catalog search --origin "Ethiopia" --include-proof --limit 5 --json
 purvey catalog similar 1182 --threshold 0.85 --stocked-only --pretty
 purvey catalog stats --pretty
 purvey catalog get 1182 --pretty
+purvey catalog get 1182 --include-proof --json
 ```
 
 Notes:
@@ -339,6 +343,9 @@ Notes:
 - Catalog commands require an authenticated `viewer` role by default.
 - Structured process filters on `catalog search` require an authenticated `member` role under the current session-authenticated CLI path.
 - Structured process filters use the canonical `/v1/catalog` query contract names while preserving the legacy `--process` label filter.
+- `--include-proof` is an opt-in API-backed catalog read. It consumes the canonical proof summary returned by `/v1/catalog?include=proof`; the CLI does not compute proof scores or duplicate web/API proof logic.
+- `--include-proof` rejects CLI-only filters that `/v1/catalog` cannot yet preserve exactly, such as `--flavor`, `--supplier`, `--drying-method`, and `--sort newest`.
+- If you want proof output against an API-key deployment, set `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY` before running the command. Otherwise the CLI uses your logged-in Purveyors session token.
 - `catalog get` and `catalog similar` both take `coffee_catalog.catalog_id`.
 - `catalog stats` returns aggregate catalog metrics, not your personal inventory metrics.
 
