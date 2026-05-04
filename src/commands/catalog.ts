@@ -13,10 +13,35 @@ import {
 } from '../lib/catalog.js';
 import type { CatalogItem, CatalogStats, CatalogSortField, SimilarBean } from '../lib/catalog.js';
 import type { OutputOptions } from '../types/index.js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 // Re-export types and helpers for backwards compatibility
 export type { CatalogItem, CatalogStats };
 export { sanitizeFilterValue, computeCatalogStats };
+
+function hasCatalogApiKeyEnv(): boolean {
+  return Boolean(process.env.PARCHMENT_API_KEY || process.env.PURVEYORS_API_KEY);
+}
+
+function createApiKeyOnlyCatalogClient(): SupabaseClient {
+  return {
+    auth: {
+      getSession: async () => ({ data: { session: null }, error: null }),
+    },
+  } as unknown as SupabaseClient;
+}
+
+async function resolveCatalogReadClient(
+  requiredRole: 'viewer' | 'member',
+  includeProof: boolean
+): Promise<SupabaseClient> {
+  if (includeProof && hasCatalogApiKeyEnv()) {
+    return createApiKeyOnlyCatalogClient();
+  }
+
+  const { supabase } = await requireAuth(requiredRole);
+  return supabase;
+}
 
 function parseFiniteNumberArg(rawValue: string, message: string): number {
   const trimmed = rawValue.trim();
@@ -85,6 +110,7 @@ export function buildCatalogCommand(): Command {
     .option('--sort <field>', `Sort results by: ${catalogSortFields.join(', ')}`)
     .option('--offset <n>', 'Skip N results (for pagination)', '0')
     .option('--limit <n>', 'Maximum results to return', '10')
+    .option('--include-proof', 'Request canonical catalog proof summaries from /v1/catalog')
     .addHelpText(
       'after',
       `
@@ -106,6 +132,7 @@ Examples:
   purvey catalog search --variety "gesha" --stocked --pretty
   purvey catalog search --drying-method "sun" --origin "Ethiopia" --pretty
   purvey catalog search --stocked-days 30 --pretty
+  purvey catalog search --origin "Ethiopia" --include-proof --json
 
 Sort fields:
   price       cheapest first
@@ -131,6 +158,8 @@ Notes:
   --stocked-days N shows only coffees stocked within the last N days.
   --ids fetches specific catalog items by ID, ignoring --limit and --offset.
   --offset + --limit enables pagination through large result sets.
+  --include-proof uses the canonical /v1/catalog?include=proof response and does
+  not compute proof scores in the CLI.
   Requires an authenticated viewer session.
 `
     )
@@ -222,7 +251,8 @@ Notes:
           opts.processingDisclosureLevel !== undefined ||
           opts.processingConfidenceMin !== undefined;
         const requiredRole = hasStructuredProcessFilters ? 'member' : 'viewer';
-        const { supabase } = await requireAuth(requiredRole);
+        const includeProof = opts.includeProof ? true : undefined;
+        const supabase = await resolveCatalogReadClient(requiredRole, Boolean(includeProof));
 
         const data = await searchCatalog(supabase, {
           origin: opts.origin as string | undefined,
@@ -245,6 +275,7 @@ Notes:
           sort: sortValue as CatalogSortField | undefined,
           offset,
           limit,
+          includeProof,
         });
 
         if (data.length === 0) {
@@ -260,30 +291,37 @@ Notes:
   catalog
     .command('get <id>')
     .description('Fetch a single coffee by ID')
+    .option('--include-proof', 'Request the canonical catalog proof summary from /v1/catalog')
     .addHelpText(
       'after',
       `
 Examples:
   purvey catalog get 128 --pretty
+  purvey catalog get 128 --include-proof --json
   purvey catalog get 42 | jq '{name, origin, process, cost_lb}'
   purvey catalog get 77 --csv
 
 Notes:
   <id> is the coffee_catalog.catalog_id (integer).
   Use 'purvey catalog search' to find IDs.
+  --include-proof uses the canonical /v1/catalog?include=proof response and does
+  not compute proof scores in the CLI.
   Requires an authenticated viewer session.
 `
     )
     .action(
-      withErrorHandling(async (id: string, _opts: Record<string, unknown>, cmd: Command) => {
+      withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
         const catalogId = parsePositiveIntegerArg(
           id,
           `Invalid ID: "${id}". Please provide a numeric coffee_catalog ID.`
         );
 
-        const { supabase } = await requireAuth('viewer');
-        const data = await getCatalog(supabase, catalogId);
+        const includeProof = opts.includeProof ? true : undefined;
+        const supabase = await resolveCatalogReadClient('viewer', Boolean(includeProof));
+        const data = await getCatalog(supabase, catalogId, {
+          includeProof,
+        });
         outputData(data, globalOpts);
       })
     );

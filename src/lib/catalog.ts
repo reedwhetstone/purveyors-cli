@@ -1,7 +1,24 @@
 import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { AuthError, PrvrsError } from './errors.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface CatalogProofFamily {
+  label: string;
+  confidence: number | null;
+  signals: string[];
+}
+
+export interface CatalogProofSummary {
+  version: string;
+  overall: {
+    label: string;
+    score: number | null;
+  };
+  families: Record<string, CatalogProofFamily>;
+  limitations: string[];
+}
 
 export interface CatalogItem {
   id: number;
@@ -44,6 +61,7 @@ export interface CatalogItem {
   public_coffee: boolean | null;
   wholesale: boolean | null;
   price_tiers: Array<{ min_lbs: number; price: number }> | null;
+  proof?: CatalogProofSummary | null;
 }
 
 export interface SimilarBean {
@@ -93,12 +111,14 @@ export const searchCatalogSchema = z.object({
   processAdditive: z.string().optional(),
   processingDisclosureLevel: z.string().optional(),
   processingConfidenceMin: z.number().min(0).max(1).optional(),
+  includeProof: z.boolean().optional(),
 });
 
 export type SearchCatalogInput = z.input<typeof searchCatalogSchema>;
 
 export const getCatalogSchema = z.object({
   id: z.number().int().positive(),
+  includeProof: z.boolean().optional(),
 });
 
 export type GetCatalogInput = z.input<typeof getCatalogSchema>;
@@ -152,6 +172,201 @@ function getPerLbPrice(item: {
   return item.price_tiers?.[0]?.price ?? item.price_per_lb ?? item.cost_lb ?? null;
 }
 
+interface CatalogApiEnvelope {
+  data?: unknown;
+  error?: unknown;
+  message?: unknown;
+  code?: unknown;
+}
+
+const CATALOG_API_SORT_MAP: Partial<
+  Record<CatalogSortField, { field: string; direction: 'asc' | 'desc' }>
+> = {
+  price: { field: 'price_per_lb', direction: 'asc' },
+  'price-desc': { field: 'price_per_lb', direction: 'desc' },
+  name: { field: 'name', direction: 'asc' },
+  origin: { field: 'country', direction: 'asc' },
+  newest: { field: 'stocked_date', direction: 'desc' },
+};
+
+function getCatalogApiBaseUrl(): string {
+  return (process.env.PURVEYORS_BASE_URL ?? 'https://www.purveyors.io').replace(/\/+$/, '');
+}
+
+async function getCatalogApiAuthHeader(supabase: SupabaseClient): Promise<string> {
+  const apiKey = process.env.PARCHMENT_API_KEY ?? process.env.PURVEYORS_API_KEY;
+  if (apiKey) {
+    return `Bearer ${apiKey}`;
+  }
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    throw new AuthError(
+      'Catalog proof output requires a Purveyors session or API key. Run `purvey auth login`, or set PARCHMENT_API_KEY/PURVEYORS_API_KEY for API-backed catalog proof reads.'
+    );
+  }
+
+  return `Bearer ${session.access_token}`;
+}
+
+function appendSearchParam(
+  params: URLSearchParams,
+  name: string,
+  value: string | number | boolean | undefined
+): void {
+  if (value === undefined) return;
+  params.append(name, String(value));
+}
+
+function hasCatalogIdFilter(parsed: Pick<z.infer<typeof searchCatalogSchema>, 'ids'>): boolean {
+  return parsed.ids !== undefined && parsed.ids.length > 0;
+}
+
+function assertCatalogApiCompatibleSearch(parsed: z.infer<typeof searchCatalogSchema>): void {
+  const unsupportedFilters: string[] = [];
+  if (parsed.flavor) unsupportedFilters.push('--flavor');
+  if (parsed.supplier) unsupportedFilters.push('--supplier');
+  if (parsed.dryingMethod) unsupportedFilters.push('--drying-method');
+  if (parsed.sort === 'newest') unsupportedFilters.push('--sort newest');
+
+  if (unsupportedFilters.length > 0) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `--include-proof uses /v1/catalog and cannot safely preserve ${unsupportedFilters.join(
+        ', '
+      )} yet. Omit those filters or run the default catalog search without --include-proof.`
+    );
+  }
+
+  if (hasCatalogIdFilter(parsed)) return;
+
+  const offset = parsed.offset ?? 0;
+  if (offset > 0 && offset % parsed.limit !== 0) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `--include-proof uses /v1/catalog page-based pagination; --offset must be a multiple of --limit. Received offset=${offset}, limit=${parsed.limit}.`
+    );
+  }
+}
+
+function buildCatalogApiUrl(parsed: z.infer<typeof searchCatalogSchema>): URL {
+  assertCatalogApiCompatibleSearch(parsed);
+
+  const url = new URL('/v1/catalog', getCatalogApiBaseUrl());
+  const params = url.searchParams;
+
+  params.set('include', 'proof');
+  params.set('stocked', parsed.stocked ? 'true' : 'all');
+
+  appendSearchParam(params, 'origin', parsed.origin);
+  appendSearchParam(params, 'processing', parsed.process);
+  appendSearchParam(params, 'processing_base_method', parsed.processingBaseMethod);
+  appendSearchParam(params, 'fermentation_type', parsed.fermentationType);
+  appendSearchParam(params, 'process_additive', parsed.processAdditive);
+  appendSearchParam(params, 'processing_disclosure_level', parsed.processingDisclosureLevel);
+  appendSearchParam(params, 'processing_confidence_min', parsed.processingConfidenceMin);
+  appendSearchParam(params, 'price_per_lb_min', parsed.priceMin);
+  appendSearchParam(params, 'price_per_lb_max', parsed.priceMax);
+  appendSearchParam(params, 'name', parsed.name);
+  appendSearchParam(params, 'cultivar_detail', parsed.variety);
+  appendSearchParam(params, 'stocked_days', parsed.stockedDays);
+
+  for (const id of parsed.ids ?? []) {
+    params.append('ids', String(id));
+  }
+
+  const sort = parsed.sort ? CATALOG_API_SORT_MAP[parsed.sort] : undefined;
+  if (sort) {
+    params.set('sortField', sort.field);
+    params.set('sortDirection', sort.direction);
+  }
+
+  if (!hasCatalogIdFilter(parsed)) {
+    const offset = parsed.offset ?? 0;
+    const limit = parsed.limit;
+    params.set('limit', String(limit));
+    if (offset > 0) {
+      params.set('page', String(Math.floor(offset / limit) + 1));
+    }
+  }
+
+  return url;
+}
+
+async function parseCatalogApiError(response: Response): Promise<PrvrsError> {
+  let body: CatalogApiEnvelope | undefined;
+  try {
+    body = (await response.json()) as CatalogApiEnvelope;
+  } catch {
+    body = undefined;
+  }
+
+  const serverMessage =
+    typeof body?.message === 'string'
+      ? body.message
+      : typeof body?.error === 'string'
+        ? body.error
+        : response.statusText;
+  const details = { status: response.status, body };
+
+  if (response.status === 401 || response.status === 403) {
+    return new AuthError(`Catalog API authentication failed: ${serverMessage}`, details);
+  }
+
+  if (response.status === 400) {
+    return new PrvrsError(
+      'INVALID_ARGUMENT',
+      `Catalog API rejected include=proof: ${serverMessage}. Verify the configured Purveyors API endpoint supports the proof summary include.`,
+      details
+    );
+  }
+
+  if (response.status === 404) {
+    return new PrvrsError(
+      'CONFIG_ERROR',
+      'Catalog API endpoint not found. Set PURVEYORS_BASE_URL to a Purveyors deployment that supports /v1/catalog?include=proof.',
+      details
+    );
+  }
+
+  return new PrvrsError(
+    'GENERAL_ERROR',
+    `Catalog API request failed (${response.status}): ${serverMessage}`,
+    details
+  );
+}
+
+async function fetchCatalogApiItems(
+  supabase: SupabaseClient,
+  parsed: z.infer<typeof searchCatalogSchema>
+): Promise<CatalogItem[]> {
+  const url = buildCatalogApiUrl(parsed);
+  const response = await fetch(url, {
+    headers: {
+      Accept: 'application/json',
+      Authorization: await getCatalogApiAuthHeader(supabase),
+    },
+  });
+
+  if (!response.ok) {
+    throw await parseCatalogApiError(response);
+  }
+
+  const envelope = (await response.json()) as CatalogApiEnvelope;
+  if (!Array.isArray(envelope.data)) {
+    throw new PrvrsError(
+      'GENERAL_ERROR',
+      'Catalog API returned an unexpected response shape for include=proof; expected { data: [...] }.',
+      { body: envelope }
+    );
+  }
+
+  return envelope.data as CatalogItem[];
+}
+
 /**
  * Aggregate stats from an array of catalog items.
  * Pure function — no I/O, safe to unit test.
@@ -188,6 +403,10 @@ export async function searchCatalog(
   opts: SearchCatalogInput
 ): Promise<CatalogItem[]> {
   const parsed = searchCatalogSchema.parse(opts);
+
+  if (parsed.includeProof) {
+    return fetchCatalogApiItems(supabase, parsed);
+  }
 
   let query = supabase.from('coffee_catalog').select('*');
 
@@ -319,8 +538,25 @@ export async function searchCatalog(
 /**
  * Fetch a single catalog item by ID.
  */
-export async function getCatalog(supabase: SupabaseClient, id: number): Promise<CatalogItem> {
-  getCatalogSchema.parse({ id });
+export async function getCatalog(
+  supabase: SupabaseClient,
+  id: number,
+  opts: { includeProof?: boolean } = {}
+): Promise<CatalogItem> {
+  const parsed = getCatalogSchema.parse({ id, includeProof: opts.includeProof });
+
+  if (parsed.includeProof) {
+    const rows = await fetchCatalogApiItems(supabase, {
+      ids: [parsed.id],
+      limit: 1,
+      includeProof: true,
+    });
+    const item = rows[0];
+    if (!item) {
+      throw new PrvrsError('NOT_FOUND', `Coffee ID ${parsed.id} not found in catalog.`);
+    }
+    return item;
+  }
 
   const { data, error } = await supabase.from('coffee_catalog').select('*').eq('id', id).single();
 

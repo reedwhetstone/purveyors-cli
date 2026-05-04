@@ -1,4 +1,4 @@
-import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 
 vi.mock('../src/lib/auth-guard.js', () => ({
   requireAuth: vi.fn(),
@@ -18,6 +18,7 @@ import { requireAuth } from '../src/lib/auth-guard.js';
 import {
   computeCatalogStats,
   searchCatalog,
+  getCatalog,
   searchCatalogSchema,
   sanitizeFilterValue,
   findSimilarBeansSchema,
@@ -28,6 +29,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete process.env.PARCHMENT_API_KEY;
+  delete process.env.PURVEYORS_API_KEY;
+  delete process.env.PURVEYORS_BASE_URL;
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 // Minimal factory so tests are readable without full item payloads
@@ -356,6 +364,11 @@ describe('searchCatalogSchema', () => {
     expect(result.stockedDays).toBeUndefined();
   });
 
+  it('accepts includeProof as an opt-in flag', () => {
+    const result = searchCatalogSchema.parse({ includeProof: true });
+    expect(result.includeProof).toBe(true);
+  });
+
   it('accepts structured process filters', () => {
     const result = searchCatalogSchema.parse({
       processingBaseMethod: 'Natural',
@@ -450,6 +463,26 @@ describe('catalog command auth and structured filter parsing', () => {
     expect(requireAuth).toHaveBeenCalledWith('viewer');
   });
 
+  it('uses API-key catalog proof reads without session auth when an API key env is set', async () => {
+    process.env.PARCHMENT_API_KEY = 'parchment-key';
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [makeItem()] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await runCatalogCommand(['search', '--include-proof']);
+
+    expect(requireAuth).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer parchment-key' }),
+      })
+    );
+  });
+
   it('requires member auth when any structured process filter is requested', async () => {
     const structuredFlags = [
       ['--processing-base-method', 'Natural'],
@@ -540,6 +573,204 @@ describe('searchCatalog', () => {
     expect(query.contains).toHaveBeenCalledWith('process_additives', ['hops']);
     expect(query.eq).toHaveBeenCalledWith('processing_disclosure_level', 'high_detail');
     expect(query.gte).toHaveBeenCalledWith('processing_confidence', 0.8);
+  });
+
+  it('uses /v1/catalog include=proof instead of direct Supabase reads when requested', async () => {
+    process.env.PURVEYORS_BASE_URL = 'https://example.test';
+    const proof = {
+      version: 'proof-summary-v1',
+      overall: { label: 'partial', score: 0.64 },
+      families: {
+        process: { label: 'disclosed', confidence: 0.85, signals: ['structured_process'] },
+      },
+      limitations: ['not_certification'],
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [makeItem({ proof })] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const from = vi.fn();
+    const getSession = vi.fn().mockResolvedValue({
+      data: { session: { access_token: 'session-token' } },
+    });
+    const supabase = { auth: { getSession }, from } as unknown as SupabaseClient;
+
+    const data = await searchCatalog(supabase, {
+      origin: 'Ethiopia',
+      processingBaseMethod: 'Natural',
+      priceMin: 5,
+      stocked: true,
+      sort: 'price-desc',
+      limit: 5,
+      includeProof: true,
+    });
+
+    const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(requestUrl.origin).toBe('https://example.test');
+    expect(requestUrl.pathname).toBe('/v1/catalog');
+    expect(requestUrl.searchParams.get('include')).toBe('proof');
+    expect(requestUrl.searchParams.get('origin')).toBe('Ethiopia');
+    expect(requestUrl.searchParams.get('processing_base_method')).toBe('Natural');
+    expect(requestUrl.searchParams.get('price_per_lb_min')).toBe('5');
+    expect(requestUrl.searchParams.get('stocked')).toBe('true');
+    expect(requestUrl.searchParams.get('sortField')).toBe('price_per_lb');
+    expect(requestUrl.searchParams.get('sortDirection')).toBe('desc');
+    expect(requestUrl.searchParams.get('limit')).toBe('5');
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer session-token' }),
+      })
+    );
+    expect(from).not.toHaveBeenCalled();
+    expect(data[0]?.proof).toEqual(proof);
+  });
+
+  it('rejects include-proof searches that would silently drop CLI-only filters', async () => {
+    const supabase = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
+    } as unknown as SupabaseClient;
+
+    await expect(
+      searchCatalog(supabase, { flavor: 'berry', includeProof: true })
+    ).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+      message: expect.stringContaining('--flavor'),
+    });
+
+    await expect(
+      searchCatalog(supabase, { dryingMethod: 'sun', includeProof: true })
+    ).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+      message: expect.stringContaining('--drying-method'),
+    });
+
+    await expect(
+      searchCatalog(supabase, { supplier: 'Royal', includeProof: true })
+    ).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+      message: expect.stringContaining('--supplier'),
+    });
+
+    await expect(
+      searchCatalog(supabase, { sort: 'newest', includeProof: true })
+    ).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+      message: expect.stringContaining('--sort newest'),
+    });
+  });
+
+  it('rejects include-proof offsets that cannot be represented as /v1/catalog pages', async () => {
+    const supabase = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
+    } as unknown as SupabaseClient;
+
+    await expect(
+      searchCatalog(supabase, { offset: 5, limit: 10, includeProof: true })
+    ).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+      message: expect.stringContaining('--offset must be a multiple of --limit'),
+    });
+  });
+
+  it('ignores pagination flags for include-proof ID searches', async () => {
+    process.env.PURVEYORS_BASE_URL = 'https://example.test';
+    process.env.PARCHMENT_API_KEY = 'parchment-key';
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [makeItem({ id: 11 }), makeItem({ id: 12 })] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const supabase = { auth: { getSession: vi.fn() } } as unknown as SupabaseClient;
+
+    const data = await searchCatalog(supabase, {
+      ids: [11, 12],
+      offset: 5,
+      limit: 2,
+      includeProof: true,
+    });
+
+    const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(requestUrl.searchParams.getAll('ids')).toEqual(['11', '12']);
+    expect(requestUrl.searchParams.get('page')).toBeNull();
+    expect(requestUrl.searchParams.get('limit')).toBeNull();
+    expect(data.map((item) => item.id)).toEqual([11, 12]);
+  });
+
+  it('uses API key env when available for include-proof catalog reads', async () => {
+    process.env.PARCHMENT_API_KEY = 'parchment-key';
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [makeItem()] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const getSession = vi.fn();
+    const supabase = { auth: { getSession } } as unknown as SupabaseClient;
+
+    await searchCatalog(supabase, { includeProof: true });
+
+    expect(getSession).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer parchment-key' }),
+      })
+    );
+  });
+
+  it('fetches a single proof-backed catalog item through /v1/catalog ids', async () => {
+    process.env.PURVEYORS_BASE_URL = 'https://example.test';
+    const proof = {
+      version: 'proof-summary-v1',
+      overall: { label: 'strong', score: 0.9 },
+      families: {},
+      limitations: ['not_certification'],
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [makeItem({ id: 42, proof })] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const supabase = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
+    } as unknown as SupabaseClient;
+
+    const data = await getCatalog(supabase, 42, { includeProof: true });
+
+    const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(requestUrl.searchParams.get('include')).toBe('proof');
+    expect(requestUrl.searchParams.getAll('ids')).toEqual(['42']);
+    expect(requestUrl.searchParams.get('limit')).toBeNull();
+    expect(data.proof).toEqual(proof);
+  });
+
+  it('surfaces clear include-proof API support errors', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: 'Invalid catalog query',
+          message: 'Unsupported include value proof',
+          code: 'INVALID_QUERY',
+        }),
+        { status: 400, headers: { 'content-type': 'application/json' } }
+      )
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const supabase = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
+    } as unknown as SupabaseClient;
+
+    await expect(searchCatalog(supabase, { includeProof: true })).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+      message: expect.stringContaining('Catalog API rejected include=proof'),
+    });
   });
 });
 
