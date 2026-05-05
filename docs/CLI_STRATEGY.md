@@ -85,7 +85,7 @@ The shipped auth model is role-based:
 
 - No pre-existing session required: `auth`, `config`, `context`, `manifest`
 - Authenticated `viewer` role required: `catalog`
-- Authenticated `member` role required: `inventory`, `roast`, `sales`, `tasting`
+- Authenticated `member` role required: structured process filters on `catalog search`, plus `inventory`, `roast`, `sales`, `tasting`
 
 Google OAuth is available in two supported flows:
 
@@ -115,6 +115,13 @@ The CLI is designed for both humans and automation:
 - Fatal errors stay on stderr, with structured JSON error envelopes in machine-oriented modes.
 - When human and machine ergonomics conflict, the contract should preserve machine
   clarity first and layer human affordances on top.
+
+Catalog intelligence boundaries:
+
+- `catalog search --include-proof` consumes the canonical `/v1/catalog?include=proof` summary. The CLI does not compute proof scores locally.
+- The proof path should reject CLI-only filters that `/v1/catalog` cannot preserve exactly, rather than implying the proof payload was generated from a different query contract.
+- `catalog similar <id>` uses the API/server similarity contract where available and returns matches sorted by similarity score.
+- Structured process filters map to canonical `/v1/catalog` query names and require member access under the current session-authenticated CLI path.
 
 Reference surfaces:
 
