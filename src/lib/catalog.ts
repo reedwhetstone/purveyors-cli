@@ -8,13 +8,14 @@ export interface CatalogProofFamily {
   label: string;
   confidence: number | null;
   signals: string[];
+  message: string;
 }
 
 export interface CatalogProofSummary {
   version: string;
   overall: {
     label: string;
-    score: number | null;
+    families_with_signals: number;
   };
   families: Record<string, CatalogProofFamily>;
   limitations: string[];

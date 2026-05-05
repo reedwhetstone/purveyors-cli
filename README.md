@@ -343,7 +343,7 @@ Notes:
 - Catalog commands require an authenticated `viewer` role by default.
 - Structured process filters on `catalog search` require an authenticated `member` role under the current session-authenticated CLI path.
 - Structured process filters use the canonical `/v1/catalog` query contract names while preserving the legacy `--process` label filter.
-- `--include-proof` is an opt-in API-backed catalog read. It consumes the canonical proof summary returned by `/v1/catalog?include=proof`; the CLI does not compute proof scores or duplicate web/API proof logic.
+- `--include-proof` is an opt-in API-backed catalog read. It consumes the canonical proof summary returned by `/v1/catalog?include=proof`; the CLI does not compute proof fields locally or duplicate web/API proof logic.
 - `--include-proof` rejects CLI-only filters that `/v1/catalog` cannot yet preserve exactly, such as `--flavor`, `--supplier`, `--drying-method`, and `--sort newest`.
 - If you want proof output against an API-key deployment, set `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY` before running the command. Otherwise the CLI uses your logged-in Purveyors session token.
 - `catalog get` and `catalog similar` both take `coffee_catalog.catalog_id`.

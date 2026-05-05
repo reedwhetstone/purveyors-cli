@@ -287,7 +287,7 @@ const commandGroups: CliCommandGroupContract[] = [
             flags: '--include-proof',
             description: 'Request canonical proof summaries from /v1/catalog?include=proof',
             notes: [
-              'Consumes the API proof summary; the CLI does not compute proof scores.',
+              'Consumes the API proof summary; the CLI does not compute proof fields locally.',
               'If the configured endpoint has not deployed include=proof, the CLI surfaces the structured API error.',
             ],
           },
@@ -328,7 +328,9 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             flags: '--include-proof',
             description: 'Request the canonical proof summary from /v1/catalog?include=proof',
-            notes: ['Consumes the API proof summary; the CLI does not compute proof scores.'],
+            notes: [
+              'Consumes the API proof summary; the CLI does not compute proof fields locally.',
+            ],
           },
         ],
         examples: [
