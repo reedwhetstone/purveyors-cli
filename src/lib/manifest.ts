@@ -300,6 +300,7 @@ const commandGroups: CliCommandGroupContract[] = [
           '--offset + --limit enables pagination through large result sets.',
           '--include-proof uses the canonical /v1/catalog proof summary include and preserves the default output shape when omitted.',
           '--include-proof rejects CLI-only filters that /v1/catalog cannot yet preserve exactly, including --flavor, --supplier, --drying-method, and --sort newest.',
+          'Set PURVEYORS_API_KEY or PARCHMENT_API_KEY when you intentionally want API-key backed proof output instead of the logged-in session path.',
         ],
         examples: [
           'purvey catalog search --origin "Ethiopia" --process "natural" --pretty',
@@ -361,6 +362,10 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--threshold <0-1>', defaultValue: 0.7 },
           { flags: '--limit <n>', defaultValue: 10 },
           { flags: '--stocked-only' },
+        ],
+        notes: [
+          'Uses the API/server similarity contract where available.',
+          'Returns matches sorted by similarity score.',
         ],
         examples: ['purvey catalog similar 1182 --threshold 0.85 --stocked-only --json'],
       },
@@ -828,6 +833,14 @@ const workflows: CliWorkflowContract[] = [
     ],
   },
   {
+    title: 'Catalog proof and similarity research',
+    commands: [
+      'purvey catalog search --origin "Ethiopia" --include-proof --json',
+      'purvey catalog get 128 --include-proof --json',
+      'purvey catalog similar 1182 --threshold 0.85 --stocked-only --json',
+    ],
+  },
+  {
     title: 'Import a roast from Artisan',
     commands: [
       'purvey inventory list --stocked --pretty',
@@ -939,6 +952,7 @@ export function getCliManifest(): CliManifest {
         'Use --json to request compact JSON explicitly.',
         'Use --pretty for indented JSON.',
         'Use --csv for array-shaped results that support CSV output.',
+        'Set PURVEYORS_API_KEY or PARCHMENT_API_KEY when intentionally using API-key backed catalog proof reads.',
         '`purvey context` prints dense human-readable operator reference text unless --json or --pretty is passed.',
         '`purvey manifest` is the preferred machine-readable contract and always emits it on stdout.',
         '`purvey context --json` stays available for compatibility parity with existing context-based callers.',
