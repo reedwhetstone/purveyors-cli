@@ -12,7 +12,7 @@ Use `purvey --help` for quick command discovery, `purvey context` for the dense 
 - Package: `@purveyors/cli`
 - Runtime: Node.js 20+
 - No pre-existing session required: `auth`, `config`, `context`, `manifest`
-- Viewer role required: `catalog`
+- Viewer role required: `catalog` (excluding structured process filters on `catalog search`)
 - Member role required: `inventory`, `roast`, `sales`, `tasting`
 - Preferred machine-readable contract: `purvey manifest`
 - Dense human-readable reference: `purvey context`
@@ -68,13 +68,16 @@ purvey auth login
 # For agents, CI, or remote machines, use headless flow:
 # purvey auth login --headless
 
-# If automatic browser callback handling fails, paste the full callback URL back into the terminal.
+# If automatic browser callback handling fails or you paste a bad URL, paste the full callback URL back into the terminal. The CLI keeps waiting until a valid callback is received.
 
 # 2. Confirm the session and role
 purvey auth status
 
-# 3. Search the catalog (requires viewer role)
+# 3. Search the catalog (viewer role for basic filters, member role for structured process filters)
 purvey catalog search --origin "Ethiopia" --stocked --pretty
+
+# Example with structured process filters and proof output
+purvey catalog search --origin "Ethiopia" --processing-base-method "Washed" --include-proof --pretty
 
 # 4. Check inventory (requires member role)
 purvey inventory list --stocked --pretty
@@ -151,7 +154,7 @@ purvey auth login --headless
 # Paste the full callback URL back into the terminal
 ```
 
-If the browser cannot return to the CLI during interactive login, paste the full callback URL back into the terminal. Use `purvey auth login --headless` when you need the CLI to print the OAuth URL for another browser.
+If the browser cannot return to the CLI during interactive login, paste the full callback URL back into the terminal. Invalid pasted URLs are ignored, and the CLI keeps waiting until a valid callback is received. Use `purvey auth login --headless` when you need the CLI to print the OAuth URL for another browser.
 
 Status:
 

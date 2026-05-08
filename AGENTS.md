@@ -29,7 +29,7 @@ Use this file as the single maintained guide for humans and agents. `CLAUDE.md` 
 Current command groups:
 
 - `auth`: `login`, `status`, `logout`
-- `catalog`: `search` (filters: origin, process, structured process fields, price-min/max, flavor, name, supplier, ids, stocked, variety, drying-method, stocked-days, sort, offset, limit, include-proof), `get <id>` (`--include-proof`), `stats`, `similar <id>`
+- `catalog`: `search` (filters: origin, process, price-min/max, flavor, name, supplier, ids, stocked, variety, drying-method, stocked-days, processing-base-method, fermentation-type, process-additive, processing-disclosure-level, processing-confidence-min, sort, offset, limit; proof output via `--include-proof`), `get <id>`, `stats`, `similar <id>`. Structured processing filters require the `member` role under the current session-authenticated CLI path.
 - `inventory`: `list` (filters: stocked, catalog-id, purchase-date-start, purchase-date-end, origin, limit, offset), `get <id>`, `add`, `update <id>`, `delete <id>` (`--force` for cascade delete)
 - `roast`: `list` (filters: coffee-id, roast-id, batch-name, coffee-name, date-start, date-end, stocked, catalog-id, limit, offset), `get <id>`, `create`, `update <id>`, `delete <id>`, `import [file]`, `watch [directory]`
 - `sales`: `list` (filters: roast-id, date-start, date-end, buyer, limit, offset), `record`, `update <id>`, `delete <id>`
@@ -99,7 +99,7 @@ tests/                Vitest coverage
 Command files:
 
 - `auth.ts`: browser OAuth with pasted-callback fallback, headless OAuth, status, logout
-- `catalog.ts`: catalog search, canonical proof fetches, stats, and server-backed similar-bean lookup
+- `catalog.ts`: catalog search, fetch, stats, similar-bean lookup
 - `inventory.ts`: personal green coffee inventory CRUD
 - `roast.ts`: roast CRUD, Artisan import, watch mode
 - `sales.ts`: sales CRUD
@@ -112,7 +112,7 @@ Command files:
 
 ### Auth and roles
 
-- Use `requireAuth('viewer')` for catalog commands and other viewer-level access.
+- Use `requireAuth('viewer')` for catalog commands and other viewer-level access, except `catalog search` structured processing filters, which require `member`.
 - Use `requireAuth('member')` for personal data and writes.
 - `auth`, `config`, `context`, and `manifest` do not require a pre-existing authenticated session.
 - `catalog`, `inventory`, `roast`, `sales`, and `tasting` require authentication.
@@ -184,9 +184,7 @@ The published package and binary run from `dist/`, not `src/`. Any command-surfa
 - `inventory list`, `roast list`, and `sales list` all support `--offset` for pagination. Keep docs in sync when adding new list flags.
 - `roast import` and `roast watch` normalize file and directory path input by trimming whitespace, removing one layer of matching quotes, and unescaping common shell-escaped characters. Preserve this when changing Artisan workflows.
 - `roast watch` must remain graceful on shutdown: Ctrl+C, raw Ctrl+C key input, or SIGTERM should wait for active imports, commit queued batch-mode roasts, print the verification summary, and keep `--resume` state coherent.
-- Catalog commands require viewer auth. Structured process filters require member auth under the current session-authenticated CLI path. Downstream docs (coffee-app site, etc.) that claim catalog access is unauthenticated are wrong and should align with this repo.
-- `--include-proof` is API-backed `/v1/catalog?include=proof` output. It should reject CLI-only filters the canonical endpoint cannot preserve exactly rather than returning mixed-contract proof data.
-- `catalog similar` takes `coffee_catalog.catalog_id`, uses the API/server similarity contract where available, and should return matches sorted by similarity score.
+- Catalog commands require viewer auth, except `catalog search` structured processing filters, which require member auth. Downstream docs (coffee-app site, etc.) that claim catalog access is unauthenticated are wrong and should align with this repo.
 
 ## Release Notes
 
@@ -199,8 +197,8 @@ The published package and binary run from `dist/`, not `src/`. Any command-surfa
 
 When doing a docs-only refresh, confirm these before opening a PR:
 
-- README command reference matches `src/commands/*` and `src/lib/manifest.ts`, including catalog proof output, structured process filters, and similar-coffee behavior.
-- Auth and role claims match the actual `requireAuth` boundary: catalog is viewer; inventory, roast, sales, and tasting are member; auth, config, context, and manifest are local or unauthenticated.
+- README command reference matches `src/commands/*` and `src/lib/manifest.ts`.
+- Auth and role claims match the actual `requireAuth` boundary: catalog is viewer, with `catalog search` structured processing filters elevated to member; inventory, roast, sales, and tasting are member; auth, config, context, and manifest are local or unauthenticated.
 - Headless OAuth remains documented as first-class, not as a fallback.
 - `purvey manifest` is documented as the preferred shell contract; `purvey context --json` is documented as compatibility.
 - `@purveyors/cli/manifest` and package subpath exports are documented as supported in-process contracts.
