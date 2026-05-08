@@ -112,7 +112,7 @@ Command files:
 
 ### Auth and roles
 
-- Use `requireAuth('viewer')` for catalog commands and other viewer-level access.
+- Use `requireAuth('viewer')` for catalog commands and other viewer-level access, except `catalog search` structured processing filters, which require `member`.
 - Use `requireAuth('member')` for personal data and writes.
 - `auth`, `config`, `context`, and `manifest` do not require a pre-existing authenticated session.
 - `catalog`, `inventory`, `roast`, `sales`, and `tasting` require authentication.
@@ -184,7 +184,7 @@ The published package and binary run from `dist/`, not `src/`. Any command-surfa
 - `inventory list`, `roast list`, and `sales list` all support `--offset` for pagination. Keep docs in sync when adding new list flags.
 - `roast import` and `roast watch` normalize file and directory path input by trimming whitespace, removing one layer of matching quotes, and unescaping common shell-escaped characters. Preserve this when changing Artisan workflows.
 - `roast watch` must remain graceful on shutdown: Ctrl+C, raw Ctrl+C key input, or SIGTERM should wait for active imports, commit queued batch-mode roasts, print the verification summary, and keep `--resume` state coherent.
-- Catalog commands require viewer auth. Downstream docs (coffee-app site, etc.) that claim catalog access is unauthenticated are wrong and should align with this repo.
+- Catalog commands require viewer auth, except `catalog search` structured processing filters, which require member auth. Downstream docs (coffee-app site, etc.) that claim catalog access is unauthenticated are wrong and should align with this repo.
 
 ## Release Notes
 
@@ -198,7 +198,7 @@ The published package and binary run from `dist/`, not `src/`. Any command-surfa
 When doing a docs-only refresh, confirm these before opening a PR:
 
 - README command reference matches `src/commands/*` and `src/lib/manifest.ts`.
-- Auth and role claims match the actual `requireAuth` boundary: catalog is viewer; inventory, roast, sales, and tasting are member; auth, config, context, and manifest are local or unauthenticated.
+- Auth and role claims match the actual `requireAuth` boundary: catalog is viewer, with `catalog search` structured processing filters elevated to member; inventory, roast, sales, and tasting are member; auth, config, context, and manifest are local or unauthenticated.
 - Headless OAuth remains documented as first-class, not as a fallback.
 - `purvey manifest` is documented as the preferred shell contract; `purvey context --json` is documented as compatibility.
 - `@purveyors/cli/manifest` and package subpath exports are documented as supported in-process contracts.
