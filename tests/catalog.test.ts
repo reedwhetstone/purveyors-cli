@@ -665,6 +665,36 @@ describe('catalog command auth and structured filter parsing', () => {
     expect(outputData).toHaveBeenCalledWith(response, expect.any(Object));
   });
 
+  it('uses viewer session auth for canonical similarity reads when no API key env is set', async () => {
+    process.env.PURVEYORS_BASE_URL = 'https://example.test';
+    const response = makeCanonicalSimilarityResponse();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const supabase = {
+      auth: {
+        getSession: vi.fn().mockResolvedValue({
+          data: { session: { access_token: 'session-token' } },
+        }),
+      },
+    } as unknown as SupabaseClient;
+    vi.mocked(requireAuth).mockResolvedValue({ supabase, userId: 'user-1' });
+
+    await runCatalogCommand(['similar', '1182']);
+
+    expect(requireAuth).toHaveBeenCalledWith('viewer');
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer session-token' }),
+      })
+    );
+    expect(outputData).toHaveBeenCalledWith(response, expect.any(Object));
+  });
+
   it('requires member auth when any structured process filter is requested', async () => {
     const structuredFlags = [
       ['--processing-base-method', 'Natural'],
@@ -1056,6 +1086,31 @@ describe('getCatalogSimilarity', () => {
     );
   });
 
+  it('rejects grouped canonical similarity responses that omit required meta fields', async () => {
+    const response = makeCanonicalSimilarityResponse();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ...response,
+          meta: { ...response.meta, query_strategy: undefined },
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }
+      )
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const supabase = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
+    } as unknown as SupabaseClient;
+
+    await expect(getCatalogSimilarity(supabase, { coffee_id: 1182 })).rejects.toMatchObject({
+      code: 'GENERAL_ERROR',
+      message: expect.stringContaining('unexpected response shape'),
+    });
+  });
+
   it('preserves structured auth and API error envelopes', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ message: 'Missing API key' }), {
@@ -1089,6 +1144,42 @@ describe('getCatalogSimilarity', () => {
     await expect(getCatalogSimilarity(supabase, { coffee_id: 1182 })).rejects.toMatchObject({
       code: 'INVALID_ARGUMENT',
       message: expect.stringContaining('/v1/catalog/{id}/similar'),
+    });
+  });
+
+  it('maps missing canonical similarity targets to NOT_FOUND', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: 'Catalog coffee 1182 was not found' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const supabase = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
+    } as unknown as SupabaseClient;
+
+    await expect(getCatalogSimilarity(supabase, { coffee_id: 1182 })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      message: expect.stringContaining('Catalog similarity target not found'),
+    });
+  });
+
+  it('maps missing canonical similarity routes to CONFIG_ERROR', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: 'Route not deployed' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const supabase = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
+    } as unknown as SupabaseClient;
+
+    await expect(getCatalogSimilarity(supabase, { coffee_id: 1182 })).rejects.toMatchObject({
+      code: 'CONFIG_ERROR',
+      message: expect.stringContaining('Catalog similarity API endpoint not found'),
     });
   });
 });

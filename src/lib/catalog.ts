@@ -505,9 +505,17 @@ async function parseCatalogApiError(
 
   if (response.status === 404) {
     if (context === '/v1/catalog/{id}/similar') {
+      if (/not found|was not found/i.test(serverMessage)) {
+        return new PrvrsError(
+          'NOT_FOUND',
+          `Catalog similarity target not found: ${serverMessage}`,
+          details
+        );
+      }
+
       return new PrvrsError(
-        'NOT_FOUND',
-        `Catalog similarity target not found: ${serverMessage}`,
+        'CONFIG_ERROR',
+        `Catalog similarity API endpoint not found. Set PURVEYORS_BASE_URL to a Purveyors deployment that supports ${context}.`,
         details
       );
     }
@@ -543,13 +551,17 @@ function isCatalogSimilarityResponse(value: unknown): value is CatalogSimilarity
   const record = value as Record<string, unknown>;
   const data = record.data as Record<string, unknown> | undefined;
   const groups = data?.groups as Record<string, unknown> | undefined;
+  const meta = record.meta as Record<string, unknown> | undefined;
   return Boolean(
     data &&
     typeof data === 'object' &&
     data.target &&
     groups &&
     Array.isArray(groups.canonical_candidates) &&
-    Array.isArray(groups.similar_recommendations)
+    Array.isArray(groups.similar_recommendations) &&
+    meta &&
+    typeof meta.classification_version === 'string' &&
+    typeof meta.query_strategy === 'string'
   );
 }
 
