@@ -191,6 +191,7 @@ const idTypes: CliIdContract[] = [
     source: 'coffee_catalog row',
     usedBy: [
       'catalog get',
+      'catalog similar',
       'inventory add --catalog-id',
       'tasting get <catalog_id>',
       'roast list --catalog-id',
@@ -347,7 +348,8 @@ const commandGroups: CliCommandGroupContract[] = [
       },
       {
         name: 'similar',
-        summary: 'Find similar coffees by catalog ID',
+        summary:
+          'Fetch beta canonical /v1/catalog/{id}/similar groups for likely same-lot candidates and similar recommendations',
         auth: 'viewer',
         arguments: [
           {
@@ -359,15 +361,30 @@ const commandGroups: CliCommandGroupContract[] = [
           },
         ],
         options: [
-          { flags: '--threshold <0-1>', defaultValue: 0.7 },
-          { flags: '--limit <n>', defaultValue: 10 },
-          { flags: '--stocked-only' },
+          {
+            flags: '--threshold <score>',
+            defaultValue: 0.7,
+            description: 'Minimum canonical similarity threshold, 0.5-0.99',
+          },
+          { flags: '--limit <count>', defaultValue: 10, description: 'Maximum results, 1-25' },
+          { flags: '--stocked-only', description: 'Restrict results to stocked coffees' },
+          {
+            flags: '--mode <mode>',
+            defaultValue: 'all',
+            description: 'Filter canonical groups: all, likely_same, or similar_profile',
+          },
         ],
         notes: [
-          'Uses the API/server similarity contract where available.',
-          'Returns matches sorted by similarity score.',
+          'Uses the beta canonical /v1/catalog/{id}/similar API contract, not the legacy direct RPC path.',
+          'Default JSON output is the grouped canonical response object with data.target, data.groups.canonical_candidates, data.groups.similar_recommendations, optional data.matches, and meta.',
+          'canonical_candidates are likely same-lot candidates; similar_recommendations are profile substitutes and expose blocker reasons when identity gates disagree.',
+          'Preserves classification_version, query_strategy, proof summaries, pricing metadata, blocker details, and score dimensions supplied by the API.',
+          'Set PURVEYORS_API_KEY or PARCHMENT_API_KEY for API-key auth, or use a logged-in Purveyors session.',
         ],
-        examples: ['purvey catalog similar 1182 --threshold 0.85 --stocked-only --json'],
+        examples: [
+          'purvey catalog similar 1182 --threshold 0.85 --stocked-only --json',
+          "purvey catalog similar 1182 --mode likely_same --json | jq '.data.groups.canonical_candidates'",
+        ],
       },
     ],
   },
@@ -837,7 +854,7 @@ const workflows: CliWorkflowContract[] = [
     commands: [
       'purvey catalog search --origin "Ethiopia" --include-proof --json',
       'purvey catalog get 128 --include-proof --json',
-      'purvey catalog similar 1182 --threshold 0.85 --stocked-only --json',
+      "purvey catalog similar 1182 --threshold 0.85 --stocked-only --json | jq '.data.groups'",
     ],
   },
   {
