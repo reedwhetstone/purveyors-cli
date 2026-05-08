@@ -1182,6 +1182,25 @@ describe('getCatalogSimilarity', () => {
       message: expect.stringContaining('Catalog similarity API endpoint not found'),
     });
   });
+
+  it('maps generic missing canonical similarity route 404s to CONFIG_ERROR', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('Not Found', {
+        status: 404,
+        statusText: 'Not Found',
+        headers: { 'content-type': 'text/plain' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const supabase = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
+    } as unknown as SupabaseClient;
+
+    await expect(getCatalogSimilarity(supabase, { coffee_id: 1182 })).rejects.toMatchObject({
+      code: 'CONFIG_ERROR',
+      message: expect.stringContaining('Catalog similarity API endpoint not found'),
+    });
+  });
 });
 
 // ─── findSimilarBeansSchema ───────────────────────────────────────────────────

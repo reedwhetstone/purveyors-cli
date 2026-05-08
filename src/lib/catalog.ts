@@ -505,7 +505,7 @@ async function parseCatalogApiError(
 
   if (response.status === 404) {
     if (context === '/v1/catalog/{id}/similar') {
-      if (/not found|was not found/i.test(serverMessage)) {
+      if (/^Catalog coffee \d+ was not found$/i.test(serverMessage)) {
         return new PrvrsError(
           'NOT_FOUND',
           `Catalog similarity target not found: ${serverMessage}`,

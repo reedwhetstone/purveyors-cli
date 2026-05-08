@@ -715,7 +715,7 @@ Use the right ID for the right command.
 - `PURVEYORS_SUPABASE_ANON_KEY`: override the Supabase anon key
 - `PURVEYORS_BASE_URL`: override the Purveyors web base URL
 - `PURVEYORS_API_KEY`: API-key token used by API-backed catalog proof and similarity reads when you want to call canonical API contracts without relying on the local OAuth session
-- `PARCHMENT_API_KEY`: alternate API-key variable accepted for the same API-backed proof path
+- `PARCHMENT_API_KEY`: alternate API-key variable accepted for the same API-backed proof and similarity path
 - `PURVEY_DEBUG`: enable verbose error output
 
 ## For AI agents
@@ -748,7 +748,7 @@ Agent integration rules of thumb:
 
 - Discover first with `purvey manifest`, then call the narrowest command or package subpath that fits the job.
 - Use `purvey context` when a human-readable operator summary is useful before tool selection.
-- Prefer OAuth session tokens for normal user workflows; use `PURVEYORS_API_KEY` or `PARCHMENT_API_KEY` only when you intentionally need the API-key catalog proof path.
+- Prefer OAuth session tokens for normal user workflows; use `PURVEYORS_API_KEY` or `PARCHMENT_API_KEY` only when you intentionally need the API-key catalog proof or similarity path.
 - Treat `--include-proof` as API output, not a local scoring feature. If a filter cannot round-trip through `/v1/catalog?include=proof`, the CLI rejects that invocation instead of returning misleading proof data.
 - Treat `catalog similar` as the canonical `/v1/catalog/{id}/similar` contract. Preserve the distinction between `canonical_candidates` and `similar_recommendations`; do not flatten or re-sort grouped results unless you have a specific downstream reason.
 
