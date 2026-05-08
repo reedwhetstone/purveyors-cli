@@ -579,9 +579,14 @@ describe('searchCatalog', () => {
     process.env.PURVEYORS_BASE_URL = 'https://example.test';
     const proof = {
       version: 'proof-summary-v1',
-      overall: { label: 'partial', score: 0.64 },
+      overall: { label: 'partial', families_with_signals: 2 },
       families: {
-        process: { label: 'disclosed', confidence: 0.85, signals: ['structured_process'] },
+        process: {
+          label: 'disclosed',
+          confidence: 0.85,
+          signals: ['structured_process'],
+          message: 'Structured process disclosure signals are present.',
+        },
       },
       limitations: ['not_certification'],
     };
@@ -727,8 +732,15 @@ describe('searchCatalog', () => {
     process.env.PURVEYORS_BASE_URL = 'https://example.test';
     const proof = {
       version: 'proof-summary-v1',
-      overall: { label: 'strong', score: 0.9 },
-      families: {},
+      overall: { label: 'strong', families_with_signals: 4 },
+      families: {
+        process: {
+          label: 'disclosed',
+          confidence: 0.85,
+          signals: ['structured_process'],
+          message: 'Structured process disclosure signals are present.',
+        },
+      },
       limitations: ['not_certification'],
     };
     const fetchMock = vi.fn().mockResolvedValue(

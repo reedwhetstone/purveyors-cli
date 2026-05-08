@@ -346,10 +346,11 @@ Notes:
 - Catalog commands require an authenticated `viewer` role by default.
 - Structured process filters on `catalog search` require an authenticated `member` role under the current session-authenticated CLI path.
 - Structured process filters use the canonical `/v1/catalog` query contract names while preserving the legacy `--process` label filter.
-- `--include-proof` is an opt-in API-backed catalog read. It consumes the canonical proof summary returned by `/v1/catalog?include=proof`; the CLI does not compute proof scores or duplicate web/API proof logic.
+- `--include-proof` is an opt-in API-backed catalog read. It consumes the canonical proof summary returned by `/v1/catalog?include=proof`; the CLI does not compute proof fields locally or duplicate web/API proof logic.
 - `--include-proof` rejects CLI-only filters that `/v1/catalog` cannot yet preserve exactly, such as `--flavor`, `--supplier`, `--drying-method`, and `--sort newest`.
 - If you want proof output against an API-key deployment, set `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY` before running the command. Otherwise the CLI uses your logged-in Purveyors session token.
 - `catalog get` and `catalog similar` both take `coffee_catalog.catalog_id`.
+- `catalog similar` uses the API/server similarity contract when available and returns matches sorted by similarity score.
 - `catalog stats` returns aggregate catalog metrics, not your personal inventory metrics.
 
 ### inventory
@@ -708,6 +709,8 @@ Use the right ID for the right command.
 - `PURVEYORS_SUPABASE_URL`: override the Supabase project URL
 - `PURVEYORS_SUPABASE_ANON_KEY`: override the Supabase anon key
 - `PURVEYORS_BASE_URL`: override the Purveyors web base URL
+- `PURVEYORS_API_KEY`: API-key token used by API-backed catalog proof reads when you want to call the canonical API contract without relying on the local OAuth session
+- `PARCHMENT_API_KEY`: alternate API-key variable accepted for the same API-backed proof path
 - `PURVEY_DEBUG`: enable verbose error output
 
 ## For AI agents
@@ -735,6 +738,14 @@ Why this CLI works well for agents:
 - `--offset` and `--limit` pagination across list commands
 
 The scripting contract is simple: stdout carries successful payloads, stderr carries status and fatal errors, and exit codes stay stable.
+
+Agent integration rules of thumb:
+
+- Discover first with `purvey manifest`, then call the narrowest command or package subpath that fits the job.
+- Use `purvey context` when a human-readable operator summary is useful before tool selection.
+- Prefer OAuth session tokens for normal user workflows; use `PURVEYORS_API_KEY` or `PARCHMENT_API_KEY` only when you intentionally need the API-key catalog proof path.
+- Treat `--include-proof` as API output, not a local scoring feature. If a filter cannot round-trip through `/v1/catalog?include=proof`, the CLI rejects that invocation instead of returning misleading proof data.
+- Treat `catalog similar` results as server-ranked similarity matches. Do not re-sort them client-side unless you have a specific downstream reason.
 
 ## Troubleshooting
 

@@ -159,7 +159,7 @@ Notes:
   --ids fetches specific catalog items by ID, ignoring --limit and --offset.
   --offset + --limit enables pagination through large result sets.
   --include-proof uses the canonical /v1/catalog?include=proof response and does
-  not compute proof scores in the CLI.
+  not compute proof fields locally in the CLI.
   Requires an authenticated viewer session.
 `
     )
@@ -305,7 +305,7 @@ Notes:
   <id> is the coffee_catalog.catalog_id (integer).
   Use 'purvey catalog search' to find IDs.
   --include-proof uses the canonical /v1/catalog?include=proof response and does
-  not compute proof scores in the CLI.
+  not compute proof fields locally in the CLI.
   Requires an authenticated viewer session.
 `
     )
