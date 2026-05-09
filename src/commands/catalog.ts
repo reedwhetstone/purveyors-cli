@@ -6,12 +6,13 @@ import {
   searchCatalog,
   getCatalog,
   getCatalogStats,
-  findSimilarBeans,
+  getCatalogSimilarity,
   computeCatalogStats,
   sanitizeFilterValue,
   catalogSortFields,
+  catalogSimilarityModes,
 } from '../lib/catalog.js';
-import type { CatalogItem, CatalogStats, CatalogSortField, SimilarBean } from '../lib/catalog.js';
+import type { CatalogItem, CatalogStats, CatalogSortField } from '../lib/catalog.js';
 import type { OutputOptions } from '../types/index.js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -33,9 +34,9 @@ function createApiKeyOnlyCatalogClient(): SupabaseClient {
 
 async function resolveCatalogReadClient(
   requiredRole: 'viewer' | 'member',
-  includeProof: boolean
+  useApiKeyWithoutSession: boolean
 ): Promise<SupabaseClient> {
-  if (includeProof && hasCatalogApiKeyEnv()) {
+  if (useApiKeyWithoutSession && hasCatalogApiKeyEnv()) {
     return createApiKeyOnlyCatalogClient();
   }
 
@@ -357,24 +358,35 @@ Notes:
   // ── catalog similar <id> ──────────────────────────────────────────────────
   catalog
     .command('similar <id>')
-    .description('Find similar beans across all suppliers')
-    .option('--threshold <score>', 'Minimum similarity (0-1)', '0.70')
-    .option('--limit <count>', 'Max results', '10')
+    .description('Find canonical candidates and similar recommendations for a catalog coffee')
+    .option('--threshold <score>', 'Minimum canonical similarity threshold (0.5-0.99)', '0.70')
+    .option('--limit <count>', 'Max results (1-25)', '10')
     .option('--stocked-only', 'Only show currently stocked beans')
+    .option(
+      '--mode <mode>',
+      `Filter canonical groups by mode: ${catalogSimilarityModes.join(', ')}`,
+      'all'
+    )
     .addHelpText(
       'after',
       `
 Examples:
   purvey catalog similar 1182
   purvey catalog similar 1182 --threshold 0.85 --stocked-only --pretty
-  purvey catalog similar 1182 --json | jq '.[0]'
+  purvey catalog similar 1182 --mode likely_same --json | jq '.data.groups.canonical_candidates'
+  purvey catalog similar 1182 --json | jq '.data.groups.similar_recommendations[0].match.classification.blockers'
 
 Notes:
-  Uses pgvector cosine similarity on tasting notes and bean descriptors.
-  --threshold controls sensitivity (higher = more strict match).
+  Uses the beta canonical /v1/catalog/{id}/similar contract.
+  JSON output is the canonical grouped response object, not the legacy flat RPC array.
+  data.groups.canonical_candidates are likely same-lot candidates.
+  data.groups.similar_recommendations are useful substitutes or profile matches.
+  Blockers, proof summaries, score dimensions, classification_version,
+  query_strategy, and pricing metadata are preserved when supplied by the API.
+  --threshold controls sensitivity (higher = more strict match, 0.5-0.99).
+  --mode can be all, likely_same, or similar_profile.
   Default output is compact JSON. Use --pretty for formatted JSON.
-  Returns beans sorted by similarity score (highest first).
-  Requires an authenticated viewer session.
+  Requires an authenticated viewer session, or PARCHMENT_API_KEY/PURVEYORS_API_KEY.
 `
     )
     .action(
@@ -394,43 +406,37 @@ Notes:
           opts.limit as string,
           `Invalid --limit: "${opts.limit}". Must be a positive integer.`
         );
-        const stockedOnly = Boolean(opts.stockedOnly);
-        const { supabase } = await requireAuth('viewer');
-
-        // Confirm the target bean exists before running similarity lookup.
-        const { data: targetBean, error: targetError } = await supabase
-          .from('coffee_catalog')
-          .select('catalog_id')
-          .eq('catalog_id', coffeeId)
-          .single();
-
-        if (targetError || !targetBean) {
-          throw new PrvrsError('NOT_FOUND', `Coffee ID ${coffeeId} not found in catalog.`);
+        if (threshold < 0.5 || threshold > 0.99) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid --threshold: "${opts.threshold}". Must be a number between 0.5 and 0.99.`
+          );
         }
+        if (limit > 25) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid --limit: "${opts.limit}". Must be a positive integer up to 25.`
+          );
+        }
+        const mode = opts.mode as string;
+        if (!catalogSimilarityModes.includes(mode as (typeof catalogSimilarityModes)[number])) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid --mode: "${mode}". Must be one of: ${catalogSimilarityModes.join(', ')}.`
+          );
+        }
+        const stockedOnly = Boolean(opts.stockedOnly);
+        const supabase = await resolveCatalogReadClient('viewer', true);
 
-        // Call the lib function
-        const results = await findSimilarBeans(supabase, {
+        const response = await getCatalogSimilarity(supabase, {
           coffee_id: coffeeId,
-          threshold: threshold,
-          limit: limit,
+          threshold,
+          limit,
+          stockedOnly,
+          mode: mode as (typeof catalogSimilarityModes)[number],
         });
 
-        if (results.length === 0) {
-          info(`No embeddings found for coffee ID ${coffeeId}.`);
-          return;
-        }
-
-        // Filter stocked-only client-side
-        let filtered: SimilarBean[] = results;
-        if (stockedOnly) {
-          filtered = filtered.filter((r) => r.stocked);
-          if (filtered.length === 0) {
-            info('No stocked beans found matching the similarity threshold.');
-            return;
-          }
-        }
-
-        outputData(filtered, globalOpts);
+        outputData(response, globalOpts);
       })
     );
 

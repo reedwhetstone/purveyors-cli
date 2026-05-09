@@ -19,12 +19,15 @@ import {
   computeCatalogStats,
   searchCatalog,
   getCatalog,
+  getCatalogSimilarity,
+  getCatalogSimilaritySchema,
   searchCatalogSchema,
   sanitizeFilterValue,
   findSimilarBeansSchema,
   findSimilarBeans,
 } from '../src/lib/catalog.js';
-import type { CatalogItem, SimilarBean } from '../src/lib/catalog.js';
+import { outputData } from '../src/lib/output.js';
+import type { CatalogItem, CatalogSimilarityResponse, SimilarBean } from '../src/lib/catalog.js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 beforeEach(() => {
@@ -83,6 +86,145 @@ function makeItem(overrides: Partial<CatalogItem> = {}): CatalogItem {
     wholesale: false,
     ...overrides,
   };
+}
+
+function makeProof() {
+  return {
+    version: 'proof-summary-v1',
+    overall: { label: 'partial', families_with_signals: 2 },
+    families: {
+      process: {
+        label: 'disclosed',
+        confidence: 0.8,
+        signals: ['structured_process'],
+        message: 'Structured process disclosure signals are present.',
+      },
+    },
+    limitations: ['not_certification'],
+  };
+}
+
+function makeCanonicalSimilarityResponse(
+  overrides: Partial<CatalogSimilarityResponse> = {}
+): CatalogSimilarityResponse {
+  const proof = makeProof();
+  const candidate = {
+    coffee: {
+      id: 1199,
+      name: 'Sibling Lot',
+      source: 'Royal Coffee',
+      origin: 'Ethiopia',
+      country: 'Ethiopia',
+      continent: 'Africa',
+      processing: 'natural',
+      processing_base_method: 'Natural',
+      fermentation_type: null,
+      drying_method: 'raised bed',
+      stocked: true,
+      arrival_date: null,
+      stocked_date: '2026-05-01',
+      proof,
+    },
+    pricing: {
+      price_per_lb: 9.5,
+      price_tiers: [{ min_lbs: 1, price: 9.5 }],
+      cost_lb: 9.5,
+      baseline_quantity_lbs: 1 as const,
+      baseline_price_per_lb: 9.5,
+      baseline_source: 'price_per_lb' as const,
+    },
+    price_delta_1lb: { amount: 1, percent: 11.8, currency: 'USD' as const },
+    score: {
+      average: 0.91,
+      dimensions: { origin: 0.98, processing: 0.94, tasting: 0.82 },
+      chunk_matches: 3,
+    },
+    match: {
+      category: 'likely_same' as const,
+      classification: {
+        kind: 'canonical_candidate' as const,
+        identity_eligibility: 'eligible' as const,
+        confidence: 'high_beta' as const,
+        blockers: [],
+        evidence: ['same_country', 'same_process'],
+      },
+      confidence: 'high_beta' as const,
+      beta: true as const,
+      language: 'Likely same-lot candidate.',
+    },
+    explanation: { summary: 'Strong overlap across origin and processing.', signals: ['origin'] },
+    compatibility: { cost_lb: 9.5 },
+  };
+
+  const response: CatalogSimilarityResponse = {
+    data: {
+      target: {
+        id: 1182,
+        name: 'Target Coffee',
+        source: 'Royal Coffee',
+        origin: 'Ethiopia',
+        country: 'Ethiopia',
+        continent: 'Africa',
+        processing: 'natural',
+        processing_base_method: 'Natural',
+        fermentation_type: null,
+        drying_method: 'raised bed',
+        stocked: true,
+        arrival_date: null,
+        stocked_date: '2026-04-30',
+        price_per_lb: 8.5,
+        price_tiers: [{ min_lbs: 1, price: 8.5 }],
+        cost_lb: 8.5,
+        pricing: {
+          price_per_lb: 8.5,
+          price_tiers: [{ min_lbs: 1, price: 8.5 }],
+          cost_lb: 8.5,
+          baseline_quantity_lbs: 1,
+          baseline_price_per_lb: 8.5,
+          baseline_source: 'price_per_lb',
+        },
+        proof,
+      },
+      groups: {
+        canonical_candidates: [candidate],
+        similar_recommendations: [
+          {
+            ...candidate,
+            coffee: { ...candidate.coffee, id: 1200, name: 'Profile Match' },
+            match: {
+              ...candidate.match,
+              category: 'similar_profile',
+              classification: {
+                ...candidate.match.classification,
+                kind: 'similar_recommendation',
+                identity_eligibility: 'blocked',
+                blockers: [
+                  {
+                    code: 'processing_base_method_conflict',
+                    severity: 'hard',
+                    target_value: 'Natural',
+                    candidate_value: 'Washed',
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      },
+      matches: [candidate],
+    },
+    meta: {
+      resource: 'catalog-similarity',
+      namespace: '/v1/catalog/{id}/similar',
+      version: 'v1',
+      status: 'beta',
+      query: { threshold: 0.85, limit: 5, stockedOnly: true, mode: 'likely_same' },
+      classification_version: 'canonical-match-v1',
+      query_strategy: 'bounded-vector-candidates-v1',
+    },
+  };
+
+  return { ...response, ...overrides };
 }
 
 describe('computeCatalogStats', () => {
@@ -483,6 +625,76 @@ describe('catalog command auth and structured filter parsing', () => {
     );
   });
 
+  it('uses API-key canonical similarity reads without session auth when an API key env is set', async () => {
+    process.env.PURVEYORS_BASE_URL = 'https://example.test';
+    process.env.PARCHMENT_API_KEY = 'parchment-key';
+    const response = makeCanonicalSimilarityResponse();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await runCatalogCommand([
+      'similar',
+      '1182',
+      '--threshold',
+      '0.85',
+      '--limit',
+      '5',
+      '--stocked-only',
+      '--mode',
+      'likely_same',
+    ]);
+
+    const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(requestUrl.origin).toBe('https://example.test');
+    expect(requestUrl.pathname).toBe('/v1/catalog/1182/similar');
+    expect(requestUrl.searchParams.get('threshold')).toBe('0.85');
+    expect(requestUrl.searchParams.get('limit')).toBe('5');
+    expect(requestUrl.searchParams.get('stocked_only')).toBe('true');
+    expect(requestUrl.searchParams.get('mode')).toBe('likely_same');
+    expect(requireAuth).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer parchment-key' }),
+      })
+    );
+    expect(outputData).toHaveBeenCalledWith(response, expect.any(Object));
+  });
+
+  it('uses viewer session auth for canonical similarity reads when no API key env is set', async () => {
+    process.env.PURVEYORS_BASE_URL = 'https://example.test';
+    const response = makeCanonicalSimilarityResponse();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const supabase = {
+      auth: {
+        getSession: vi.fn().mockResolvedValue({
+          data: { session: { access_token: 'session-token' } },
+        }),
+      },
+    } as unknown as SupabaseClient;
+    vi.mocked(requireAuth).mockResolvedValue({ supabase, userId: 'user-1' });
+
+    await runCatalogCommand(['similar', '1182']);
+
+    expect(requireAuth).toHaveBeenCalledWith('viewer');
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer session-token' }),
+      })
+    );
+    expect(outputData).toHaveBeenCalledWith(response, expect.any(Object));
+  });
+
   it('requires member auth when any structured process filter is requested', async () => {
     const structuredFlags = [
       ['--processing-base-method', 'Natural'],
@@ -782,6 +994,211 @@ describe('searchCatalog', () => {
     await expect(searchCatalog(supabase, { includeProof: true })).rejects.toMatchObject({
       code: 'INVALID_ARGUMENT',
       message: expect.stringContaining('Catalog API rejected include=proof'),
+    });
+  });
+});
+
+// ─── getCatalogSimilaritySchema ───────────────────────────────────────────────
+
+describe('getCatalogSimilaritySchema', () => {
+  it('defaults canonical similarity query options', () => {
+    const result = getCatalogSimilaritySchema.parse({ coffee_id: 1182 });
+    expect(result).toMatchObject({
+      coffee_id: 1182,
+      threshold: 0.7,
+      limit: 10,
+      stockedOnly: false,
+      mode: 'all',
+    });
+  });
+
+  it('rejects thresholds and limits outside the canonical API contract', () => {
+    expect(() => getCatalogSimilaritySchema.parse({ coffee_id: 1, threshold: 0.49 })).toThrow();
+    expect(() => getCatalogSimilaritySchema.parse({ coffee_id: 1, threshold: 1 })).toThrow();
+    expect(() => getCatalogSimilaritySchema.parse({ coffee_id: 1, limit: 26 })).toThrow();
+  });
+});
+
+// ─── getCatalogSimilarity (lib function) ─────────────────────────────────────
+
+describe('getCatalogSimilarity', () => {
+  it('calls /v1/catalog/{id}/similar with canonical query params and session auth', async () => {
+    process.env.PURVEYORS_BASE_URL = 'https://example.test';
+    const response = makeCanonicalSimilarityResponse();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const getSession = vi.fn().mockResolvedValue({
+      data: { session: { access_token: 'session-token' } },
+    });
+    const supabase = { auth: { getSession } } as unknown as SupabaseClient;
+
+    const result = await getCatalogSimilarity(supabase, {
+      coffee_id: 1182,
+      threshold: 0.85,
+      limit: 5,
+      stockedOnly: true,
+      mode: 'likely_same',
+    });
+
+    const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(requestUrl.pathname).toBe('/v1/catalog/1182/similar');
+    expect(requestUrl.searchParams.get('threshold')).toBe('0.85');
+    expect(requestUrl.searchParams.get('limit')).toBe('5');
+    expect(requestUrl.searchParams.get('stocked_only')).toBe('true');
+    expect(requestUrl.searchParams.get('mode')).toBe('likely_same');
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer session-token' }),
+      })
+    );
+    expect(result.data.groups.canonical_candidates).toHaveLength(1);
+    expect(
+      result.data.groups.similar_recommendations[0]?.match.classification.blockers[0]?.code
+    ).toBe('processing_base_method_conflict');
+    expect(result.meta.classification_version).toBe('canonical-match-v1');
+    expect(result.meta.query_strategy).toBe('bounded-vector-candidates-v1');
+  });
+
+  it('uses API keys before session lookup for canonical similarity', async () => {
+    process.env.PURVEYORS_API_KEY = 'api-key';
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(makeCanonicalSimilarityResponse()), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const getSession = vi.fn();
+    const supabase = { auth: { getSession } } as unknown as SupabaseClient;
+
+    await getCatalogSimilarity(supabase, { coffee_id: 1182 });
+
+    expect(getSession).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer api-key' }),
+      })
+    );
+  });
+
+  it('rejects grouped canonical similarity responses that omit required meta fields', async () => {
+    const response = makeCanonicalSimilarityResponse();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ...response,
+          meta: { ...response.meta, query_strategy: undefined },
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }
+      )
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const supabase = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
+    } as unknown as SupabaseClient;
+
+    await expect(getCatalogSimilarity(supabase, { coffee_id: 1182 })).rejects.toMatchObject({
+      code: 'GENERAL_ERROR',
+      message: expect.stringContaining('unexpected response shape'),
+    });
+  });
+
+  it('preserves structured auth and API error envelopes', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: 'Missing API key' }), {
+        status: 403,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const supabase = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
+    } as unknown as SupabaseClient;
+
+    await expect(getCatalogSimilarity(supabase, { coffee_id: 1182 })).rejects.toMatchObject({
+      code: 'AUTH_ERROR',
+      message: expect.stringContaining('Catalog API authentication failed'),
+    });
+  });
+
+  it('surfaces canonical similarity route failures with endpoint context', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: 'Invalid threshold' }), {
+        status: 400,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const supabase = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
+    } as unknown as SupabaseClient;
+
+    await expect(getCatalogSimilarity(supabase, { coffee_id: 1182 })).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+      message: expect.stringContaining('/v1/catalog/{id}/similar'),
+    });
+  });
+
+  it('maps missing canonical similarity targets to NOT_FOUND', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: 'Catalog coffee 1182 was not found' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const supabase = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
+    } as unknown as SupabaseClient;
+
+    await expect(getCatalogSimilarity(supabase, { coffee_id: 1182 })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      message: expect.stringContaining('Catalog similarity target not found'),
+    });
+  });
+
+  it('maps missing canonical similarity routes to CONFIG_ERROR', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: 'Route not deployed' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const supabase = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
+    } as unknown as SupabaseClient;
+
+    await expect(getCatalogSimilarity(supabase, { coffee_id: 1182 })).rejects.toMatchObject({
+      code: 'CONFIG_ERROR',
+      message: expect.stringContaining('Catalog similarity API endpoint not found'),
+    });
+  });
+
+  it('maps generic missing canonical similarity route 404s to CONFIG_ERROR', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('Not Found', {
+        status: 404,
+        statusText: 'Not Found',
+        headers: { 'content-type': 'text/plain' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const supabase = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
+    } as unknown as SupabaseClient;
+
+    await expect(getCatalogSimilarity(supabase, { coffee_id: 1182 })).rejects.toMatchObject({
+      code: 'CONFIG_ERROR',
+      message: expect.stringContaining('Catalog similarity API endpoint not found'),
     });
   });
 });

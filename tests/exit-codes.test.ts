@@ -136,6 +136,30 @@ describe('CLI exit codes', () => {
     expect(stderr.message).toContain('Invalid ID: "12x"');
   }, 15000);
 
+  it('exits 2 for malformed canonical catalog similar flags before auth', () => {
+    const thresholdResult = runCli(['catalog', 'similar', '1182', '--threshold', '0.1', '--json']);
+    const thresholdStderr = parseJson(thresholdResult.stderr);
+
+    expect(thresholdResult.status).toBe(2);
+    expect(thresholdStderr).toMatchObject({
+      error: true,
+      code: 'INVALID_ARGUMENT',
+      exitCode: 2,
+    });
+    expect(thresholdStderr.message).toContain('Invalid --threshold: "0.1"');
+
+    const modeResult = runCli(['catalog', 'similar', '1182', '--mode', 'bogus', '--json']);
+    const modeStderr = parseJson(modeResult.stderr);
+
+    expect(modeResult.status).toBe(2);
+    expect(modeStderr).toMatchObject({
+      error: true,
+      code: 'INVALID_ARGUMENT',
+      exitCode: 2,
+    });
+    expect(modeStderr.message).toContain('Invalid --mode: "bogus"');
+  }, 15000);
+
   it('exits 2 for malformed catalog pagination flags before auth', () => {
     const result = runCli(['catalog', 'search', '--limit', '10x', '--json']);
     const stderr = parseJson(result.stderr);

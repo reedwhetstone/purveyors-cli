@@ -120,7 +120,8 @@ Catalog intelligence boundaries:
 
 - `catalog search --include-proof` consumes the canonical `/v1/catalog?include=proof` summary. The CLI does not compute proof scores locally.
 - The proof path should reject CLI-only filters that `/v1/catalog` cannot preserve exactly, rather than implying the proof payload was generated from a different query contract.
-- `catalog similar <id>` uses the API/server similarity contract where available and returns matches sorted by similarity score.
+- `catalog similar <id>` consumes the beta canonical `/v1/catalog/{id}/similar` contract, not the legacy direct RPC path.
+- Similarity output must keep `canonical_candidates` separate from `similar_recommendations` and preserve blocker, proof, pricing, score-dimension, `classification_version`, and `query_strategy` metadata for agents.
 - Structured process filters map to canonical `/v1/catalog` query names and require member access under the current session-authenticated CLI path.
 
 Reference surfaces:

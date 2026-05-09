@@ -78,6 +78,148 @@ export interface SimilarBean {
   chunk_matches: number;
 }
 
+export type CatalogSimilarityMode = 'all' | 'likely_same' | 'similar_profile';
+export type CatalogMatchCategory = 'likely_same' | 'similar_profile';
+export type CatalogMatchKind = 'canonical_candidate' | 'similar_recommendation';
+export type CatalogIdentityEligibility = 'eligible' | 'blocked' | 'insufficient_evidence';
+export type CatalogMatchConfidenceLabel = 'high_beta' | 'medium_beta' | 'low_beta';
+export type CatalogSimilarityQueryStrategy =
+  | 'bounded-vector-candidates-v1'
+  | 'canonical-vector-aggregated-v2'
+  | 'legacy-vector-aggregated-v1';
+
+export interface CatalogCanonicalPricing {
+  price_per_lb: number | null;
+  price_tiers: unknown;
+  cost_lb: number | null;
+  baseline_quantity_lbs: 1;
+  baseline_price_per_lb: number | null;
+  baseline_source: 'price_per_lb' | 'price_tiers' | 'cost_lb' | null;
+}
+
+export interface CatalogIdentityBlocker {
+  code: string;
+  severity: 'hard' | 'soft';
+  target_value: string | null;
+  candidate_value: string | null;
+}
+
+export interface CatalogMatchClassification {
+  kind: CatalogMatchKind;
+  identity_eligibility: CatalogIdentityEligibility;
+  confidence: CatalogMatchConfidenceLabel;
+  blockers: CatalogIdentityBlocker[];
+  evidence: string[];
+}
+
+export interface CatalogSimilarityQuery {
+  threshold: number;
+  limit: number;
+  stockedOnly: boolean;
+  mode: CatalogSimilarityMode;
+}
+
+export interface CatalogSimilarityTargetSummary {
+  id: number;
+  name: string;
+  source: string | null;
+  origin: string | null;
+  country: string | null;
+  continent: string | null;
+  processing: string | null;
+  processing_base_method: string | null;
+  fermentation_type: string | null;
+  drying_method: string | null;
+  stocked: boolean | null;
+  arrival_date: string | null;
+  stocked_date: string | null;
+  price_per_lb: number | null;
+  price_tiers: unknown;
+  cost_lb: number | null;
+  pricing: CatalogCanonicalPricing;
+  proof: CatalogProofSummary;
+}
+
+export interface CatalogSimilarityMatch {
+  coffee: {
+    id: number;
+    name: string;
+    source: string | null;
+    origin: string | null;
+    country: string | null;
+    continent: string | null;
+    processing: string | null;
+    processing_base_method: string | null;
+    fermentation_type: string | null;
+    drying_method: string | null;
+    stocked: boolean | null;
+    arrival_date: string | null;
+    stocked_date: string | null;
+    proof: CatalogProofSummary;
+  };
+  pricing: CatalogCanonicalPricing;
+  price_delta_1lb: {
+    amount: number | null;
+    percent: number | null;
+    currency: 'USD';
+  };
+  score: {
+    average: number;
+    dimensions: {
+      origin: number | null;
+      processing: number | null;
+      tasting: number | null;
+    };
+    chunk_matches: number;
+  };
+  match: {
+    category: CatalogMatchCategory;
+    classification: CatalogMatchClassification;
+    confidence: CatalogMatchConfidenceLabel;
+    beta: true;
+    language: string;
+  };
+  explanation: {
+    summary: string;
+    signals: string[];
+  };
+  compatibility: {
+    cost_lb: number | null;
+  };
+}
+
+export interface CatalogSimilarityResponse {
+  data: {
+    target: CatalogSimilarityTargetSummary;
+    groups: {
+      canonical_candidates: CatalogSimilarityMatch[];
+      similar_recommendations: CatalogSimilarityMatch[];
+    };
+    matches?: CatalogSimilarityMatch[];
+  };
+  meta: {
+    resource: 'catalog-similarity';
+    namespace: '/v1/catalog/{id}/similar';
+    version: 'v1';
+    status: 'beta';
+    auth?: {
+      kind: 'session' | 'api-key';
+      role: string | null;
+      apiPlan: unknown;
+    };
+    access?: {
+      requiredCapability: 'canUseBeanMatching';
+      canUseBeanMatching: true;
+    };
+    query: CatalogSimilarityQuery;
+    copy?: {
+      confidence: string;
+    };
+    classification_version: 'canonical-match-v1';
+    query_strategy: CatalogSimilarityQueryStrategy;
+  };
+}
+
 export interface CatalogStats {
   total: number;
   stocked: number;
@@ -127,6 +269,39 @@ export type GetCatalogInput = z.input<typeof getCatalogSchema>;
 export const getCatalogStatsSchema = z.object({});
 
 export type GetCatalogStatsInput = z.input<typeof getCatalogStatsSchema>;
+
+export const catalogSimilarityModes = ['all', 'likely_same', 'similar_profile'] as const;
+
+export const getCatalogSimilaritySchema = z.object({
+  coffee_id: z
+    .number()
+    .int()
+    .positive()
+    .describe('The coffee_catalog ID to request canonical similarity for'),
+  threshold: z
+    .number()
+    .min(0.5)
+    .max(0.99)
+    .default(0.7)
+    .optional()
+    .describe('Minimum canonical similarity threshold (0.5-0.99)'),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(25)
+    .default(10)
+    .optional()
+    .describe('Maximum canonical similarity results to request'),
+  stockedOnly: z
+    .boolean()
+    .default(false)
+    .optional()
+    .describe('Restrict similarity results to currently stocked coffees'),
+  mode: z.enum(catalogSimilarityModes).default('all').optional().describe('Canonical group filter'),
+});
+
+export type GetCatalogSimilarityInput = z.input<typeof getCatalogSimilaritySchema>;
 
 export const findSimilarBeansSchema = z.object({
   coffee_id: z
@@ -206,7 +381,7 @@ async function getCatalogApiAuthHeader(supabase: SupabaseClient): Promise<string
 
   if (!session?.access_token) {
     throw new AuthError(
-      'Catalog proof output requires a Purveyors session or API key. Run `purvey auth login`, or set PARCHMENT_API_KEY/PURVEYORS_API_KEY for API-backed catalog proof reads.'
+      'Catalog API reads require a Purveyors session or API key. Run `purvey auth login`, or set PARCHMENT_API_KEY/PURVEYORS_API_KEY for API-backed catalog reads.'
     );
   }
 
@@ -297,7 +472,10 @@ function buildCatalogApiUrl(parsed: z.infer<typeof searchCatalogSchema>): URL {
   return url;
 }
 
-async function parseCatalogApiError(response: Response): Promise<PrvrsError> {
+async function parseCatalogApiError(
+  response: Response,
+  context = 'include=proof'
+): Promise<PrvrsError> {
   let body: CatalogApiEnvelope | undefined;
   try {
     body = (await response.json()) as CatalogApiEnvelope;
@@ -320,15 +498,31 @@ async function parseCatalogApiError(response: Response): Promise<PrvrsError> {
   if (response.status === 400) {
     return new PrvrsError(
       'INVALID_ARGUMENT',
-      `Catalog API rejected include=proof: ${serverMessage}. Verify the configured Purveyors API endpoint supports the proof summary include.`,
+      `Catalog API rejected ${context}: ${serverMessage}. Verify the configured Purveyors API endpoint supports this canonical catalog contract.`,
       details
     );
   }
 
   if (response.status === 404) {
+    if (context === '/v1/catalog/{id}/similar') {
+      if (/^Catalog coffee \d+ was not found$/i.test(serverMessage)) {
+        return new PrvrsError(
+          'NOT_FOUND',
+          `Catalog similarity target not found: ${serverMessage}`,
+          details
+        );
+      }
+
+      return new PrvrsError(
+        'CONFIG_ERROR',
+        `Catalog similarity API endpoint not found. Set PURVEYORS_BASE_URL to a Purveyors deployment that supports ${context}.`,
+        details
+      );
+    }
+
     return new PrvrsError(
       'CONFIG_ERROR',
-      'Catalog API endpoint not found. Set PURVEYORS_BASE_URL to a Purveyors deployment that supports /v1/catalog?include=proof.',
+      `Catalog API endpoint not found. Set PURVEYORS_BASE_URL to a Purveyors deployment that supports ${context}.`,
       details
     );
   }
@@ -338,6 +532,65 @@ async function parseCatalogApiError(response: Response): Promise<PrvrsError> {
     `Catalog API request failed (${response.status}): ${serverMessage}`,
     details
   );
+}
+
+function buildCatalogSimilarityApiUrl(parsed: z.infer<typeof getCatalogSimilaritySchema>): URL {
+  const url = new URL(`/v1/catalog/${parsed.coffee_id}/similar`, getCatalogApiBaseUrl());
+  const params = url.searchParams;
+  params.set('threshold', String(parsed.threshold ?? 0.7));
+  params.set('limit', String(parsed.limit ?? 10));
+  params.set('stocked_only', String(parsed.stockedOnly ?? false));
+  if ((parsed.mode ?? 'all') !== 'all') {
+    params.set('mode', parsed.mode ?? 'all');
+  }
+  return url;
+}
+
+function isCatalogSimilarityResponse(value: unknown): value is CatalogSimilarityResponse {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  const data = record.data as Record<string, unknown> | undefined;
+  const groups = data?.groups as Record<string, unknown> | undefined;
+  const meta = record.meta as Record<string, unknown> | undefined;
+  return Boolean(
+    data &&
+    typeof data === 'object' &&
+    data.target &&
+    groups &&
+    Array.isArray(groups.canonical_candidates) &&
+    Array.isArray(groups.similar_recommendations) &&
+    meta &&
+    typeof meta.classification_version === 'string' &&
+    typeof meta.query_strategy === 'string'
+  );
+}
+
+async function fetchCatalogSimilarityApi(
+  supabase: SupabaseClient,
+  parsed: z.infer<typeof getCatalogSimilaritySchema>
+): Promise<CatalogSimilarityResponse> {
+  const url = buildCatalogSimilarityApiUrl(parsed);
+  const response = await fetch(url, {
+    headers: {
+      Accept: 'application/json',
+      Authorization: await getCatalogApiAuthHeader(supabase),
+    },
+  });
+
+  if (!response.ok) {
+    throw await parseCatalogApiError(response, '/v1/catalog/{id}/similar');
+  }
+
+  const envelope = (await response.json()) as unknown;
+  if (!isCatalogSimilarityResponse(envelope)) {
+    throw new PrvrsError(
+      'GENERAL_ERROR',
+      'Catalog similarity API returned an unexpected response shape; expected canonical { data: { target, groups: { canonical_candidates, similar_recommendations } }, meta }.',
+      { body: envelope }
+    );
+  }
+
+  return envelope;
 }
 
 async function fetchCatalogApiItems(
@@ -576,6 +829,17 @@ export async function getCatalogStats(supabase: SupabaseClient): Promise<Catalog
   if (error) throw error;
 
   return computeCatalogStats((data ?? []) as CatalogItem[]);
+}
+
+/**
+ * Fetch canonical catalog similarity groups from the beta /v1/catalog/{id}/similar API.
+ */
+export async function getCatalogSimilarity(
+  supabase: SupabaseClient,
+  input: GetCatalogSimilarityInput
+): Promise<CatalogSimilarityResponse> {
+  const parsed = getCatalogSimilaritySchema.parse(input);
+  return fetchCatalogSimilarityApi(supabase, parsed);
 }
 
 /**

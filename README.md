@@ -320,9 +320,10 @@ Notes:
 
 `catalog similar <id>` options:
 
-- `--threshold <0-1>`; default `0.70`
-- `--limit <n>`; default `10`
-- `--stocked-only`
+- `--threshold <score>`; canonical similarity threshold `0.5` to `0.99`, default `0.70`
+- `--limit <count>`; default `10`, max `25`
+- `--stocked-only`; request only currently stocked coffees
+- `--mode <all|likely_same|similar_profile>`; default `all`
 
 Examples:
 
@@ -336,6 +337,7 @@ purvey catalog search --stocked --sort price --offset 10 --limit 10
 purvey catalog search --origin "Ethiopia" --include-proof --json
 PARCHMENT_API_KEY="$PURVEYORS_API_KEY" purvey catalog search --origin "Ethiopia" --include-proof --limit 5 --json
 purvey catalog similar 1182 --threshold 0.85 --stocked-only --pretty
+purvey catalog similar 1182 --json | jq '.data.groups.canonical_candidates'
 purvey catalog stats --pretty
 purvey catalog get 1182 --pretty
 purvey catalog get 1182 --include-proof --json
@@ -350,7 +352,10 @@ Notes:
 - `--include-proof` rejects CLI-only filters that `/v1/catalog` cannot yet preserve exactly, such as `--flavor`, `--supplier`, `--drying-method`, and `--sort newest`.
 - If you want proof output against an API-key deployment, set `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY` before running the command. Otherwise the CLI uses your logged-in Purveyors session token.
 - `catalog get` and `catalog similar` both take `coffee_catalog.catalog_id`.
-- `catalog similar` uses the API/server similarity contract when available and returns matches sorted by similarity score.
+- `catalog similar` uses the beta canonical `/v1/catalog/{id}/similar` API contract, not the legacy direct RPC path.
+- `catalog similar --json` returns the grouped canonical response object: `data.target`, `data.groups.canonical_candidates`, `data.groups.similar_recommendations`, optional `data.matches`, and `meta`.
+- `canonical_candidates` are likely same-lot candidates; `similar_recommendations` are substitutes/profile matches and include blocker reasons when identity gates disagree.
+- The command preserves `classification_version`, `query_strategy`, score dimensions, proof summaries, pricing metadata, and classification/blocker details supplied by the API.
 - `catalog stats` returns aggregate catalog metrics, not your personal inventory metrics.
 
 ### inventory
@@ -698,7 +703,7 @@ purvey auth status 2>/dev/null | jq .
 
 Use the right ID for the right command.
 
-- `catalog_id`: `coffee_catalog` rows; used by `catalog get`, `inventory add --catalog-id`, `tasting get`, `roast list --catalog-id`
+- `catalog_id`: `coffee_catalog` rows; used by `catalog get`, `catalog similar`, `inventory add --catalog-id`, `tasting get`, `roast list --catalog-id`
 - `inventory id`: `green_coffee_inv` rows; used by `inventory get/update/delete`, `roast --coffee-id`, `tasting rate`, `roast list --coffee-id`
 - `roast_id`: `roast_data` rows; used by `roast get/delete`, `sales --roast-id`, `roast list --roast-id`
 - `sales record` also supports resolving a roast from `inventory id` plus `--batch-name`; if that selector is ambiguous, use exact `roast_id`
@@ -709,8 +714,8 @@ Use the right ID for the right command.
 - `PURVEYORS_SUPABASE_URL`: override the Supabase project URL
 - `PURVEYORS_SUPABASE_ANON_KEY`: override the Supabase anon key
 - `PURVEYORS_BASE_URL`: override the Purveyors web base URL
-- `PURVEYORS_API_KEY`: API-key token used by API-backed catalog proof reads when you want to call the canonical API contract without relying on the local OAuth session
-- `PARCHMENT_API_KEY`: alternate API-key variable accepted for the same API-backed proof path
+- `PURVEYORS_API_KEY`: API-key token used by API-backed catalog proof and similarity reads when you want to call canonical API contracts without relying on the local OAuth session
+- `PARCHMENT_API_KEY`: alternate API-key variable accepted for the same API-backed proof and similarity path
 - `PURVEY_DEBUG`: enable verbose error output
 
 ## For AI agents
@@ -743,9 +748,9 @@ Agent integration rules of thumb:
 
 - Discover first with `purvey manifest`, then call the narrowest command or package subpath that fits the job.
 - Use `purvey context` when a human-readable operator summary is useful before tool selection.
-- Prefer OAuth session tokens for normal user workflows; use `PURVEYORS_API_KEY` or `PARCHMENT_API_KEY` only when you intentionally need the API-key catalog proof path.
+- Prefer OAuth session tokens for normal user workflows; use `PURVEYORS_API_KEY` or `PARCHMENT_API_KEY` only when you intentionally need the API-key catalog proof or similarity path.
 - Treat `--include-proof` as API output, not a local scoring feature. If a filter cannot round-trip through `/v1/catalog?include=proof`, the CLI rejects that invocation instead of returning misleading proof data.
-- Treat `catalog similar` results as server-ranked similarity matches. Do not re-sort them client-side unless you have a specific downstream reason.
+- Treat `catalog similar` as the canonical `/v1/catalog/{id}/similar` contract. Preserve the distinction between `canonical_candidates` and `similar_recommendations`; do not flatten or re-sort grouped results unless you have a specific downstream reason.
 
 ## Troubleshooting
 

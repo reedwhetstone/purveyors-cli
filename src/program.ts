@@ -73,7 +73,7 @@ Catalog (viewer role required, member role required for structured process filte
   catalog search    Search the coffee catalog with filters
   catalog get       Get details for a specific coffee by ID
   catalog stats     Aggregate statistics for the catalog
-  catalog similar   Find similar coffees by catalog ID
+  catalog similar   Fetch canonical candidates and similar recommendations by catalog ID
 
 Personal Data (member role required):
   inventory list    List your green coffee inventory
@@ -113,7 +113,7 @@ Global Options:
 Examples:
   $ purvey auth login --headless
   $ purvey catalog search --origin "Ethiopia" --process "natural" --pretty
-  $ purvey catalog similar 1182 --threshold 0.85 --stocked-only --json | jq '.[0]'
+  $ purvey catalog similar 1182 --threshold 0.85 --stocked-only --json | jq '.data.groups'
   $ purvey inventory list --stocked --pretty
   $ purvey roast import my-roast.alog --coffee-id 7
   $ purvey roast watch ~/artisan/ --auto-match
