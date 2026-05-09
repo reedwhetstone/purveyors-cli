@@ -193,7 +193,7 @@ const idTypes: CliIdContract[] = [
       'catalog get',
       'catalog similar',
       'inventory add --catalog-id',
-      'tasting get <catalog_id>',
+      'tasting get <bean-id>',
       'roast list --catalog-id',
     ],
   },
@@ -204,7 +204,7 @@ const idTypes: CliIdContract[] = [
       'inventory get/update/delete',
       'roast --coffee-id',
       'roast list --coffee-id',
-      'tasting rate [inventory_id]',
+      'tasting rate [bean-id]',
     ],
   },
   {

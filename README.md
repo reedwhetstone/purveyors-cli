@@ -557,19 +557,20 @@ Notes:
 
 ### tasting
 
-- `purvey tasting get <catalog-id>`
-- `purvey tasting rate [inventory-id]`
+- `purvey tasting get <bean-id>`
+- `purvey tasting rate [bean-id]`
 
 ID distinction:
 
-- `tasting get` takes a `catalog_id`
-- `tasting rate` takes an `inventory id`
+- `tasting get <bean-id>` takes a `catalog_id`
+- `tasting rate [bean-id]` takes an inventory ID
+- The CLI token is `bean-id` for both tasting commands, but the backing ID type is different
 
-`purvey tasting get <catalog-id>` options:
+`purvey tasting get <bean-id>` options:
 
 - `--filter <user|supplier|both>`; default `both`
 
-`purvey tasting rate [inventory-id]` options:
+`purvey tasting rate [bean-id]` options:
 
 - `--aroma <1-5>`; required in flag mode
 - `--body <1-5>`; required in flag mode
