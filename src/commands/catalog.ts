@@ -386,7 +386,7 @@ Notes:
   --threshold controls sensitivity (higher = more strict match, 0.5-0.99).
   --mode can be all, likely_same, or similar_profile.
   Default output is compact JSON. Use --pretty for formatted JSON.
-  Requires an authenticated viewer session, or PARCHMENT_API_KEY/PURVEYORS_API_KEY.
+  Requires an authenticated member session, or a paid PARCHMENT_API_KEY/PURVEYORS_API_KEY.
 `
     )
     .action(
@@ -426,7 +426,7 @@ Notes:
           );
         }
         const stockedOnly = Boolean(opts.stockedOnly);
-        const supabase = await resolveCatalogReadClient('viewer', true);
+        const supabase = await resolveCatalogReadClient('member', true);
 
         const response = await getCatalogSimilarity(supabase, {
           coffee_id: coffeeId,

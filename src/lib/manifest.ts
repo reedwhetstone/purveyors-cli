@@ -350,7 +350,7 @@ const commandGroups: CliCommandGroupContract[] = [
         name: 'similar',
         summary:
           'Fetch beta canonical /v1/catalog/{id}/similar groups for likely same-lot candidates and similar recommendations',
-        auth: 'viewer',
+        auth: 'member',
         arguments: [
           {
             name: 'catalog_id',
@@ -379,7 +379,7 @@ const commandGroups: CliCommandGroupContract[] = [
           'Default JSON output is the grouped canonical response object with data.target, data.groups.canonical_candidates, data.groups.similar_recommendations, optional data.matches, and meta.',
           'canonical_candidates are likely same-lot candidates; similar_recommendations are profile substitutes and expose blocker reasons when identity gates disagree.',
           'Preserves classification_version, query_strategy, proof summaries, pricing metadata, blocker details, and score dimensions supplied by the API.',
-          'Set PURVEYORS_API_KEY or PARCHMENT_API_KEY for API-key auth, or use a logged-in Purveyors session.',
+          'Set PURVEYORS_API_KEY or PARCHMENT_API_KEY for paid API-key auth, or use a logged-in Purveyors member session.',
         ],
         examples: [
           'purvey catalog similar 1182 --threshold 0.85 --stocked-only --json',
