@@ -665,7 +665,7 @@ describe('catalog command auth and structured filter parsing', () => {
     expect(outputData).toHaveBeenCalledWith(response, expect.any(Object));
   });
 
-  it('uses viewer session auth for canonical similarity reads when no API key env is set', async () => {
+  it('uses member session auth for canonical similarity reads when no API key env is set', async () => {
     process.env.PURVEYORS_BASE_URL = 'https://example.test';
     const response = makeCanonicalSimilarityResponse();
     const fetchMock = vi.fn().mockResolvedValue(
@@ -686,7 +686,7 @@ describe('catalog command auth and structured filter parsing', () => {
 
     await runCatalogCommand(['similar', '1182']);
 
-    expect(requireAuth).toHaveBeenCalledWith('viewer');
+    expect(requireAuth).toHaveBeenCalledWith('member');
     expect(fetchMock.mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: 'Bearer session-token' }),
