@@ -343,9 +343,9 @@ Notes:
 
 `catalog supplier-*` options:
 
-- `supplier-list`: `--stocked`, `--sample-size <n>` (catalog rows per fetch page, default `1000`, max `5000`), `--limit <n>`
-- `supplier-detail <supplier>`: `--stocked`, `--top-coffees <n>`, `--sample-size <n>` (catalog rows per fetch page, default `1000`, max `5000`)
-- `supplier-rank`: `--stocked`, `--min-coffees <n>`, `--sample-size <n>` (catalog rows per fetch page, default `1000`, max `5000`), `--limit <n>`
+- `supplier-list`: `--stocked`, `--sample-size <n>` (catalog rows per fetch page, default `5000`, max `5000`), `--limit <n>`
+- `supplier-detail <supplier>`: `--stocked`, `--top-coffees <n>`, `--sample-size <n>` (catalog rows per fetch page, default `5000`, max `5000`)
+- `supplier-rank`: `--stocked`, `--min-coffees <n>`, `--sample-size <n>` (catalog rows per fetch page, default `5000`, max `5000`), `--limit <n>`
 
 Examples:
 
@@ -378,6 +378,7 @@ Notes:
 - If you want proof output against an API-key deployment, set `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY` before running the command. Otherwise the CLI uses your logged-in Purveyors session token.
 - `catalog get` and `catalog similar` both take `coffee_catalog.catalog_id`.
 - `catalog rank-premium` exposes existing `coffee_catalog.score_value` as `purveyor_score`; the CLI does not recompute the upstream Purveyor Score model.
+- Catalog intelligence responses include `meta.sample_limited`, `meta.sample_order`, and `meta.truncated` where relevant so agents can distinguish ranked samples from full supplier aggregates. Supplier aggregate responses also include `meta.rows_examined`.
 - Supplier aggregate commands summarize catalog row counts, stocked counts, Purveyor Score coverage, average score, price range, origin/process coverage, and representative top coffees.
 - `catalog similar` uses the beta canonical `/v1/catalog/{id}/similar` API contract, not the legacy direct RPC path.
 - `catalog similar --json` requires member access or a paid API tier and returns the grouped canonical response object: `data.target`, `data.groups.canonical_candidates`, `data.groups.similar_recommendations`, optional `data.matches`, and `meta`.

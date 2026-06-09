@@ -270,6 +270,9 @@ export interface CatalogPremiumRanking {
     resource: 'catalog-premium-ranking';
     scoring_source: 'coffee_catalog.score_value';
     sample_size: number;
+    sample_limited: boolean;
+    sample_order: 'score_value_desc_nulls_last';
+    truncated: boolean;
     returned: number;
     filters: {
       origin?: string;
@@ -309,6 +312,10 @@ export interface SupplierAggregateResponse {
   meta: {
     resource: 'supplier-list' | 'supplier-detail' | 'supplier-rank';
     sample_size: number;
+    sample_limited: boolean;
+    sample_order: 'source_asc_nulls_last';
+    truncated: boolean;
+    rows_examined: number;
     returned: number;
     filters: {
       supplier?: string;
@@ -361,6 +368,10 @@ export const getCatalogStatsSchema = z.object({});
 
 export type GetCatalogStatsInput = z.input<typeof getCatalogStatsSchema>;
 
+const CATALOG_INTELLIGENCE_MAX_SAMPLE_SIZE = 5000;
+const CATALOG_PREMIUM_DEFAULT_SAMPLE_SIZE = 250;
+const SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE = CATALOG_INTELLIGENCE_MAX_SAMPLE_SIZE;
+
 export const catalogRankPremiumSchema = z.object({
   origin: z.string().optional(),
   process: z.string().optional(),
@@ -370,7 +381,13 @@ export const catalogRankPremiumSchema = z.object({
   minScore: z.number().optional(),
   includeUnscored: z.boolean().default(false).optional(),
   limit: z.number().int().min(1).max(50).default(10).optional(),
-  sampleSize: z.number().int().min(1).max(5000).default(250).optional(),
+  sampleSize: z
+    .number()
+    .int()
+    .min(1)
+    .max(CATALOG_INTELLIGENCE_MAX_SAMPLE_SIZE)
+    .default(CATALOG_PREMIUM_DEFAULT_SAMPLE_SIZE)
+    .optional(),
 });
 
 export type CatalogRankPremiumInput = z.input<typeof catalogRankPremiumSchema>;
@@ -381,7 +398,13 @@ export const supplierAggregateSchema = z.object({
   minCoffees: z.number().int().min(1).default(1).optional(),
   topCoffees: z.number().int().min(1).max(25).default(5).optional(),
   limit: z.number().int().min(1).max(100).default(25).optional(),
-  sampleSize: z.number().int().min(1).max(5000).default(1000).optional(),
+  sampleSize: z
+    .number()
+    .int()
+    .min(1)
+    .max(CATALOG_INTELLIGENCE_MAX_SAMPLE_SIZE)
+    .default(SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE)
+    .optional(),
 });
 
 export type SupplierAggregateInput = z.input<typeof supplierAggregateSchema>;
@@ -1184,7 +1207,7 @@ function buildCatalogIntelligenceQuery(
   }
 
   if (options.applyRange ?? true) {
-    const sampleSize = parsed.sampleSize ?? 250;
+    const sampleSize = parsed.sampleSize ?? CATALOG_PREMIUM_DEFAULT_SAMPLE_SIZE;
     query = query.range(0, sampleSize - 1);
   }
 
@@ -1195,7 +1218,7 @@ async function fetchSupplierAggregateRows(
   supabase: SupabaseClient,
   parsed: Pick<SupplierAggregateInput, 'supplier' | 'stocked' | 'sampleSize'>
 ): Promise<CatalogItem[]> {
-  const pageSize = parsed.sampleSize ?? 1000;
+  const pageSize = parsed.sampleSize ?? SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE;
   const rows: CatalogItem[] = [];
 
   for (let offset = 0; ; offset += pageSize) {
@@ -1224,6 +1247,16 @@ const catalogIntelligenceCaveats = [
   'Ranking is catalog-only and does not account for a roaster’s owned inventory, roast history, or target menu fit.',
 ];
 
+const catalogPremiumRankingCaveats = [
+  ...catalogIntelligenceCaveats,
+  'Premium ranking samples catalog rows ordered by score_value descending before applying agent-facing ranking logic; meta.truncated indicates more rows matched than the requested sample_size.',
+];
+
+const supplierAggregateCaveats = [
+  ...catalogIntelligenceCaveats,
+  'Supplier aggregates paginate catalog rows ordered by source ascending; meta.sample_size is the fetch page size and meta.rows_examined reports the rows included in aggregation.',
+];
+
 /**
  * Rank premium catalog candidates by Purveyor Score, with pricing and sourcing signals.
  */
@@ -1232,15 +1265,19 @@ export async function catalogRankPremium(
   input: CatalogRankPremiumInput = {}
 ): Promise<CatalogPremiumRanking> {
   const parsed = catalogRankPremiumSchema.parse(input);
-  const sampleSize = parsed.sampleSize ?? 250;
+  const sampleSize = parsed.sampleSize ?? CATALOG_PREMIUM_DEFAULT_SAMPLE_SIZE;
   const { data, error } = await buildCatalogIntelligenceQuery(supabase, {
     ...parsed,
+    sampleSize: sampleSize + 1,
     orderByScore: true,
   });
 
   if (error) throw error;
 
-  const ranking = computeCatalogPremiumRanking((data ?? []) as CatalogItem[], {
+  const sampledRows = ((data ?? []) as CatalogItem[]).slice(0, sampleSize);
+  const truncated = ((data ?? []) as CatalogItem[]).length > sampleSize;
+
+  const ranking = computeCatalogPremiumRanking(sampledRows, {
     limit: parsed.limit ?? 10,
     includeUnscored: parsed.includeUnscored ?? false,
     minScore: parsed.minScore,
@@ -1252,6 +1289,9 @@ export async function catalogRankPremium(
       resource: 'catalog-premium-ranking',
       scoring_source: 'coffee_catalog.score_value',
       sample_size: sampleSize,
+      sample_limited: true,
+      sample_order: 'score_value_desc_nulls_last',
+      truncated,
       returned: ranking.length,
       filters: {
         origin: parsed.origin,
@@ -1262,7 +1302,7 @@ export async function catalogRankPremium(
         minScore: parsed.minScore,
         includeUnscored: parsed.includeUnscored ?? false,
       },
-      caveats: catalogIntelligenceCaveats,
+      caveats: catalogPremiumRankingCaveats,
     },
   };
 }
@@ -1273,7 +1313,7 @@ async function getSupplierAggregates(
   resource: SupplierAggregateResponse['meta']['resource']
 ): Promise<SupplierAggregateResponse> {
   const parsed = supplierAggregateSchema.parse(input);
-  const sampleSize = parsed.sampleSize ?? 1000;
+  const sampleSize = parsed.sampleSize ?? SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE;
   const rows = await fetchSupplierAggregateRows(supabase, {
     supplier: parsed.supplier,
     stocked: parsed.stocked,
@@ -1290,13 +1330,17 @@ async function getSupplierAggregates(
     meta: {
       resource,
       sample_size: sampleSize,
+      sample_limited: false,
+      sample_order: 'source_asc_nulls_last',
+      truncated: false,
+      rows_examined: rows.length,
       returned: aggregates.length,
       filters: {
         supplier: parsed.supplier,
         stocked: parsed.stocked,
         minCoffees: parsed.minCoffees ?? 1,
       },
-      caveats: catalogIntelligenceCaveats,
+      caveats: supplierAggregateCaveats,
     },
   };
 }

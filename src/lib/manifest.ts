@@ -364,6 +364,7 @@ const commandGroups: CliCommandGroupContract[] = [
         notes: [
           'Exposes coffee_catalog.score_value as purveyor_score; the CLI does not recompute the upstream score model.',
           'Output includes rank, catalog context, pricing, stocked status, and transparent ranking signals for agents.',
+          'Output metadata reports sample ordering and whether more rows matched than the requested sample size.',
         ],
         examples: [
           'purvey catalog rank-premium --stocked --limit 10 --pretty',
@@ -376,11 +377,12 @@ const commandGroups: CliCommandGroupContract[] = [
         auth: 'viewer',
         options: [
           { flags: '--stocked' },
-          { flags: '--sample-size <n>', defaultValue: 1000 },
+          { flags: '--sample-size <n>', defaultValue: 5000 },
           { flags: '--limit <n>', defaultValue: 25 },
         ],
         notes: [
           'Summarizes supplier counts, stocked counts, Purveyor Score coverage, average score, price range, origin/process coverage, and representative top coffees.',
+          'Output metadata reports source-ordered pagination, rows examined, and whether the aggregate is sample-limited.',
         ],
         examples: ['purvey catalog supplier-list --stocked --pretty'],
       },
@@ -398,9 +400,12 @@ const commandGroups: CliCommandGroupContract[] = [
         options: [
           { flags: '--stocked' },
           { flags: '--top-coffees <n>', defaultValue: 5 },
-          { flags: '--sample-size <n>', defaultValue: 1000 },
+          { flags: '--sample-size <n>', defaultValue: 5000 },
         ],
-        notes: ['Supplier matching is case-insensitive and partial, mirroring catalog search.'],
+        notes: [
+          'Supplier matching is case-insensitive and partial, mirroring catalog search.',
+          'Output metadata reports source-ordered pagination, rows examined, and whether the aggregate is sample-limited.',
+        ],
         examples: ['purvey catalog supplier-detail "Royal Coffee" --pretty'],
       },
       {
@@ -410,10 +415,13 @@ const commandGroups: CliCommandGroupContract[] = [
         options: [
           { flags: '--stocked' },
           { flags: '--min-coffees <n>', defaultValue: 1 },
-          { flags: '--sample-size <n>', defaultValue: 1000 },
+          { flags: '--sample-size <n>', defaultValue: 5000 },
           { flags: '--limit <n>', defaultValue: 25 },
         ],
-        notes: ['Ranks suppliers by average Purveyor Score, then currently stocked count.'],
+        notes: [
+          'Ranks suppliers by average Purveyor Score, then currently stocked count.',
+          'Output metadata reports source-ordered pagination, rows examined, and whether the aggregate is sample-limited.',
+        ],
         examples: ['purvey catalog supplier-rank --stocked --min-coffees 3 --pretty'],
       },
       {

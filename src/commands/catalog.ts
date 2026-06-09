@@ -71,6 +71,27 @@ function parsePositiveIntegerArg(rawValue: string, message: string): number {
   return parsed;
 }
 
+function parseBoundedPositiveIntegerArg(
+  rawValue: string,
+  flag: string,
+  min: number,
+  max: number
+): number {
+  const parsed = parsePositiveIntegerArg(
+    rawValue,
+    `Invalid ${flag}: "${rawValue}". Must be a positive integer.`
+  );
+
+  if (parsed < min || parsed > max) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `Invalid ${flag}: "${rawValue}". Must be between ${min} and ${max}.`
+    );
+  }
+
+  return parsed;
+}
+
 function parseNonNegativeIntegerArg(rawValue: string, message: string): number {
   const parsed = parseFiniteNumberArg(rawValue, message);
   if (!Number.isInteger(parsed) || parsed < 0) {
@@ -390,9 +411,7 @@ Notes:
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase } = await requireAuth('viewer');
-
-        const data = await catalogRankPremium(supabase, {
+        const input = {
           origin: opts.origin as string | undefined,
           process: opts.process as string | undefined,
           supplier: opts.supplier as string | undefined,
@@ -412,15 +431,17 @@ Notes:
                 )
               : undefined,
           includeUnscored: opts.includeUnscored ? true : undefined,
-          sampleSize: parsePositiveIntegerArg(
+          sampleSize: parseBoundedPositiveIntegerArg(
             opts.sampleSize as string,
-            `Invalid --sample-size: "${opts.sampleSize}". Must be a positive integer.`
+            '--sample-size',
+            1,
+            5000
           ),
-          limit: parsePositiveIntegerArg(
-            opts.limit as string,
-            `Invalid --limit: "${opts.limit}". Must be a positive integer.`
-          ),
-        });
+          limit: parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 50),
+        };
+        const { supabase } = await requireAuth('viewer');
+
+        const data = await catalogRankPremium(supabase, input);
 
         outputData(data, globalOpts);
       })
@@ -434,7 +455,7 @@ Notes:
     .option(
       '--sample-size <n>',
       'Catalog rows to fetch per page before aggregation (1-5000)',
-      '1000'
+      '5000'
     )
     .option('--limit <n>', 'Maximum suppliers to return (1-100)', '25')
     .addHelpText(
@@ -453,18 +474,18 @@ Notes:
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase } = await requireAuth('viewer');
-        const data = await supplierList(supabase, {
+        const input = {
           stocked: opts.stocked ? true : undefined,
-          sampleSize: parsePositiveIntegerArg(
+          sampleSize: parseBoundedPositiveIntegerArg(
             opts.sampleSize as string,
-            `Invalid --sample-size: "${opts.sampleSize}". Must be a positive integer.`
+            '--sample-size',
+            1,
+            5000
           ),
-          limit: parsePositiveIntegerArg(
-            opts.limit as string,
-            `Invalid --limit: "${opts.limit}". Must be a positive integer.`
-          ),
-        });
+          limit: parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 100),
+        };
+        const { supabase } = await requireAuth('viewer');
+        const data = await supplierList(supabase, input);
 
         outputData(data, globalOpts);
       })
@@ -478,7 +499,7 @@ Notes:
     .option(
       '--sample-size <n>',
       'Catalog rows to fetch per page before aggregation (1-5000)',
-      '1000'
+      '5000'
     )
     .addHelpText(
       'after',
@@ -495,19 +516,24 @@ Notes:
     .action(
       withErrorHandling(async (supplier: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase } = await requireAuth('viewer');
-        const data = await supplierDetail(supabase, {
+        const input = {
           supplier,
           stocked: opts.stocked ? true : undefined,
-          topCoffees: parsePositiveIntegerArg(
+          topCoffees: parseBoundedPositiveIntegerArg(
             opts.topCoffees as string,
-            `Invalid --top-coffees: "${opts.topCoffees}". Must be a positive integer.`
+            '--top-coffees',
+            1,
+            25
           ),
-          sampleSize: parsePositiveIntegerArg(
+          sampleSize: parseBoundedPositiveIntegerArg(
             opts.sampleSize as string,
-            `Invalid --sample-size: "${opts.sampleSize}". Must be a positive integer.`
+            '--sample-size',
+            1,
+            5000
           ),
-        });
+        };
+        const { supabase } = await requireAuth('viewer');
+        const data = await supplierDetail(supabase, input);
 
         outputData(data, globalOpts);
       })
@@ -521,7 +547,7 @@ Notes:
     .option(
       '--sample-size <n>',
       'Catalog rows to fetch per page before aggregation (1-5000)',
-      '1000'
+      '5000'
     )
     .option('--limit <n>', 'Maximum suppliers to return (1-100)', '25')
     .addHelpText(
@@ -539,22 +565,22 @@ Notes:
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase } = await requireAuth('viewer');
-        const data = await supplierRank(supabase, {
+        const input = {
           stocked: opts.stocked ? true : undefined,
           minCoffees: parsePositiveIntegerArg(
             opts.minCoffees as string,
             `Invalid --min-coffees: "${opts.minCoffees}". Must be a positive integer.`
           ),
-          sampleSize: parsePositiveIntegerArg(
+          sampleSize: parseBoundedPositiveIntegerArg(
             opts.sampleSize as string,
-            `Invalid --sample-size: "${opts.sampleSize}". Must be a positive integer.`
+            '--sample-size',
+            1,
+            5000
           ),
-          limit: parsePositiveIntegerArg(
-            opts.limit as string,
-            `Invalid --limit: "${opts.limit}". Must be a positive integer.`
-          ),
-        });
+          limit: parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 100),
+        };
+        const { supabase } = await requireAuth('viewer');
+        const data = await supplierRank(supabase, input);
 
         outputData(data, globalOpts);
       })

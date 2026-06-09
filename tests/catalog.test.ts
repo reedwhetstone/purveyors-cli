@@ -514,8 +514,13 @@ describe('catalog intelligence helpers', () => {
       ascending: false,
       nullsFirst: false,
     });
-    expect(query.range).toHaveBeenCalledWith(0, 24);
-    expect(response.meta.resource).toBe('catalog-premium-ranking');
+    expect(query.range).toHaveBeenCalledWith(0, 25);
+    expect(response.meta).toMatchObject({
+      resource: 'catalog-premium-ranking',
+      sample_limited: true,
+      sample_order: 'score_value_desc_nulls_last',
+      truncated: false,
+    });
     expect(response.data).toHaveLength(1);
   });
 
@@ -525,7 +530,13 @@ describe('catalog intelligence helpers', () => {
     });
 
     await expect(supplierList(supabase, { limit: 5 })).resolves.toMatchObject({
-      meta: { resource: 'supplier-list' },
+      meta: {
+        resource: 'supplier-list',
+        sample_limited: false,
+        sample_order: 'source_asc_nulls_last',
+        truncated: false,
+        rows_examined: 1,
+      },
       data: [{ supplier: 'Royal Coffee' }],
     });
     await expect(supplierRank(supabase, { minCoffees: 1 })).resolves.toMatchObject({
@@ -931,6 +942,62 @@ describe('catalog command auth and structured filter parsing', () => {
       exitSpy.mockRestore();
     }
   });
+
+  it.each([
+    {
+      args: ['rank-premium', '--limit', 'nope'],
+      message: 'Invalid --limit',
+      value: 'nope',
+    },
+    {
+      args: ['rank-premium', '--sample-size', '0'],
+      message: 'Invalid --sample-size',
+      value: '0',
+    },
+    {
+      args: ['supplier-list', '--limit', '101'],
+      message: 'Invalid --limit',
+      value: '101',
+    },
+    {
+      args: ['supplier-list', '--sample-size', 'too-many'],
+      message: 'Invalid --sample-size',
+      value: 'too-many',
+    },
+    {
+      args: ['supplier-detail', 'Royal Coffee', '--top-coffees', '26'],
+      message: 'Invalid --top-coffees',
+      value: '26',
+    },
+    {
+      args: ['supplier-rank', '--min-coffees', 'none'],
+      message: 'Invalid --min-coffees',
+      value: 'none',
+    },
+  ])(
+    'rejects malformed new catalog intelligence flags before auth: $args',
+    async ({ args, message, value }) => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((
+        code?: number | string | null
+      ) => {
+        throw new Error(`process.exit:${code}`);
+      }) as never);
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+      try {
+        await expect(runCatalogCommand(args)).rejects.toThrow('process.exit:2');
+
+        expect(requireAuth).not.toHaveBeenCalled();
+        const stderr = stderrSpy.mock.calls.map((call) => String(call[0])).join('');
+        expect(stderr).toContain('INVALID_ARGUMENT');
+        expect(stderr).toContain(message);
+        expect(stderr).toContain(value);
+      } finally {
+        stderrSpy.mockRestore();
+        exitSpy.mockRestore();
+      }
+    }
+  );
 });
 
 describe('searchCatalog', () => {
