@@ -1144,7 +1144,8 @@ function buildCatalogIntelligenceQuery(
     minScore?: number;
     sampleSize?: number;
     orderByScore?: boolean;
-  }
+  },
+  options: { applyRange?: boolean } = {}
 ) {
   let query = supabase.from('coffee_catalog').select('*');
 
@@ -1182,10 +1183,40 @@ function buildCatalogIntelligenceQuery(
     query = query.order('source', { ascending: true, nullsFirst: false });
   }
 
-  const sampleSize = parsed.sampleSize ?? 250;
-  query = query.range(0, sampleSize - 1);
+  if (options.applyRange ?? true) {
+    const sampleSize = parsed.sampleSize ?? 250;
+    query = query.range(0, sampleSize - 1);
+  }
 
   return query;
+}
+
+async function fetchSupplierAggregateRows(
+  supabase: SupabaseClient,
+  parsed: Pick<SupplierAggregateInput, 'supplier' | 'stocked' | 'sampleSize'>
+): Promise<CatalogItem[]> {
+  const pageSize = parsed.sampleSize ?? 1000;
+  const rows: CatalogItem[] = [];
+
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await buildCatalogIntelligenceQuery(
+      supabase,
+      {
+        supplier: parsed.supplier,
+        stocked: parsed.stocked,
+      },
+      { applyRange: false }
+    ).range(offset, offset + pageSize - 1);
+
+    if (error) throw error;
+
+    const page = (data ?? []) as CatalogItem[];
+    rows.push(...page);
+
+    if (page.length < pageSize) break;
+  }
+
+  return rows;
 }
 
 const catalogIntelligenceCaveats = [
@@ -1243,15 +1274,13 @@ async function getSupplierAggregates(
 ): Promise<SupplierAggregateResponse> {
   const parsed = supplierAggregateSchema.parse(input);
   const sampleSize = parsed.sampleSize ?? 1000;
-  const { data, error } = await buildCatalogIntelligenceQuery(supabase, {
+  const rows = await fetchSupplierAggregateRows(supabase, {
     supplier: parsed.supplier,
     stocked: parsed.stocked,
     sampleSize,
   });
 
-  if (error) throw error;
-
-  const aggregates = computeSupplierAggregates((data ?? []) as CatalogItem[], {
+  const aggregates = computeSupplierAggregates(rows, {
     topCoffees: parsed.topCoffees ?? 5,
     minCoffees: parsed.minCoffees ?? 1,
   }).slice(0, parsed.limit ?? 25);

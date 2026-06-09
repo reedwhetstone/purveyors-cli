@@ -343,9 +343,9 @@ Notes:
 
 `catalog supplier-*` options:
 
-- `supplier-list`: `--stocked`, `--sample-size <n>` (default `1000`, max `5000`), `--limit <n>`
-- `supplier-detail <supplier>`: `--stocked`, `--top-coffees <n>`, `--sample-size <n>` (default `1000`, max `5000`)
-- `supplier-rank`: `--stocked`, `--min-coffees <n>`, `--sample-size <n>` (default `1000`, max `5000`), `--limit <n>`
+- `supplier-list`: `--stocked`, `--sample-size <n>` (catalog rows per fetch page, default `1000`, max `5000`), `--limit <n>`
+- `supplier-detail <supplier>`: `--stocked`, `--top-coffees <n>`, `--sample-size <n>` (catalog rows per fetch page, default `1000`, max `5000`)
+- `supplier-rank`: `--stocked`, `--min-coffees <n>`, `--sample-size <n>` (catalog rows per fetch page, default `1000`, max `5000`), `--limit <n>`
 
 Examples:
 

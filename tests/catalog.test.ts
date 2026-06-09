@@ -537,6 +537,43 @@ describe('catalog intelligence helpers', () => {
 
     expect(query.ilike).toHaveBeenCalledWith('source', '%Royal%');
   });
+
+  it('paginates supplier rows before aggregating so later suppliers are not omitted', async () => {
+    const rows = [
+      makeItem({ id: 1, source: 'Alpha Coffee', score_value: 50 }),
+      makeItem({ id: 2, source: 'Alpha Coffee', score_value: 50 }),
+      makeItem({ id: 3, source: 'Zulu Coffee', score_value: 99 }),
+    ];
+    const query = {
+      data: [] as CatalogItem[],
+      error: null,
+      or: vi.fn(() => query),
+      ilike: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      contains: vi.fn(() => query),
+      gte: vi.fn(() => query),
+      lte: vi.fn(() => query),
+      in: vi.fn(() => query),
+      order: vi.fn(() => query),
+      range: vi.fn((from: number, to: number) => {
+        query.data = rows.slice(from, to + 1);
+        return query;
+      }),
+    };
+    const select = vi.fn(() => query);
+    const from = vi.fn(() => ({ select }));
+    const supabase = { from } as unknown as SupabaseClient;
+
+    const response = await supplierList(supabase, { sampleSize: 2, limit: 10 });
+
+    expect(query.range).toHaveBeenCalledWith(0, 1);
+    expect(query.range).toHaveBeenCalledWith(2, 3);
+    expect(response.data.map((supplier) => supplier.supplier)).toContain('Zulu Coffee');
+    expect(response.data.find((supplier) => supplier.supplier === 'Zulu Coffee')).toMatchObject({
+      total: 1,
+      score: { average: 99 },
+    });
+  });
 });
 
 describe('searchCatalogSchema', () => {

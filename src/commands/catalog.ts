@@ -431,7 +431,11 @@ Notes:
     .command('supplier-list')
     .description('List supplier aggregates from catalog rows')
     .option('--stocked', 'Only include currently stocked coffees')
-    .option('--sample-size <n>', 'Rows to sample before aggregation (1-5000)', '1000')
+    .option(
+      '--sample-size <n>',
+      'Catalog rows to fetch per page before aggregation (1-5000)',
+      '1000'
+    )
     .option('--limit <n>', 'Maximum suppliers to return (1-100)', '25')
     .addHelpText(
       'after',
@@ -471,7 +475,11 @@ Notes:
     .description('Show aggregate detail for a supplier query')
     .option('--stocked', 'Only include currently stocked coffees')
     .option('--top-coffees <n>', 'Representative top coffees to include (1-25)', '5')
-    .option('--sample-size <n>', 'Rows to sample before aggregation (1-5000)', '1000')
+    .option(
+      '--sample-size <n>',
+      'Catalog rows to fetch per page before aggregation (1-5000)',
+      '1000'
+    )
     .addHelpText(
       'after',
       `
@@ -510,7 +518,11 @@ Notes:
     .description('Rank suppliers by average Purveyor Score and stocked coverage')
     .option('--stocked', 'Only include currently stocked coffees')
     .option('--min-coffees <n>', 'Minimum catalog rows required per supplier', '1')
-    .option('--sample-size <n>', 'Rows to sample before aggregation (1-5000)', '1000')
+    .option(
+      '--sample-size <n>',
+      'Catalog rows to fetch per page before aggregation (1-5000)',
+      '1000'
+    )
     .option('--limit <n>', 'Maximum suppliers to return (1-100)', '25')
     .addHelpText(
       'after',
