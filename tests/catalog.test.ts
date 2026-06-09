@@ -549,7 +549,7 @@ describe('catalog intelligence helpers', () => {
     expect(query.ilike).toHaveBeenCalledWith('source', '%Royal%');
   });
 
-  it('paginates supplier rows before aggregating so later suppliers are not omitted', async () => {
+  it('paginates supplier rows with a stable tie-breaker before aggregating so later suppliers are not omitted', async () => {
     const rows = [
       makeItem({ id: 1, source: 'Alpha Coffee', score_value: 50 }),
       makeItem({ id: 2, source: 'Alpha Coffee', score_value: 50 }),
@@ -577,6 +577,13 @@ describe('catalog intelligence helpers', () => {
 
     const response = await supplierList(supabase, { sampleSize: 2, limit: 10 });
 
+    expect(query.order).toHaveBeenCalledWith('source', { ascending: true, nullsFirst: false });
+    expect(query.order).toHaveBeenCalledWith('id', { ascending: true });
+    const firstIdOrderCallIndex = query.order.mock.calls.findIndex(([column]) => column === 'id');
+    expect(firstIdOrderCallIndex).toBeGreaterThanOrEqual(0);
+    expect(query.order.mock.invocationCallOrder[firstIdOrderCallIndex]).toBeLessThan(
+      query.range.mock.invocationCallOrder[0]
+    );
     expect(query.range).toHaveBeenCalledWith(0, 1);
     expect(query.range).toHaveBeenCalledWith(2, 3);
     expect(response.data.map((supplier) => supplier.supplier)).toContain('Zulu Coffee');
