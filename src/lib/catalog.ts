@@ -1229,7 +1229,9 @@ async function fetchSupplierAggregateRows(
         stocked: parsed.stocked,
       },
       { applyRange: false }
-    ).range(offset, offset + pageSize - 1);
+    )
+      .order('id', { ascending: true })
+      .range(offset, offset + pageSize - 1);
 
     if (error) throw error;
 
