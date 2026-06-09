@@ -84,6 +84,12 @@ function makeItem(overrides: Partial<CatalogItem> = {}): CatalogItem {
     lot_size: null,
     bag_size: null,
     score_value: null,
+    purveyor_score: null,
+    purveyor_score_confidence: null,
+    purveyor_score_tier: null,
+    purveyor_score_factors: null,
+    purveyor_score_version: 'purveyor-score-v1',
+    purveyor_score_updated_at: null,
     stocked: true,
     stocked_date: null,
     unstocked_date: null,
@@ -428,29 +434,35 @@ describe('catalog intelligence helpers', () => {
 
   it('ranks premium catalog rows by score, then cheaper price', () => {
     const ranked = computeCatalogPremiumRanking([
-      makeItem({ id: 1, name: 'Unscored', score_value: null }),
+      makeItem({ id: 1, name: 'Unscored', purveyor_score: null }),
       makeItem({
         id: 2,
         name: 'Expensive 90',
-        score_value: 90,
+        purveyor_score: 90,
         price_per_lb: 15,
         price_tiers: null,
       }),
-      makeItem({ id: 3, name: 'Cheap 90', score_value: 90, price_per_lb: 10, price_tiers: null }),
-      makeItem({ id: 4, name: 'Top', score_value: 94, price_per_lb: 20, price_tiers: null }),
+      makeItem({
+        id: 3,
+        name: 'Cheap 90',
+        purveyor_score: 90,
+        price_per_lb: 10,
+        price_tiers: null,
+      }),
+      makeItem({ id: 4, name: 'Top', purveyor_score: 94, price_per_lb: 20, price_tiers: null }),
     ]);
 
     expect(ranked.map((item) => item.id)).toEqual([4, 3, 2]);
     expect(ranked[0]).toMatchObject({
       rank: 1,
-      purveyor_score: { value: 94, band: 'premium', source: 'score_value' },
+      purveyor_score: { value: 94, band: 'premium', source: 'purveyor_score' },
     });
     expect(ranked[0]?.signals).toContain('purveyor_score=94');
   });
 
   it('can include unscored rows after scored candidates', () => {
     const ranked = computeCatalogPremiumRanking(
-      [makeItem({ id: 1, score_value: null }), makeItem({ id: 2, score_value: 82 })],
+      [makeItem({ id: 1, purveyor_score: null }), makeItem({ id: 2, purveyor_score: 82 })],
       { includeUnscored: true }
     );
 
@@ -463,21 +475,21 @@ describe('catalog intelligence helpers', () => {
       makeItem({
         id: 1,
         source: 'Royal Coffee',
-        score_value: 90,
+        purveyor_score: 90,
         price_per_lb: 10,
         price_tiers: null,
       }),
       makeItem({
         id: 2,
         source: 'Royal Coffee',
-        score_value: null,
+        purveyor_score: null,
         price_per_lb: 14,
         price_tiers: null,
       }),
       makeItem({
         id: 3,
         source: 'Cafe Imports',
-        score_value: 88,
+        purveyor_score: 88,
         price_per_lb: 9,
         price_tiers: null,
       }),
@@ -489,6 +501,8 @@ describe('catalog intelligence helpers', () => {
       coverage: 0.5,
       scored_count: 1,
       top_score: 90,
+      average_confidence: null,
+      confidence_coverage: 0,
     });
     expect(aggregates[0]?.price.average_per_lb).toBe(12);
     expect(aggregates[0]?.top_coffees[0]?.id).toBe(1);
@@ -496,7 +510,7 @@ describe('catalog intelligence helpers', () => {
 
   it('catalogRankPremium queries catalog rows and returns a scored response envelope', async () => {
     const { supabase, query } = makeSearchSupabase({
-      data: [makeItem({ id: 1, score_value: 91 }), makeItem({ id: 2, score_value: 88 })],
+      data: [makeItem({ id: 1, purveyor_score: 91 }), makeItem({ id: 2, purveyor_score: 88 })],
     });
 
     const response = await catalogRankPremium(supabase, {
@@ -510,7 +524,7 @@ describe('catalog intelligence helpers', () => {
       'country.ilike.%Ethiopia%,continent.ilike.%Ethiopia%,region.ilike.%Ethiopia%'
     );
     expect(query.eq).toHaveBeenCalledWith('stocked', true);
-    expect(query.order).toHaveBeenCalledWith('score_value', {
+    expect(query.order).toHaveBeenCalledWith('purveyor_score', {
       ascending: false,
       nullsFirst: false,
     });
@@ -519,7 +533,7 @@ describe('catalog intelligence helpers', () => {
     expect(response.meta).toMatchObject({
       resource: 'catalog-premium-ranking',
       sample_limited: true,
-      sample_order: 'score_value_desc_nulls_last',
+      sample_order: 'purveyor_score_desc_nulls_last',
       truncated: false,
     });
     expect(response.data).toHaveLength(1);
@@ -529,10 +543,10 @@ describe('catalog intelligence helpers', () => {
     const apiPageCap = 1000;
     const rows = [
       ...Array.from({ length: apiPageCap }, (_, index) =>
-        makeItem({ id: index + 1, score_value: 50, price_per_lb: 12, price_tiers: null })
+        makeItem({ id: index + 1, purveyor_score: 50, price_per_lb: 12, price_tiers: null })
       ),
-      makeItem({ id: apiPageCap + 1, score_value: 99, price_per_lb: 20, price_tiers: null }),
-      makeItem({ id: apiPageCap + 2, score_value: 40, price_per_lb: 20, price_tiers: null }),
+      makeItem({ id: apiPageCap + 1, purveyor_score: 99, price_per_lb: 20, price_tiers: null }),
+      makeItem({ id: apiPageCap + 2, purveyor_score: 40, price_per_lb: 20, price_tiers: null }),
     ];
     const query = {
       data: [] as CatalogItem[],
@@ -556,7 +570,7 @@ describe('catalog intelligence helpers', () => {
 
     const response = await catalogRankPremium(supabase, { sampleSize: apiPageCap + 1, limit: 1 });
 
-    expect(query.order).toHaveBeenCalledWith('score_value', {
+    expect(query.order).toHaveBeenCalledWith('purveyor_score', {
       ascending: false,
       nullsFirst: false,
     });
@@ -569,7 +583,7 @@ describe('catalog intelligence helpers', () => {
 
   it('supplier aggregate functions expose supplier list, detail, and rank envelopes', async () => {
     const { supabase, query } = makeSearchSupabase({
-      data: [makeItem({ id: 1, source: 'Royal Coffee', score_value: 91 })],
+      data: [makeItem({ id: 1, source: 'Royal Coffee', purveyor_score: 91 })],
     });
 
     await expect(supplierList(supabase, { limit: 5 })).resolves.toMatchObject({
@@ -594,9 +608,9 @@ describe('catalog intelligence helpers', () => {
 
   it('paginates supplier rows with a stable tie-breaker before aggregating so later suppliers are not omitted', async () => {
     const rows = [
-      makeItem({ id: 1, source: 'Alpha Coffee', score_value: 50 }),
-      makeItem({ id: 2, source: 'Alpha Coffee', score_value: 50 }),
-      makeItem({ id: 3, source: 'Zulu Coffee', score_value: 99 }),
+      makeItem({ id: 1, source: 'Alpha Coffee', purveyor_score: 50 }),
+      makeItem({ id: 2, source: 'Alpha Coffee', purveyor_score: 50 }),
+      makeItem({ id: 3, source: 'Zulu Coffee', purveyor_score: 99 }),
     ];
     const query = {
       data: [] as CatalogItem[],
@@ -640,9 +654,9 @@ describe('catalog intelligence helpers', () => {
     const apiPageCap = 1000;
     const rows = [
       ...Array.from({ length: apiPageCap }, (_, index) =>
-        makeItem({ id: index + 1, source: 'Alpha Coffee', score_value: 50 })
+        makeItem({ id: index + 1, source: 'Alpha Coffee', purveyor_score: 50 })
       ),
-      makeItem({ id: apiPageCap + 1, source: 'Zulu Coffee', score_value: 99 }),
+      makeItem({ id: apiPageCap + 1, source: 'Zulu Coffee', purveyor_score: 99 }),
     ];
     const query = {
       data: [] as CatalogItem[],
