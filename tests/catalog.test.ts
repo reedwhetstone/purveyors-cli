@@ -17,6 +17,13 @@ import { buildCatalogCommand } from '../src/commands/catalog.js';
 import { requireAuth } from '../src/lib/auth-guard.js';
 import {
   computeCatalogStats,
+  computeCatalogPremiumRanking,
+  computeSupplierAggregates,
+  summarizePurveyorScore,
+  catalogRankPremium,
+  supplierList,
+  supplierDetail,
+  supplierRank,
   searchCatalog,
   getCatalog,
   getCatalogSimilarity,
@@ -411,6 +418,261 @@ describe('computeCatalogStats', () => {
   });
 });
 
+describe('catalog intelligence helpers', () => {
+  it('summarizes Purveyor Score bands without recomputing scores', () => {
+    expect(summarizePurveyorScore(null)).toMatchObject({ value: null, band: 'unscored' });
+    expect(summarizePurveyorScore(91)).toMatchObject({ value: 91, band: 'premium' });
+    expect(summarizePurveyorScore(86)).toMatchObject({ value: 86, band: 'strong' });
+    expect(summarizePurveyorScore(80)).toMatchObject({ value: 80, band: 'scored' });
+  });
+
+  it('ranks premium catalog rows by score, then cheaper price', () => {
+    const ranked = computeCatalogPremiumRanking([
+      makeItem({ id: 1, name: 'Unscored', score_value: null }),
+      makeItem({
+        id: 2,
+        name: 'Expensive 90',
+        score_value: 90,
+        price_per_lb: 15,
+        price_tiers: null,
+      }),
+      makeItem({ id: 3, name: 'Cheap 90', score_value: 90, price_per_lb: 10, price_tiers: null }),
+      makeItem({ id: 4, name: 'Top', score_value: 94, price_per_lb: 20, price_tiers: null }),
+    ]);
+
+    expect(ranked.map((item) => item.id)).toEqual([4, 3, 2]);
+    expect(ranked[0]).toMatchObject({
+      rank: 1,
+      purveyor_score: { value: 94, band: 'premium', source: 'score_value' },
+    });
+    expect(ranked[0]?.signals).toContain('purveyor_score=94');
+  });
+
+  it('can include unscored rows after scored candidates', () => {
+    const ranked = computeCatalogPremiumRanking(
+      [makeItem({ id: 1, score_value: null }), makeItem({ id: 2, score_value: 82 })],
+      { includeUnscored: true }
+    );
+
+    expect(ranked.map((item) => item.id)).toEqual([2, 1]);
+    expect(ranked[1]?.purveyor_score.band).toBe('unscored');
+  });
+
+  it('computes supplier aggregates with score coverage, prices, and top coffees', () => {
+    const aggregates = computeSupplierAggregates([
+      makeItem({
+        id: 1,
+        source: 'Royal Coffee',
+        score_value: 90,
+        price_per_lb: 10,
+        price_tiers: null,
+      }),
+      makeItem({
+        id: 2,
+        source: 'Royal Coffee',
+        score_value: null,
+        price_per_lb: 14,
+        price_tiers: null,
+      }),
+      makeItem({
+        id: 3,
+        source: 'Cafe Imports',
+        score_value: 88,
+        price_per_lb: 9,
+        price_tiers: null,
+      }),
+    ]);
+
+    expect(aggregates[0]?.supplier).toBe('Royal Coffee');
+    expect(aggregates[0]?.score).toEqual({
+      average: 90,
+      coverage: 0.5,
+      scored_count: 1,
+      top_score: 90,
+    });
+    expect(aggregates[0]?.price.average_per_lb).toBe(12);
+    expect(aggregates[0]?.top_coffees[0]?.id).toBe(1);
+  });
+
+  it('catalogRankPremium queries catalog rows and returns a scored response envelope', async () => {
+    const { supabase, query } = makeSearchSupabase({
+      data: [makeItem({ id: 1, score_value: 91 }), makeItem({ id: 2, score_value: 88 })],
+    });
+
+    const response = await catalogRankPremium(supabase, {
+      origin: 'Ethiopia',
+      stocked: true,
+      limit: 1,
+      sampleSize: 25,
+    });
+
+    expect(query.or).toHaveBeenCalledWith(
+      'country.ilike.%Ethiopia%,continent.ilike.%Ethiopia%,region.ilike.%Ethiopia%'
+    );
+    expect(query.eq).toHaveBeenCalledWith('stocked', true);
+    expect(query.order).toHaveBeenCalledWith('score_value', {
+      ascending: false,
+      nullsFirst: false,
+    });
+    expect(query.order).toHaveBeenCalledWith('id', { ascending: true });
+    expect(query.range).toHaveBeenCalledWith(0, 25);
+    expect(response.meta).toMatchObject({
+      resource: 'catalog-premium-ranking',
+      sample_limited: true,
+      sample_order: 'score_value_desc_nulls_last',
+      truncated: false,
+    });
+    expect(response.data).toHaveLength(1);
+  });
+
+  it('pages premium samples within the Supabase API row cap before ranking', async () => {
+    const apiPageCap = 1000;
+    const rows = [
+      ...Array.from({ length: apiPageCap }, (_, index) =>
+        makeItem({ id: index + 1, score_value: 50, price_per_lb: 12, price_tiers: null })
+      ),
+      makeItem({ id: apiPageCap + 1, score_value: 99, price_per_lb: 20, price_tiers: null }),
+      makeItem({ id: apiPageCap + 2, score_value: 40, price_per_lb: 20, price_tiers: null }),
+    ];
+    const query = {
+      data: [] as CatalogItem[],
+      error: null,
+      or: vi.fn(() => query),
+      ilike: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      contains: vi.fn(() => query),
+      gte: vi.fn(() => query),
+      lte: vi.fn(() => query),
+      in: vi.fn(() => query),
+      order: vi.fn(() => query),
+      range: vi.fn((from: number, to: number) => {
+        query.data = rows.slice(from, Math.min(to, from + apiPageCap - 1) + 1);
+        return query;
+      }),
+    };
+    const select = vi.fn(() => query);
+    const from = vi.fn(() => ({ select }));
+    const supabase = { from } as unknown as SupabaseClient;
+
+    const response = await catalogRankPremium(supabase, { sampleSize: apiPageCap + 1, limit: 1 });
+
+    expect(query.order).toHaveBeenCalledWith('score_value', {
+      ascending: false,
+      nullsFirst: false,
+    });
+    expect(query.order).toHaveBeenCalledWith('id', { ascending: true });
+    expect(query.range).toHaveBeenCalledWith(0, 999);
+    expect(query.range).toHaveBeenCalledWith(1000, 1001);
+    expect(response.meta.truncated).toBe(true);
+    expect(response.data[0]?.id).toBe(apiPageCap + 1);
+  });
+
+  it('supplier aggregate functions expose supplier list, detail, and rank envelopes', async () => {
+    const { supabase, query } = makeSearchSupabase({
+      data: [makeItem({ id: 1, source: 'Royal Coffee', score_value: 91 })],
+    });
+
+    await expect(supplierList(supabase, { limit: 5 })).resolves.toMatchObject({
+      meta: {
+        resource: 'supplier-list',
+        sample_limited: false,
+        sample_order: 'source_asc_nulls_last',
+        truncated: false,
+        rows_examined: 1,
+      },
+      data: [{ supplier: 'Royal Coffee' }],
+    });
+    await expect(supplierRank(supabase, { minCoffees: 1 })).resolves.toMatchObject({
+      meta: { resource: 'supplier-rank' },
+    });
+    await expect(supplierDetail(supabase, { supplier: 'Royal' })).resolves.toMatchObject({
+      meta: { resource: 'supplier-detail' },
+    });
+
+    expect(query.ilike).toHaveBeenCalledWith('source', '%Royal%');
+  });
+
+  it('paginates supplier rows with a stable tie-breaker before aggregating so later suppliers are not omitted', async () => {
+    const rows = [
+      makeItem({ id: 1, source: 'Alpha Coffee', score_value: 50 }),
+      makeItem({ id: 2, source: 'Alpha Coffee', score_value: 50 }),
+      makeItem({ id: 3, source: 'Zulu Coffee', score_value: 99 }),
+    ];
+    const query = {
+      data: [] as CatalogItem[],
+      error: null,
+      or: vi.fn(() => query),
+      ilike: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      contains: vi.fn(() => query),
+      gte: vi.fn(() => query),
+      lte: vi.fn(() => query),
+      in: vi.fn(() => query),
+      order: vi.fn(() => query),
+      range: vi.fn((from: number, to: number) => {
+        query.data = rows.slice(from, to + 1);
+        return query;
+      }),
+    };
+    const select = vi.fn(() => query);
+    const from = vi.fn(() => ({ select }));
+    const supabase = { from } as unknown as SupabaseClient;
+
+    const response = await supplierList(supabase, { sampleSize: 2, limit: 10 });
+
+    expect(query.order).toHaveBeenCalledWith('source', { ascending: true, nullsFirst: false });
+    expect(query.order).toHaveBeenCalledWith('id', { ascending: true });
+    const firstIdOrderCallIndex = query.order.mock.calls.findIndex(([column]) => column === 'id');
+    expect(firstIdOrderCallIndex).toBeGreaterThanOrEqual(0);
+    expect(query.order.mock.invocationCallOrder[firstIdOrderCallIndex]).toBeLessThan(
+      query.range.mock.invocationCallOrder[0]
+    );
+    expect(query.range).toHaveBeenCalledWith(0, 1);
+    expect(query.range).toHaveBeenCalledWith(2, 3);
+    expect(response.data.map((supplier) => supplier.supplier)).toContain('Zulu Coffee');
+    expect(response.data.find((supplier) => supplier.supplier === 'Zulu Coffee')).toMatchObject({
+      total: 1,
+      score: { average: 99 },
+    });
+  });
+
+  it('keeps supplier aggregate page width within the Supabase API row cap', async () => {
+    const apiPageCap = 1000;
+    const rows = [
+      ...Array.from({ length: apiPageCap }, (_, index) =>
+        makeItem({ id: index + 1, source: 'Alpha Coffee', score_value: 50 })
+      ),
+      makeItem({ id: apiPageCap + 1, source: 'Zulu Coffee', score_value: 99 }),
+    ];
+    const query = {
+      data: [] as CatalogItem[],
+      error: null,
+      or: vi.fn(() => query),
+      ilike: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      contains: vi.fn(() => query),
+      gte: vi.fn(() => query),
+      lte: vi.fn(() => query),
+      in: vi.fn(() => query),
+      order: vi.fn(() => query),
+      range: vi.fn((from: number, to: number) => {
+        query.data = rows.slice(from, Math.min(to, from + apiPageCap - 1) + 1);
+        return query;
+      }),
+    };
+    const select = vi.fn(() => query);
+    const from = vi.fn(() => ({ select }));
+    const supabase = { from } as unknown as SupabaseClient;
+
+    const response = await supplierList(supabase, { limit: 10 });
+
+    expect(query.range).toHaveBeenCalledWith(0, 999);
+    expect(query.range).toHaveBeenCalledWith(1000, 1999);
+    expect(response.meta.rows_examined).toBe(apiPageCap + 1);
+    expect(response.data.map((supplier) => supplier.supplier)).toContain('Zulu Coffee');
+  });
+});
+
 describe('searchCatalogSchema', () => {
   it('accepts name as optional string', () => {
     const result = searchCatalogSchema.parse({ name: 'Guji' });
@@ -766,6 +1028,62 @@ describe('catalog command auth and structured filter parsing', () => {
       exitSpy.mockRestore();
     }
   });
+
+  it.each([
+    {
+      args: ['rank-premium', '--limit', 'nope'],
+      message: 'Invalid --limit',
+      value: 'nope',
+    },
+    {
+      args: ['rank-premium', '--sample-size', '0'],
+      message: 'Invalid --sample-size',
+      value: '0',
+    },
+    {
+      args: ['supplier-list', '--limit', '101'],
+      message: 'Invalid --limit',
+      value: '101',
+    },
+    {
+      args: ['supplier-list', '--sample-size', 'too-many'],
+      message: 'Invalid --sample-size',
+      value: 'too-many',
+    },
+    {
+      args: ['supplier-detail', 'Royal Coffee', '--top-coffees', '26'],
+      message: 'Invalid --top-coffees',
+      value: '26',
+    },
+    {
+      args: ['supplier-rank', '--min-coffees', 'none'],
+      message: 'Invalid --min-coffees',
+      value: 'none',
+    },
+  ])(
+    'rejects malformed new catalog intelligence flags before auth: $args',
+    async ({ args, message, value }) => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((
+        code?: number | string | null
+      ) => {
+        throw new Error(`process.exit:${code}`);
+      }) as never);
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+      try {
+        await expect(runCatalogCommand(args)).rejects.toThrow('process.exit:2');
+
+        expect(requireAuth).not.toHaveBeenCalled();
+        const stderr = stderrSpy.mock.calls.map((call) => String(call[0])).join('');
+        expect(stderr).toContain('INVALID_ARGUMENT');
+        expect(stderr).toContain(message);
+        expect(stderr).toContain(value);
+      } finally {
+        stderrSpy.mockRestore();
+        exitSpy.mockRestore();
+      }
+    }
+  );
 });
 
 describe('searchCatalog', () => {

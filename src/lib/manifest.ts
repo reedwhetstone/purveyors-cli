@@ -347,6 +347,84 @@ const commandGroups: CliCommandGroupContract[] = [
         examples: ['purvey catalog stats --pretty'],
       },
       {
+        name: 'rank-premium',
+        summary: 'Rank premium catalog candidates by Purveyor Score',
+        auth: 'viewer',
+        options: [
+          { flags: '--origin <origin>' },
+          { flags: '--process <method>' },
+          { flags: '--supplier <name>' },
+          { flags: '--stocked' },
+          { flags: '--price-max <n>' },
+          { flags: '--min-score <n>' },
+          { flags: '--include-unscored' },
+          { flags: '--sample-size <n>', defaultValue: 250 },
+          { flags: '--limit <n>', defaultValue: 10 },
+        ],
+        notes: [
+          'Exposes coffee_catalog.score_value as purveyor_score; the CLI does not recompute the upstream score model.',
+          'Output includes rank, catalog context, pricing, stocked status, and transparent ranking signals for agents.',
+          'Output metadata reports sample ordering and whether more rows matched than the requested sample size.',
+        ],
+        examples: [
+          'purvey catalog rank-premium --stocked --limit 10 --pretty',
+          'purvey catalog rank-premium --origin Ethiopia --min-score 88 --json',
+        ],
+      },
+      {
+        name: 'supplier-list',
+        summary: 'List supplier aggregates from catalog rows',
+        auth: 'viewer',
+        options: [
+          { flags: '--stocked' },
+          { flags: '--sample-size <n>', defaultValue: 5000 },
+          { flags: '--limit <n>', defaultValue: 25 },
+        ],
+        notes: [
+          'Summarizes supplier counts, stocked counts, Purveyor Score coverage, average score, price range, origin/process coverage, and representative top coffees.',
+          'Output metadata reports source-ordered pagination, rows examined, and whether the aggregate is sample-limited.',
+        ],
+        examples: ['purvey catalog supplier-list --stocked --pretty'],
+      },
+      {
+        name: 'supplier-detail',
+        summary: 'Show aggregate detail for a supplier query',
+        auth: 'viewer',
+        arguments: [
+          {
+            name: 'supplier',
+            description: 'supplier/source name query',
+            required: true,
+          },
+        ],
+        options: [
+          { flags: '--stocked' },
+          { flags: '--top-coffees <n>', defaultValue: 5 },
+          { flags: '--sample-size <n>', defaultValue: 5000 },
+        ],
+        notes: [
+          'Supplier matching is case-insensitive and partial, mirroring catalog search.',
+          'Output metadata reports source-ordered pagination, rows examined, and whether the aggregate is sample-limited.',
+        ],
+        examples: ['purvey catalog supplier-detail "Royal Coffee" --pretty'],
+      },
+      {
+        name: 'supplier-rank',
+        summary: 'Rank suppliers by average Purveyor Score and stocked coverage',
+        auth: 'viewer',
+        options: [
+          { flags: '--stocked' },
+          { flags: '--min-coffees <n>', defaultValue: 1 },
+          { flags: '--sample-size <n>', defaultValue: 5000 },
+          { flags: '--limit <n>', defaultValue: 25 },
+        ],
+        notes: [
+          'Ranks suppliers by average Purveyor Score, then currently stocked count.',
+          'Output metadata reports source-ordered pagination, rows examined, and whether the aggregate is sample-limited.',
+        ],
+        examples: ['purvey catalog supplier-rank --stocked --min-coffees 3 --pretty'],
+      },
+      {
         name: 'similar',
         summary:
           'Fetch beta canonical /v1/catalog/{id}/similar groups for likely same-lot candidates and similar recommendations',

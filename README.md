@@ -105,18 +105,18 @@ Use the right reference surface for the job:
 
 The npm package is both a binary and a shared TypeScript product surface. `coffee-app` and agent runtimes import CLI business functions directly, so exported subpaths are part of the supported machine contract.
 
-| Import path                | Use it for                                     |
-| -------------------------- | ---------------------------------------------- |
-| `@purveyors/cli`           | CLI entrypoint package root                    |
-| `@purveyors/cli/catalog`   | Catalog search, lookup, stats, similar coffees |
-| `@purveyors/cli/inventory` | Green coffee inventory operations              |
-| `@purveyors/cli/roast`     | Roast profile operations                       |
-| `@purveyors/cli/sales`     | Sales record operations                        |
-| `@purveyors/cli/tasting`   | Tasting note and rating operations             |
-| `@purveyors/cli/lib`       | Shared library helpers                         |
-| `@purveyors/cli/manifest`  | Stable machine-readable CLI manifest           |
-| `@purveyors/cli/artisan`   | Artisan `.alog` parsing and import utilities   |
-| `@purveyors/cli/ai`        | AI helper surface used by CLI workflows        |
+| Import path                | Use it for                                                                           |
+| -------------------------- | ------------------------------------------------------------------------------------ |
+| `@purveyors/cli`           | CLI entrypoint package root                                                          |
+| `@purveyors/cli/catalog`   | Catalog search, lookup, stats, premium ranking, supplier aggregates, similar coffees |
+| `@purveyors/cli/inventory` | Green coffee inventory operations                                                    |
+| `@purveyors/cli/roast`     | Roast profile operations                                                             |
+| `@purveyors/cli/sales`     | Sales record operations                                                              |
+| `@purveyors/cli/tasting`   | Tasting note and rating operations                                                   |
+| `@purveyors/cli/lib`       | Shared library helpers                                                               |
+| `@purveyors/cli/manifest`  | Stable machine-readable CLI manifest                                                 |
+| `@purveyors/cli/artisan`   | Artisan `.alog` parsing and import utilities                                         |
+| `@purveyors/cli/ai`        | AI helper surface used by CLI workflows                                              |
 
 Shell integrations should usually start with `purvey manifest`. In-process agent and website integrations should import the smallest relevant subpath instead of shelling out when they are already running in Node.js.
 
@@ -292,6 +292,10 @@ Notes:
 - `purvey catalog search`
 - `purvey catalog get <id>`
 - `purvey catalog stats`
+- `purvey catalog rank-premium`
+- `purvey catalog supplier-list`
+- `purvey catalog supplier-detail <supplier>`
+- `purvey catalog supplier-rank`
 - `purvey catalog similar <id>`
 
 `catalog search` filters:
@@ -325,6 +329,24 @@ Notes:
 - `--stocked-only`; request only currently stocked coffees
 - `--mode <all|likely_same|similar_profile>`; default `all`
 
+`catalog rank-premium` options:
+
+- `--origin <origin>`; optional origin filter
+- `--process <method>`; optional process filter
+- `--supplier <name>`; optional supplier filter
+- `--stocked`; only include currently stocked coffees
+- `--price-max <n>`; maximum USD/lb
+- `--min-score <n>`; minimum Purveyor Score
+- `--include-unscored`; include unscored rows after scored rows
+- `--sample-size <n>`; rows to sample before ranking, default `250`, max `5000`
+- `--limit <n>`; default `10`, max `50`
+
+`catalog supplier-*` options:
+
+- `supplier-list`: `--stocked`, `--sample-size <n>` (catalog rows per fetch page, default `5000`, max `5000`), `--limit <n>`
+- `supplier-detail <supplier>`: `--stocked`, `--top-coffees <n>`, `--sample-size <n>` (catalog rows per fetch page, default `5000`, max `5000`)
+- `supplier-rank`: `--stocked`, `--min-coffees <n>`, `--sample-size <n>` (catalog rows per fetch page, default `5000`, max `5000`), `--limit <n>`
+
 Examples:
 
 ```bash
@@ -338,6 +360,9 @@ purvey catalog search --origin "Ethiopia" --include-proof --json
 PARCHMENT_API_KEY="$PURVEYORS_API_KEY" purvey catalog search --origin "Ethiopia" --include-proof --limit 5 --json
 purvey catalog similar 1182 --threshold 0.85 --stocked-only --pretty
 purvey catalog similar 1182 --json | jq '.data.groups.canonical_candidates'
+purvey catalog rank-premium --stocked --limit 10 --pretty
+purvey catalog supplier-rank --stocked --min-coffees 3 --json
+purvey catalog supplier-detail "Royal Coffee" --pretty
 purvey catalog stats --pretty
 purvey catalog get 1182 --pretty
 purvey catalog get 1182 --include-proof --json
@@ -352,6 +377,9 @@ Notes:
 - `--include-proof` rejects CLI-only filters that `/v1/catalog` cannot yet preserve exactly, such as `--flavor`, `--supplier`, `--drying-method`, and `--sort newest`.
 - If you want proof output against an API-key deployment, set `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY` before running the command. Otherwise the CLI uses your logged-in Purveyors session token.
 - `catalog get` and `catalog similar` both take `coffee_catalog.catalog_id`.
+- `catalog rank-premium` exposes existing `coffee_catalog.score_value` as `purveyor_score`; the CLI does not recompute the upstream Purveyor Score model.
+- Catalog intelligence responses include `meta.sample_limited`, `meta.sample_order`, and `meta.truncated` where relevant so agents can distinguish ranked samples from full supplier aggregates. Supplier aggregate responses also include `meta.rows_examined`.
+- Supplier aggregate commands summarize catalog row counts, stocked counts, Purveyor Score coverage, average score, price range, origin/process coverage, and representative top coffees.
 - `catalog similar` uses the beta canonical `/v1/catalog/{id}/similar` API contract, not the legacy direct RPC path.
 - `catalog similar --json` requires member access or a paid API tier and returns the grouped canonical response object: `data.target`, `data.groups.canonical_candidates`, `data.groups.similar_recommendations`, optional `data.matches`, and `meta`.
 - `canonical_candidates` are likely same-lot candidates; `similar_recommendations` are substitutes/profile matches and include blocker reasons when identity gates disagree.
