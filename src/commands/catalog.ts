@@ -7,6 +7,10 @@ import {
   getCatalog,
   getCatalogStats,
   getCatalogSimilarity,
+  catalogRankPremium,
+  supplierList,
+  supplierDetail,
+  supplierRank,
   computeCatalogStats,
   sanitizeFilterValue,
   catalogSortFields,
@@ -352,6 +356,195 @@ Notes:
 
         const stats = await getCatalogStats(supabase);
         outputData(stats, globalOpts);
+      })
+    );
+
+  // ── catalog rank-premium ─────────────────────────────────────────────────
+  catalog
+    .command('rank-premium')
+    .description('Rank premium catalog candidates by Purveyor Score')
+    .option('--origin <origin>', 'Filter by origin (country, continent, or region)')
+    .option('--process <method>', 'Filter by processing method')
+    .option('--supplier <name>', 'Filter by supplier/source name')
+    .option('--stocked', 'Only include currently stocked coffees')
+    .option('--price-max <n>', 'Maximum price per lb (USD)')
+    .option('--min-score <n>', 'Minimum Purveyor Score')
+    .option('--include-unscored', 'Allow unscored rows to appear after scored rows')
+    .option('--sample-size <n>', 'Rows to sample before ranking (1-5000)', '250')
+    .option('--limit <n>', 'Maximum ranked coffees to return (1-50)', '10')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey catalog rank-premium --stocked --limit 10 --pretty
+  purvey catalog rank-premium --origin Ethiopia --min-score 88 --json
+  purvey catalog rank-premium --supplier "Royal Coffee" --price-max 12 --pretty
+
+Notes:
+  Ranks by coffee_catalog.score_value, exposed as purveyor_score in output.
+  The CLI does not recompute the upstream score model; it preserves the score field
+  and adds transparent ranking signals for agents.
+  Requires an authenticated viewer session.
+`
+    )
+    .action(
+      withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        const { supabase } = await requireAuth('viewer');
+
+        const data = await catalogRankPremium(supabase, {
+          origin: opts.origin as string | undefined,
+          process: opts.process as string | undefined,
+          supplier: opts.supplier as string | undefined,
+          stocked: opts.stocked ? true : undefined,
+          priceMax:
+            opts.priceMax !== undefined
+              ? parseFiniteNumberArg(
+                  opts.priceMax as string,
+                  `Invalid --price-max: "${opts.priceMax}". Must be a number.`
+                )
+              : undefined,
+          minScore:
+            opts.minScore !== undefined
+              ? parseFiniteNumberArg(
+                  opts.minScore as string,
+                  `Invalid --min-score: "${opts.minScore}". Must be a number.`
+                )
+              : undefined,
+          includeUnscored: opts.includeUnscored ? true : undefined,
+          sampleSize: parsePositiveIntegerArg(
+            opts.sampleSize as string,
+            `Invalid --sample-size: "${opts.sampleSize}". Must be a positive integer.`
+          ),
+          limit: parsePositiveIntegerArg(
+            opts.limit as string,
+            `Invalid --limit: "${opts.limit}". Must be a positive integer.`
+          ),
+        });
+
+        outputData(data, globalOpts);
+      })
+    );
+
+  // ── catalog supplier aggregates ──────────────────────────────────────────
+  catalog
+    .command('supplier-list')
+    .description('List supplier aggregates from catalog rows')
+    .option('--stocked', 'Only include currently stocked coffees')
+    .option('--sample-size <n>', 'Rows to sample before aggregation (1-5000)', '1000')
+    .option('--limit <n>', 'Maximum suppliers to return (1-100)', '25')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey catalog supplier-list --stocked --pretty
+  purvey catalog supplier-list --limit 50 --json
+
+Notes:
+  Aggregates supplier count, stocked count, Purveyor Score coverage, average score,
+  price range, origin coverage, process coverage, and representative top coffees.
+  Requires an authenticated viewer session.
+`
+    )
+    .action(
+      withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        const { supabase } = await requireAuth('viewer');
+        const data = await supplierList(supabase, {
+          stocked: opts.stocked ? true : undefined,
+          sampleSize: parsePositiveIntegerArg(
+            opts.sampleSize as string,
+            `Invalid --sample-size: "${opts.sampleSize}". Must be a positive integer.`
+          ),
+          limit: parsePositiveIntegerArg(
+            opts.limit as string,
+            `Invalid --limit: "${opts.limit}". Must be a positive integer.`
+          ),
+        });
+
+        outputData(data, globalOpts);
+      })
+    );
+
+  catalog
+    .command('supplier-detail <supplier>')
+    .description('Show aggregate detail for a supplier query')
+    .option('--stocked', 'Only include currently stocked coffees')
+    .option('--top-coffees <n>', 'Representative top coffees to include (1-25)', '5')
+    .option('--sample-size <n>', 'Rows to sample before aggregation (1-5000)', '1000')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey catalog supplier-detail "Royal Coffee" --pretty
+  purvey catalog supplier-detail "Cafe Imports" --stocked --json
+
+Notes:
+  Supplier matching is case-insensitive and partial, mirroring catalog search.
+  Requires an authenticated viewer session.
+`
+    )
+    .action(
+      withErrorHandling(async (supplier: string, opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        const { supabase } = await requireAuth('viewer');
+        const data = await supplierDetail(supabase, {
+          supplier,
+          stocked: opts.stocked ? true : undefined,
+          topCoffees: parsePositiveIntegerArg(
+            opts.topCoffees as string,
+            `Invalid --top-coffees: "${opts.topCoffees}". Must be a positive integer.`
+          ),
+          sampleSize: parsePositiveIntegerArg(
+            opts.sampleSize as string,
+            `Invalid --sample-size: "${opts.sampleSize}". Must be a positive integer.`
+          ),
+        });
+
+        outputData(data, globalOpts);
+      })
+    );
+
+  catalog
+    .command('supplier-rank')
+    .description('Rank suppliers by average Purveyor Score and stocked coverage')
+    .option('--stocked', 'Only include currently stocked coffees')
+    .option('--min-coffees <n>', 'Minimum catalog rows required per supplier', '1')
+    .option('--sample-size <n>', 'Rows to sample before aggregation (1-5000)', '1000')
+    .option('--limit <n>', 'Maximum suppliers to return (1-100)', '25')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey catalog supplier-rank --stocked --min-coffees 3 --pretty
+  purvey catalog supplier-rank --limit 10 --json
+
+Notes:
+  Ranks suppliers by average Purveyor Score, then currently stocked count.
+  Requires an authenticated viewer session.
+`
+    )
+    .action(
+      withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        const { supabase } = await requireAuth('viewer');
+        const data = await supplierRank(supabase, {
+          stocked: opts.stocked ? true : undefined,
+          minCoffees: parsePositiveIntegerArg(
+            opts.minCoffees as string,
+            `Invalid --min-coffees: "${opts.minCoffees}". Must be a positive integer.`
+          ),
+          sampleSize: parsePositiveIntegerArg(
+            opts.sampleSize as string,
+            `Invalid --sample-size: "${opts.sampleSize}". Must be a positive integer.`
+          ),
+          limit: parsePositiveIntegerArg(
+            opts.limit as string,
+            `Invalid --limit: "${opts.limit}". Must be a positive integer.`
+          ),
+        });
+
+        outputData(data, globalOpts);
       })
     );
 

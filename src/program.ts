@@ -73,6 +73,8 @@ Catalog (viewer role required, member role required for structured process filte
   catalog search    Search the coffee catalog with filters
   catalog get       Get details for a specific coffee by ID
   catalog stats     Aggregate statistics for the catalog
+  catalog rank-premium  Rank premium catalog candidates by Purveyor Score
+  catalog supplier-rank Rank suppliers by average Purveyor Score
   catalog similar   Fetch canonical candidates and similar recommendations by catalog ID
 
 Personal Data (member role required):
@@ -113,6 +115,8 @@ Global Options:
 Examples:
   $ purvey auth login --headless
   $ purvey catalog search --origin "Ethiopia" --process "natural" --pretty
+  $ purvey catalog rank-premium --stocked --limit 10 --pretty
+  $ purvey catalog supplier-rank --stocked --min-coffees 3 --json
   $ purvey catalog similar 1182 --threshold 0.85 --stocked-only --json | jq '.data.groups'
   $ purvey inventory list --stocked --pretty
   $ purvey roast import my-roast.alog --coffee-id 7

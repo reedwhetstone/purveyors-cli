@@ -228,6 +228,97 @@ export interface CatalogStats {
   priceRange: { min: number | null; max: number | null };
 }
 
+export type PurveyorScoreBand = 'premium' | 'strong' | 'scored' | 'unscored';
+
+export interface PurveyorScoreSummary {
+  value: number | null;
+  band: PurveyorScoreBand;
+  source: 'score_value';
+  note: string;
+}
+
+export interface CatalogPremiumRankedItem {
+  rank: number;
+  id: number;
+  name: string | null;
+  supplier: string | null;
+  origin: {
+    continent: string | null;
+    country: string | null;
+    region: string | null;
+  };
+  processing: {
+    label: string | null;
+    base_method: string | null;
+    fermentation_type: string | null;
+    drying_method: string | null;
+  };
+  purveyor_score: PurveyorScoreSummary;
+  pricing: {
+    price_per_lb: number | null;
+    cost_lb: number | null;
+    price_tiers: Array<{ min_lbs: number; price: number }> | null;
+  };
+  stocked: boolean | null;
+  stocked_date: string | null;
+  signals: string[];
+}
+
+export interface CatalogPremiumRanking {
+  data: CatalogPremiumRankedItem[];
+  meta: {
+    resource: 'catalog-premium-ranking';
+    scoring_source: 'coffee_catalog.score_value';
+    sample_size: number;
+    returned: number;
+    filters: {
+      origin?: string;
+      process?: string;
+      supplier?: string;
+      stocked?: boolean;
+      priceMax?: number;
+      minScore?: number;
+      includeUnscored: boolean;
+    };
+    caveats: string[];
+  };
+}
+
+export interface SupplierAggregate {
+  supplier: string;
+  total: number;
+  stocked: number;
+  score: {
+    average: number | null;
+    coverage: number;
+    scored_count: number;
+    top_score: number | null;
+  };
+  price: {
+    average_per_lb: number | null;
+    min_per_lb: number | null;
+    max_per_lb: number | null;
+  };
+  origins: string[];
+  processing_methods: string[];
+  top_coffees: CatalogPremiumRankedItem[];
+}
+
+export interface SupplierAggregateResponse {
+  data: SupplierAggregate[];
+  meta: {
+    resource: 'supplier-list' | 'supplier-detail' | 'supplier-rank';
+    sample_size: number;
+    returned: number;
+    filters: {
+      supplier?: string;
+      stocked?: boolean;
+      minCoffees?: number;
+    };
+    caveats: string[];
+  };
+}
+
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
 export const catalogSortFields = ['price', 'price-desc', 'name', 'origin', 'newest'] as const;
@@ -269,6 +360,31 @@ export type GetCatalogInput = z.input<typeof getCatalogSchema>;
 export const getCatalogStatsSchema = z.object({});
 
 export type GetCatalogStatsInput = z.input<typeof getCatalogStatsSchema>;
+
+export const catalogRankPremiumSchema = z.object({
+  origin: z.string().optional(),
+  process: z.string().optional(),
+  supplier: z.string().optional(),
+  stocked: z.boolean().optional(),
+  priceMax: z.number().optional(),
+  minScore: z.number().optional(),
+  includeUnscored: z.boolean().default(false).optional(),
+  limit: z.number().int().min(1).max(50).default(10).optional(),
+  sampleSize: z.number().int().min(1).max(5000).default(250).optional(),
+});
+
+export type CatalogRankPremiumInput = z.input<typeof catalogRankPremiumSchema>;
+
+export const supplierAggregateSchema = z.object({
+  supplier: z.string().optional(),
+  stocked: z.boolean().optional(),
+  minCoffees: z.number().int().min(1).default(1).optional(),
+  topCoffees: z.number().int().min(1).max(25).default(5).optional(),
+  limit: z.number().int().min(1).max(100).default(25).optional(),
+  sampleSize: z.number().int().min(1).max(5000).default(1000).optional(),
+});
+
+export type SupplierAggregateInput = z.input<typeof supplierAggregateSchema>;
 
 export const catalogSimilarityModes = ['all', 'likely_same', 'similar_profile'] as const;
 
@@ -346,6 +462,192 @@ function getPerLbPrice(item: {
   cost_lb?: number | null;
 }): number | null {
   return item.price_tiers?.[0]?.price ?? item.price_per_lb ?? item.cost_lb ?? null;
+}
+
+function round(value: number, places = 2): number {
+  const multiplier = 10 ** places;
+  return Math.round(value * multiplier) / multiplier;
+}
+
+function average(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function uniqueSorted(values: Array<string | null | undefined>, limit = 10): string[] {
+  return [
+    ...new Set(
+      values.map((value) => value?.trim()).filter((value): value is string => Boolean(value))
+    ),
+  ]
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, limit);
+}
+
+export function summarizePurveyorScore(
+  scoreValue: number | null | undefined
+): PurveyorScoreSummary {
+  const value = scoreValue ?? null;
+  if (value === null) {
+    return {
+      value: null,
+      band: 'unscored',
+      source: 'score_value',
+      note: 'No Purveyor Score is available on this catalog row.',
+    };
+  }
+
+  if (value >= 90) {
+    return {
+      value,
+      band: 'premium',
+      source: 'score_value',
+      note: 'High Purveyor Score; treat as a premium catalog candidate.',
+    };
+  }
+
+  if (value >= 85) {
+    return {
+      value,
+      band: 'strong',
+      source: 'score_value',
+      note: 'Strong Purveyor Score; compare price, provenance, and fit before selecting.',
+    };
+  }
+
+  return {
+    value,
+    band: 'scored',
+    source: 'score_value',
+    note: 'Purveyor Score is available; ranking still depends on sourcing context.',
+  };
+}
+
+function buildRankSignals(item: CatalogItem): string[] {
+  const signals: string[] = [];
+  const score = summarizePurveyorScore(item.score_value);
+  if (score.value !== null) signals.push(`purveyor_score=${score.value}`);
+  const price = getPerLbPrice(item);
+  if (price !== null) signals.push(`price_per_lb=${price}`);
+  if (item.stocked === true) signals.push('currently_stocked');
+  if (item.country) signals.push(`origin=${item.country}`);
+  if (item.processing_base_method ?? item.processing) {
+    signals.push(`process=${item.processing_base_method ?? item.processing}`);
+  }
+  return signals;
+}
+
+function toPremiumRankedItem(item: CatalogItem, rank: number): CatalogPremiumRankedItem {
+  return {
+    rank,
+    id: item.id,
+    name: item.name,
+    supplier: item.source,
+    origin: {
+      continent: item.continent,
+      country: item.country,
+      region: item.region,
+    },
+    processing: {
+      label: item.processing,
+      base_method: item.processing_base_method,
+      fermentation_type: item.fermentation_type,
+      drying_method: item.drying_method,
+    },
+    purveyor_score: summarizePurveyorScore(item.score_value),
+    pricing: {
+      price_per_lb: item.price_per_lb,
+      cost_lb: item.cost_lb,
+      price_tiers: item.price_tiers,
+    },
+    stocked: item.stocked,
+    stocked_date: item.stocked_date,
+    signals: buildRankSignals(item),
+  };
+}
+
+export function computeCatalogPremiumRanking(
+  items: CatalogItem[],
+  opts: { limit?: number; includeUnscored?: boolean; minScore?: number } = {}
+): CatalogPremiumRankedItem[] {
+  const limit = opts.limit ?? 10;
+  const includeUnscored = opts.includeUnscored ?? false;
+  const minScore = opts.minScore;
+
+  return items
+    .filter((item) => includeUnscored || item.score_value !== null)
+    .filter((item) => minScore === undefined || (item.score_value ?? -Infinity) >= minScore)
+    .sort((a, b) => {
+      const scoreDelta = (b.score_value ?? -Infinity) - (a.score_value ?? -Infinity);
+      if (scoreDelta !== 0) return scoreDelta;
+
+      const aPrice = getPerLbPrice(a) ?? Infinity;
+      const bPrice = getPerLbPrice(b) ?? Infinity;
+      if (aPrice !== bPrice) return aPrice - bPrice;
+
+      return (a.name ?? '').localeCompare(b.name ?? '');
+    })
+    .slice(0, limit)
+    .map((item, index) => toPremiumRankedItem(item, index + 1));
+}
+
+export function computeSupplierAggregates(
+  items: CatalogItem[],
+  opts: { topCoffees?: number; minCoffees?: number } = {}
+): SupplierAggregate[] {
+  const bySupplier = new Map<string, CatalogItem[]>();
+  for (const item of items) {
+    const supplier = item.source?.trim() || 'Unknown supplier';
+    const group = bySupplier.get(supplier) ?? [];
+    group.push(item);
+    bySupplier.set(supplier, group);
+  }
+
+  const topCoffees = opts.topCoffees ?? 5;
+  const minCoffees = opts.minCoffees ?? 1;
+
+  return [...bySupplier.entries()]
+    .map(([supplier, supplierItems]) => {
+      const scores = supplierItems
+        .map((item) => item.score_value)
+        .filter((score): score is number => score !== null);
+      const prices = supplierItems
+        .map((item) => getPerLbPrice(item))
+        .filter((p): p is number => p !== null);
+
+      return {
+        supplier,
+        total: supplierItems.length,
+        stocked: supplierItems.filter((item) => item.stocked === true).length,
+        score: {
+          average: average(scores),
+          coverage: supplierItems.length === 0 ? 0 : round(scores.length / supplierItems.length, 3),
+          scored_count: scores.length,
+          top_score: scores.length > 0 ? Math.max(...scores) : null,
+        },
+        price: {
+          average_per_lb: average(prices),
+          min_per_lb: prices.length > 0 ? Math.min(...prices) : null,
+          max_per_lb: prices.length > 0 ? Math.max(...prices) : null,
+        },
+        origins: uniqueSorted(supplierItems.flatMap((item) => [item.country, item.continent])),
+        processing_methods: uniqueSorted(
+          supplierItems.map((item) => item.processing_base_method ?? item.processing)
+        ),
+        top_coffees: computeCatalogPremiumRanking(supplierItems, {
+          limit: topCoffees,
+          includeUnscored: true,
+        }),
+      } satisfies SupplierAggregate;
+    })
+    .filter((supplier) => supplier.total >= minCoffees)
+    .sort((a, b) => {
+      const scoreDelta = (b.score.average ?? -Infinity) - (a.score.average ?? -Infinity);
+      if (scoreDelta !== 0) return scoreDelta;
+      const stockedDelta = b.stocked - a.stocked;
+      if (stockedDelta !== 0) return stockedDelta;
+      return a.supplier.localeCompare(b.supplier);
+    });
 }
 
 interface CatalogApiEnvelope {
@@ -829,6 +1131,177 @@ export async function getCatalogStats(supabase: SupabaseClient): Promise<Catalog
   if (error) throw error;
 
   return computeCatalogStats((data ?? []) as CatalogItem[]);
+}
+
+function buildCatalogIntelligenceQuery(
+  supabase: SupabaseClient,
+  parsed: {
+    origin?: string;
+    process?: string;
+    supplier?: string;
+    stocked?: boolean;
+    priceMax?: number;
+    minScore?: number;
+    sampleSize?: number;
+    orderByScore?: boolean;
+  }
+) {
+  let query = supabase.from('coffee_catalog').select('*');
+
+  if (parsed.origin) {
+    const origin = sanitizeFilterValue(parsed.origin);
+    query = query.or(
+      `country.ilike.%${origin}%,continent.ilike.%${origin}%,region.ilike.%${origin}%`
+    );
+  }
+
+  if (parsed.process) {
+    const process = sanitizeFilterValue(parsed.process);
+    query = query.or(`processing.ilike.%${process}%,processing_base_method.ilike.%${process}%`);
+  }
+
+  if (parsed.supplier) {
+    query = query.ilike('source', `%${sanitizeFilterValue(parsed.supplier)}%`);
+  }
+
+  if (parsed.stocked !== undefined) {
+    query = query.eq('stocked', parsed.stocked);
+  }
+
+  if (parsed.priceMax !== undefined) {
+    query = query.lte('price_per_lb', parsed.priceMax);
+  }
+
+  if (parsed.minScore !== undefined) {
+    query = query.gte('score_value', parsed.minScore);
+  }
+
+  if (parsed.orderByScore) {
+    query = query.order('score_value', { ascending: false, nullsFirst: false });
+  } else {
+    query = query.order('source', { ascending: true, nullsFirst: false });
+  }
+
+  const sampleSize = parsed.sampleSize ?? 250;
+  query = query.range(0, sampleSize - 1);
+
+  return query;
+}
+
+const catalogIntelligenceCaveats = [
+  'Purveyor Score is read from coffee_catalog.score_value; the CLI does not recompute or explain the upstream score model.',
+  'Ranking is catalog-only and does not account for a roaster’s owned inventory, roast history, or target menu fit.',
+];
+
+/**
+ * Rank premium catalog candidates by Purveyor Score, with pricing and sourcing signals.
+ */
+export async function catalogRankPremium(
+  supabase: SupabaseClient,
+  input: CatalogRankPremiumInput = {}
+): Promise<CatalogPremiumRanking> {
+  const parsed = catalogRankPremiumSchema.parse(input);
+  const sampleSize = parsed.sampleSize ?? 250;
+  const { data, error } = await buildCatalogIntelligenceQuery(supabase, {
+    ...parsed,
+    orderByScore: true,
+  });
+
+  if (error) throw error;
+
+  const ranking = computeCatalogPremiumRanking((data ?? []) as CatalogItem[], {
+    limit: parsed.limit ?? 10,
+    includeUnscored: parsed.includeUnscored ?? false,
+    minScore: parsed.minScore,
+  });
+
+  return {
+    data: ranking,
+    meta: {
+      resource: 'catalog-premium-ranking',
+      scoring_source: 'coffee_catalog.score_value',
+      sample_size: sampleSize,
+      returned: ranking.length,
+      filters: {
+        origin: parsed.origin,
+        process: parsed.process,
+        supplier: parsed.supplier,
+        stocked: parsed.stocked,
+        priceMax: parsed.priceMax,
+        minScore: parsed.minScore,
+        includeUnscored: parsed.includeUnscored ?? false,
+      },
+      caveats: catalogIntelligenceCaveats,
+    },
+  };
+}
+
+async function getSupplierAggregates(
+  supabase: SupabaseClient,
+  input: SupplierAggregateInput,
+  resource: SupplierAggregateResponse['meta']['resource']
+): Promise<SupplierAggregateResponse> {
+  const parsed = supplierAggregateSchema.parse(input);
+  const sampleSize = parsed.sampleSize ?? 1000;
+  const { data, error } = await buildCatalogIntelligenceQuery(supabase, {
+    supplier: parsed.supplier,
+    stocked: parsed.stocked,
+    sampleSize,
+  });
+
+  if (error) throw error;
+
+  const aggregates = computeSupplierAggregates((data ?? []) as CatalogItem[], {
+    topCoffees: parsed.topCoffees ?? 5,
+    minCoffees: parsed.minCoffees ?? 1,
+  }).slice(0, parsed.limit ?? 25);
+
+  return {
+    data: aggregates,
+    meta: {
+      resource,
+      sample_size: sampleSize,
+      returned: aggregates.length,
+      filters: {
+        supplier: parsed.supplier,
+        stocked: parsed.stocked,
+        minCoffees: parsed.minCoffees ?? 1,
+      },
+      caveats: catalogIntelligenceCaveats,
+    },
+  };
+}
+
+/** List supplier aggregates from catalog rows. */
+export async function supplierList(
+  supabase: SupabaseClient,
+  input: SupplierAggregateInput = {}
+): Promise<SupplierAggregateResponse> {
+  return getSupplierAggregates(supabase, input, 'supplier-list');
+}
+
+/** Return aggregate detail for a supplier query. */
+export async function supplierDetail(
+  supabase: SupabaseClient,
+  input: SupplierAggregateInput
+): Promise<SupplierAggregateResponse> {
+  const parsed = supplierAggregateSchema.parse(input);
+  if (!parsed.supplier?.trim()) {
+    throw new PrvrsError('INVALID_ARGUMENT', 'supplierDetail requires a non-empty supplier name.');
+  }
+  return getSupplierAggregates(
+    supabase,
+    { ...parsed, limit: parsed.limit ?? 10 },
+    'supplier-detail'
+  );
+}
+
+/** Rank suppliers by average Purveyor Score, then currently stocked coverage. */
+export async function supplierRank(
+  supabase: SupabaseClient,
+  input: SupplierAggregateInput = {}
+): Promise<SupplierAggregateResponse> {
+  return getSupplierAggregates(supabase, input, 'supplier-rank');
 }
 
 /**

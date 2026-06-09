@@ -17,6 +17,13 @@ import { buildCatalogCommand } from '../src/commands/catalog.js';
 import { requireAuth } from '../src/lib/auth-guard.js';
 import {
   computeCatalogStats,
+  computeCatalogPremiumRanking,
+  computeSupplierAggregates,
+  summarizePurveyorScore,
+  catalogRankPremium,
+  supplierList,
+  supplierDetail,
+  supplierRank,
   searchCatalog,
   getCatalog,
   getCatalogSimilarity,
@@ -408,6 +415,127 @@ describe('computeCatalogStats', () => {
     const items = [makeItem({ id: 1, cost_lb: 10.0, price_per_lb: null, price_tiers: null })];
     const stats = computeCatalogStats(items);
     expect(stats.avgPricePerLb).toBe(10.0);
+  });
+});
+
+describe('catalog intelligence helpers', () => {
+  it('summarizes Purveyor Score bands without recomputing scores', () => {
+    expect(summarizePurveyorScore(null)).toMatchObject({ value: null, band: 'unscored' });
+    expect(summarizePurveyorScore(91)).toMatchObject({ value: 91, band: 'premium' });
+    expect(summarizePurveyorScore(86)).toMatchObject({ value: 86, band: 'strong' });
+    expect(summarizePurveyorScore(80)).toMatchObject({ value: 80, band: 'scored' });
+  });
+
+  it('ranks premium catalog rows by score, then cheaper price', () => {
+    const ranked = computeCatalogPremiumRanking([
+      makeItem({ id: 1, name: 'Unscored', score_value: null }),
+      makeItem({
+        id: 2,
+        name: 'Expensive 90',
+        score_value: 90,
+        price_per_lb: 15,
+        price_tiers: null,
+      }),
+      makeItem({ id: 3, name: 'Cheap 90', score_value: 90, price_per_lb: 10, price_tiers: null }),
+      makeItem({ id: 4, name: 'Top', score_value: 94, price_per_lb: 20, price_tiers: null }),
+    ]);
+
+    expect(ranked.map((item) => item.id)).toEqual([4, 3, 2]);
+    expect(ranked[0]).toMatchObject({
+      rank: 1,
+      purveyor_score: { value: 94, band: 'premium', source: 'score_value' },
+    });
+    expect(ranked[0]?.signals).toContain('purveyor_score=94');
+  });
+
+  it('can include unscored rows after scored candidates', () => {
+    const ranked = computeCatalogPremiumRanking(
+      [makeItem({ id: 1, score_value: null }), makeItem({ id: 2, score_value: 82 })],
+      { includeUnscored: true }
+    );
+
+    expect(ranked.map((item) => item.id)).toEqual([2, 1]);
+    expect(ranked[1]?.purveyor_score.band).toBe('unscored');
+  });
+
+  it('computes supplier aggregates with score coverage, prices, and top coffees', () => {
+    const aggregates = computeSupplierAggregates([
+      makeItem({
+        id: 1,
+        source: 'Royal Coffee',
+        score_value: 90,
+        price_per_lb: 10,
+        price_tiers: null,
+      }),
+      makeItem({
+        id: 2,
+        source: 'Royal Coffee',
+        score_value: null,
+        price_per_lb: 14,
+        price_tiers: null,
+      }),
+      makeItem({
+        id: 3,
+        source: 'Cafe Imports',
+        score_value: 88,
+        price_per_lb: 9,
+        price_tiers: null,
+      }),
+    ]);
+
+    expect(aggregates[0]?.supplier).toBe('Royal Coffee');
+    expect(aggregates[0]?.score).toEqual({
+      average: 90,
+      coverage: 0.5,
+      scored_count: 1,
+      top_score: 90,
+    });
+    expect(aggregates[0]?.price.average_per_lb).toBe(12);
+    expect(aggregates[0]?.top_coffees[0]?.id).toBe(1);
+  });
+
+  it('catalogRankPremium queries catalog rows and returns a scored response envelope', async () => {
+    const { supabase, query } = makeSearchSupabase({
+      data: [makeItem({ id: 1, score_value: 91 }), makeItem({ id: 2, score_value: 88 })],
+    });
+
+    const response = await catalogRankPremium(supabase, {
+      origin: 'Ethiopia',
+      stocked: true,
+      limit: 1,
+      sampleSize: 25,
+    });
+
+    expect(query.or).toHaveBeenCalledWith(
+      'country.ilike.%Ethiopia%,continent.ilike.%Ethiopia%,region.ilike.%Ethiopia%'
+    );
+    expect(query.eq).toHaveBeenCalledWith('stocked', true);
+    expect(query.order).toHaveBeenCalledWith('score_value', {
+      ascending: false,
+      nullsFirst: false,
+    });
+    expect(query.range).toHaveBeenCalledWith(0, 24);
+    expect(response.meta.resource).toBe('catalog-premium-ranking');
+    expect(response.data).toHaveLength(1);
+  });
+
+  it('supplier aggregate functions expose supplier list, detail, and rank envelopes', async () => {
+    const { supabase, query } = makeSearchSupabase({
+      data: [makeItem({ id: 1, source: 'Royal Coffee', score_value: 91 })],
+    });
+
+    await expect(supplierList(supabase, { limit: 5 })).resolves.toMatchObject({
+      meta: { resource: 'supplier-list' },
+      data: [{ supplier: 'Royal Coffee' }],
+    });
+    await expect(supplierRank(supabase, { minCoffees: 1 })).resolves.toMatchObject({
+      meta: { resource: 'supplier-rank' },
+    });
+    await expect(supplierDetail(supabase, { supplier: 'Royal' })).resolves.toMatchObject({
+      meta: { resource: 'supplier-detail' },
+    });
+
+    expect(query.ilike).toHaveBeenCalledWith('source', '%Royal%');
   });
 });
 
