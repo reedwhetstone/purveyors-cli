@@ -370,6 +370,7 @@ export type GetCatalogStatsInput = z.input<typeof getCatalogStatsSchema>;
 
 const CATALOG_INTELLIGENCE_MAX_SAMPLE_SIZE = 5000;
 const CATALOG_PREMIUM_DEFAULT_SAMPLE_SIZE = 250;
+const SUPABASE_DATA_API_MAX_PAGE_SIZE = 1000;
 const SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE = CATALOG_INTELLIGENCE_MAX_SAMPLE_SIZE;
 
 export const catalogRankPremiumSchema = z.object({
@@ -1218,7 +1219,8 @@ async function fetchSupplierAggregateRows(
   supabase: SupabaseClient,
   parsed: Pick<SupplierAggregateInput, 'supplier' | 'stocked' | 'sampleSize'>
 ): Promise<CatalogItem[]> {
-  const pageSize = parsed.sampleSize ?? SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE;
+  const sampleSize = parsed.sampleSize ?? SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE;
+  const pageSize = Math.min(sampleSize, SUPABASE_DATA_API_MAX_PAGE_SIZE);
   const rows: CatalogItem[] = [];
 
   for (let offset = 0; ; offset += pageSize) {
@@ -1244,6 +1246,42 @@ async function fetchSupplierAggregateRows(
   return rows;
 }
 
+async function fetchCatalogPremiumSampleRows(
+  supabase: SupabaseClient,
+  parsed: CatalogRankPremiumInput,
+  sampleSize: number
+): Promise<{ sampledRows: CatalogItem[]; truncated: boolean }> {
+  const targetRows = sampleSize + 1;
+  const pageSize = Math.min(targetRows, SUPABASE_DATA_API_MAX_PAGE_SIZE);
+  const rows: CatalogItem[] = [];
+
+  for (let offset = 0; rows.length < targetRows; offset += pageSize) {
+    const pageEnd = Math.min(offset + pageSize - 1, targetRows - 1);
+    const { data, error } = await buildCatalogIntelligenceQuery(
+      supabase,
+      {
+        ...parsed,
+        orderByScore: true,
+      },
+      { applyRange: false }
+    )
+      .order('id', { ascending: true })
+      .range(offset, pageEnd);
+
+    if (error) throw error;
+
+    const page = (data ?? []) as CatalogItem[];
+    rows.push(...page);
+
+    if (page.length < pageEnd - offset + 1) break;
+  }
+
+  return {
+    sampledRows: rows.slice(0, sampleSize),
+    truncated: rows.length > sampleSize,
+  };
+}
+
 const catalogIntelligenceCaveats = [
   'Purveyor Score is read from coffee_catalog.score_value; the CLI does not recompute or explain the upstream score model.',
   'Ranking is catalog-only and does not account for a roaster’s owned inventory, roast history, or target menu fit.',
@@ -1251,12 +1289,12 @@ const catalogIntelligenceCaveats = [
 
 const catalogPremiumRankingCaveats = [
   ...catalogIntelligenceCaveats,
-  'Premium ranking samples catalog rows ordered by score_value descending before applying agent-facing ranking logic; meta.truncated indicates more rows matched than the requested sample_size.',
+  'Premium ranking samples catalog rows ordered by score_value descending, then id ascending, before applying agent-facing ranking logic; meta.truncated indicates more rows matched than the requested sample_size.',
 ];
 
 const supplierAggregateCaveats = [
   ...catalogIntelligenceCaveats,
-  'Supplier aggregates paginate catalog rows ordered by source ascending; meta.sample_size is the fetch page size and meta.rows_examined reports the rows included in aggregation.',
+  'Supplier aggregates paginate catalog rows ordered by source ascending, then id ascending; meta.sample_size is the requested fetch page size and meta.rows_examined reports the rows included in aggregation.',
 ];
 
 /**
@@ -1268,16 +1306,11 @@ export async function catalogRankPremium(
 ): Promise<CatalogPremiumRanking> {
   const parsed = catalogRankPremiumSchema.parse(input);
   const sampleSize = parsed.sampleSize ?? CATALOG_PREMIUM_DEFAULT_SAMPLE_SIZE;
-  const { data, error } = await buildCatalogIntelligenceQuery(supabase, {
-    ...parsed,
-    sampleSize: sampleSize + 1,
-    orderByScore: true,
-  });
-
-  if (error) throw error;
-
-  const sampledRows = ((data ?? []) as CatalogItem[]).slice(0, sampleSize);
-  const truncated = ((data ?? []) as CatalogItem[]).length > sampleSize;
+  const { sampledRows, truncated } = await fetchCatalogPremiumSampleRows(
+    supabase,
+    parsed,
+    sampleSize
+  );
 
   const ranking = computeCatalogPremiumRanking(sampledRows, {
     limit: parsed.limit ?? 10,

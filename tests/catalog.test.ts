@@ -514,6 +514,7 @@ describe('catalog intelligence helpers', () => {
       ascending: false,
       nullsFirst: false,
     });
+    expect(query.order).toHaveBeenCalledWith('id', { ascending: true });
     expect(query.range).toHaveBeenCalledWith(0, 25);
     expect(response.meta).toMatchObject({
       resource: 'catalog-premium-ranking',
@@ -522,6 +523,48 @@ describe('catalog intelligence helpers', () => {
       truncated: false,
     });
     expect(response.data).toHaveLength(1);
+  });
+
+  it('pages premium samples within the Supabase API row cap before ranking', async () => {
+    const apiPageCap = 1000;
+    const rows = [
+      ...Array.from({ length: apiPageCap }, (_, index) =>
+        makeItem({ id: index + 1, score_value: 50, price_per_lb: 12, price_tiers: null })
+      ),
+      makeItem({ id: apiPageCap + 1, score_value: 99, price_per_lb: 20, price_tiers: null }),
+      makeItem({ id: apiPageCap + 2, score_value: 40, price_per_lb: 20, price_tiers: null }),
+    ];
+    const query = {
+      data: [] as CatalogItem[],
+      error: null,
+      or: vi.fn(() => query),
+      ilike: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      contains: vi.fn(() => query),
+      gte: vi.fn(() => query),
+      lte: vi.fn(() => query),
+      in: vi.fn(() => query),
+      order: vi.fn(() => query),
+      range: vi.fn((from: number, to: number) => {
+        query.data = rows.slice(from, Math.min(to, from + apiPageCap - 1) + 1);
+        return query;
+      }),
+    };
+    const select = vi.fn(() => query);
+    const from = vi.fn(() => ({ select }));
+    const supabase = { from } as unknown as SupabaseClient;
+
+    const response = await catalogRankPremium(supabase, { sampleSize: apiPageCap + 1, limit: 1 });
+
+    expect(query.order).toHaveBeenCalledWith('score_value', {
+      ascending: false,
+      nullsFirst: false,
+    });
+    expect(query.order).toHaveBeenCalledWith('id', { ascending: true });
+    expect(query.range).toHaveBeenCalledWith(0, 999);
+    expect(query.range).toHaveBeenCalledWith(1000, 1001);
+    expect(response.meta.truncated).toBe(true);
+    expect(response.data[0]?.id).toBe(apiPageCap + 1);
   });
 
   it('supplier aggregate functions expose supplier list, detail, and rank envelopes', async () => {
@@ -591,6 +634,42 @@ describe('catalog intelligence helpers', () => {
       total: 1,
       score: { average: 99 },
     });
+  });
+
+  it('keeps supplier aggregate page width within the Supabase API row cap', async () => {
+    const apiPageCap = 1000;
+    const rows = [
+      ...Array.from({ length: apiPageCap }, (_, index) =>
+        makeItem({ id: index + 1, source: 'Alpha Coffee', score_value: 50 })
+      ),
+      makeItem({ id: apiPageCap + 1, source: 'Zulu Coffee', score_value: 99 }),
+    ];
+    const query = {
+      data: [] as CatalogItem[],
+      error: null,
+      or: vi.fn(() => query),
+      ilike: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      contains: vi.fn(() => query),
+      gte: vi.fn(() => query),
+      lte: vi.fn(() => query),
+      in: vi.fn(() => query),
+      order: vi.fn(() => query),
+      range: vi.fn((from: number, to: number) => {
+        query.data = rows.slice(from, Math.min(to, from + apiPageCap - 1) + 1);
+        return query;
+      }),
+    };
+    const select = vi.fn(() => query);
+    const from = vi.fn(() => ({ select }));
+    const supabase = { from } as unknown as SupabaseClient;
+
+    const response = await supplierList(supabase, { limit: 10 });
+
+    expect(query.range).toHaveBeenCalledWith(0, 999);
+    expect(query.range).toHaveBeenCalledWith(1000, 1999);
+    expect(response.meta.rows_examined).toBe(apiPageCap + 1);
+    expect(response.data.map((supplier) => supplier.supplier)).toContain('Zulu Coffee');
   });
 });
 
