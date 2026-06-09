@@ -54,6 +54,12 @@ export interface CatalogItem {
   lot_size: string | null;
   bag_size: string | null;
   score_value: number | null;
+  purveyor_score: number | null;
+  purveyor_score_confidence: number | null;
+  purveyor_score_tier: string | null;
+  purveyor_score_factors: unknown;
+  purveyor_score_version: string | null;
+  purveyor_score_updated_at: string | null;
   stocked: boolean | null;
   stocked_date: string | null;
   unstocked_date: string | null;
@@ -233,7 +239,12 @@ export type PurveyorScoreBand = 'premium' | 'strong' | 'scored' | 'unscored';
 export interface PurveyorScoreSummary {
   value: number | null;
   band: PurveyorScoreBand;
-  source: 'score_value';
+  source: 'purveyor_score';
+  confidence: number | null;
+  tier: string | null;
+  factors: unknown;
+  version: string | null;
+  updated_at: string | null;
   note: string;
 }
 
@@ -268,10 +279,10 @@ export interface CatalogPremiumRanking {
   data: CatalogPremiumRankedItem[];
   meta: {
     resource: 'catalog-premium-ranking';
-    scoring_source: 'coffee_catalog.score_value';
+    scoring_source: 'coffee_catalog.purveyor_score';
     sample_size: number;
     sample_limited: boolean;
-    sample_order: 'score_value_desc_nulls_last';
+    sample_order: 'purveyor_score_desc_nulls_last';
     truncated: boolean;
     returned: number;
     filters: {
@@ -296,6 +307,8 @@ export interface SupplierAggregate {
     coverage: number;
     scored_count: number;
     top_score: number | null;
+    average_confidence: number | null;
+    confidence_coverage: number;
   };
   price: {
     average_per_lb: number | null;
@@ -509,14 +522,31 @@ function uniqueSorted(values: Array<string | null | undefined>, limit = 10): str
 }
 
 export function summarizePurveyorScore(
-  scoreValue: number | null | undefined
+  scoreValueOrItem: number | null | undefined | Partial<CatalogItem>
 ): PurveyorScoreSummary {
-  const value = scoreValue ?? null;
+  const item =
+    typeof scoreValueOrItem === 'object' && scoreValueOrItem !== null
+      ? scoreValueOrItem
+      : undefined;
+  const value: number | null = item
+    ? (item.purveyor_score ?? null)
+    : typeof scoreValueOrItem === 'number'
+      ? scoreValueOrItem
+      : null;
+  const base = {
+    source: 'purveyor_score' as const,
+    confidence: item?.purveyor_score_confidence ?? null,
+    tier: item?.purveyor_score_tier ?? null,
+    factors: item?.purveyor_score_factors ?? null,
+    version: item?.purveyor_score_version ?? null,
+    updated_at: item?.purveyor_score_updated_at ?? null,
+  };
+
   if (value === null) {
     return {
       value: null,
       band: 'unscored',
-      source: 'score_value',
+      ...base,
       note: 'No Purveyor Score is available on this catalog row.',
     };
   }
@@ -525,8 +555,8 @@ export function summarizePurveyorScore(
     return {
       value,
       band: 'premium',
-      source: 'score_value',
-      note: 'High Purveyor Score; treat as a premium catalog candidate.',
+      ...base,
+      note: 'High Purveyor Score; inspect confidence and factor breakdown before treating it as a premium catalog candidate.',
     };
   }
 
@@ -534,23 +564,29 @@ export function summarizePurveyorScore(
     return {
       value,
       band: 'strong',
-      source: 'score_value',
-      note: 'Strong Purveyor Score; compare price, provenance, and fit before selecting.',
+      ...base,
+      note: 'Strong Purveyor Score; compare confidence, factor breakdown, price, provenance, and fit before selecting.',
     };
   }
 
   return {
     value,
     band: 'scored',
-    source: 'score_value',
-    note: 'Purveyor Score is available; ranking still depends on sourcing context.',
+    ...base,
+    note: 'Purveyor Score is available; ranking still depends on confidence, factor breakdown, and sourcing context.',
   };
+}
+
+function getPurveyorScoreValue(item: Pick<CatalogItem, 'purveyor_score'>): number | null {
+  return item.purveyor_score ?? null;
 }
 
 function buildRankSignals(item: CatalogItem): string[] {
   const signals: string[] = [];
-  const score = summarizePurveyorScore(item.score_value);
+  const score = summarizePurveyorScore(item);
   if (score.value !== null) signals.push(`purveyor_score=${score.value}`);
+  if (score.confidence !== null) signals.push(`purveyor_score_confidence=${score.confidence}`);
+  if (score.tier) signals.push(`purveyor_score_tier=${score.tier}`);
   const price = getPerLbPrice(item);
   if (price !== null) signals.push(`price_per_lb=${price}`);
   if (item.stocked === true) signals.push('currently_stocked');
@@ -578,7 +614,7 @@ function toPremiumRankedItem(item: CatalogItem, rank: number): CatalogPremiumRan
       fermentation_type: item.fermentation_type,
       drying_method: item.drying_method,
     },
-    purveyor_score: summarizePurveyorScore(item.score_value),
+    purveyor_score: summarizePurveyorScore(item),
     pricing: {
       price_per_lb: item.price_per_lb,
       cost_lb: item.cost_lb,
@@ -599,10 +635,13 @@ export function computeCatalogPremiumRanking(
   const minScore = opts.minScore;
 
   return items
-    .filter((item) => includeUnscored || item.score_value !== null)
-    .filter((item) => minScore === undefined || (item.score_value ?? -Infinity) >= minScore)
+    .filter((item) => includeUnscored || getPurveyorScoreValue(item) !== null)
+    .filter(
+      (item) => minScore === undefined || (getPurveyorScoreValue(item) ?? -Infinity) >= minScore
+    )
     .sort((a, b) => {
-      const scoreDelta = (b.score_value ?? -Infinity) - (a.score_value ?? -Infinity);
+      const scoreDelta =
+        (getPurveyorScoreValue(b) ?? -Infinity) - (getPurveyorScoreValue(a) ?? -Infinity);
       if (scoreDelta !== 0) return scoreDelta;
 
       const aPrice = getPerLbPrice(a) ?? Infinity;
@@ -633,8 +672,11 @@ export function computeSupplierAggregates(
   return [...bySupplier.entries()]
     .map(([supplier, supplierItems]) => {
       const scores = supplierItems
-        .map((item) => item.score_value)
+        .map((item) => getPurveyorScoreValue(item))
         .filter((score): score is number => score !== null);
+      const confidences = supplierItems
+        .map((item) => item.purveyor_score_confidence)
+        .filter((confidence): confidence is number => confidence !== null);
       const prices = supplierItems
         .map((item) => getPerLbPrice(item))
         .filter((p): p is number => p !== null);
@@ -648,6 +690,9 @@ export function computeSupplierAggregates(
           coverage: supplierItems.length === 0 ? 0 : round(scores.length / supplierItems.length, 3),
           scored_count: scores.length,
           top_score: scores.length > 0 ? Math.max(...scores) : null,
+          average_confidence: average(confidences),
+          confidence_coverage:
+            supplierItems.length === 0 ? 0 : round(confidences.length / supplierItems.length, 3),
         },
         price: {
           average_per_lb: average(prices),
@@ -1198,11 +1243,11 @@ function buildCatalogIntelligenceQuery(
   }
 
   if (parsed.minScore !== undefined) {
-    query = query.gte('score_value', parsed.minScore);
+    query = query.gte('purveyor_score', parsed.minScore);
   }
 
   if (parsed.orderByScore) {
-    query = query.order('score_value', { ascending: false, nullsFirst: false });
+    query = query.order('purveyor_score', { ascending: false, nullsFirst: false });
   } else {
     query = query.order('source', { ascending: true, nullsFirst: false });
   }
@@ -1283,13 +1328,13 @@ async function fetchCatalogPremiumSampleRows(
 }
 
 const catalogIntelligenceCaveats = [
-  'Purveyor Score is read from coffee_catalog.score_value; the CLI does not recompute or explain the upstream score model.',
+  'Purveyor Score is read from coffee_catalog.purveyor_score with confidence, tier, factor breakdown, version, and update metadata; the CLI does not recompute the upstream score model.',
   'Ranking is catalog-only and does not account for a roaster’s owned inventory, roast history, or target menu fit.',
 ];
 
 const catalogPremiumRankingCaveats = [
   ...catalogIntelligenceCaveats,
-  'Premium ranking samples catalog rows ordered by score_value descending, then id ascending, before applying agent-facing ranking logic; meta.truncated indicates more rows matched than the requested sample_size.',
+  'Premium ranking samples catalog rows ordered by purveyor_score descending, then id ascending, before applying agent-facing ranking logic; meta.truncated indicates more rows matched than the requested sample_size.',
 ];
 
 const supplierAggregateCaveats = [
@@ -1322,10 +1367,10 @@ export async function catalogRankPremium(
     data: ranking,
     meta: {
       resource: 'catalog-premium-ranking',
-      scoring_source: 'coffee_catalog.score_value',
+      scoring_source: 'coffee_catalog.purveyor_score',
       sample_size: sampleSize,
       sample_limited: true,
-      sample_order: 'score_value_desc_nulls_last',
+      sample_order: 'purveyor_score_desc_nulls_last',
       truncated,
       returned: ranking.length,
       filters: {

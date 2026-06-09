@@ -362,8 +362,8 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--limit <n>', defaultValue: 10 },
         ],
         notes: [
-          'Exposes coffee_catalog.score_value as purveyor_score; the CLI does not recompute the upstream score model.',
-          'Output includes rank, catalog context, pricing, stocked status, and transparent ranking signals for agents.',
+          'Exposes coffee_catalog.purveyor_score plus confidence, tier, factor breakdown, version, and update metadata; the CLI does not recompute the upstream score model.',
+          'Output includes rank, catalog context, pricing, stocked status, Purveyor Score qualifiers, and transparent ranking signals for agents.',
           'Output metadata reports sample ordering and whether more rows matched than the requested sample size.',
         ],
         examples: [
@@ -381,7 +381,7 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--limit <n>', defaultValue: 25 },
         ],
         notes: [
-          'Summarizes supplier counts, stocked counts, Purveyor Score coverage, average score, price range, origin/process coverage, and representative top coffees.',
+          'Summarizes supplier counts, stocked counts, Purveyor Score coverage, average score, average confidence, price range, origin/process coverage, and representative top coffees with score qualifiers.',
           'Output metadata reports source-ordered pagination, rows examined, and whether the aggregate is sample-limited.',
         ],
         examples: ['purvey catalog supplier-list --stocked --pretty'],
