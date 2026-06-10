@@ -22,11 +22,25 @@ export function guardCancel(result: unknown): void {
 /**
  * Interactive bean picker — shows user's inventory beans and lets them select one.
  * Returns the selected bean's ID and name.
+ *
+ * By default a cancelled prompt (Ctrl+C / Escape) exits the process. Pass
+ * `{ allowCancel: true }` to get `null` back instead, for callers that must
+ * keep running after a cancelled selection (e.g. `roast watch --prompt-each`).
  */
 export async function pickBean(
   supabase: SupabaseClient,
   userId: string
-): Promise<{ id: number; name: string }> {
+): Promise<{ id: number; name: string }>;
+export async function pickBean(
+  supabase: SupabaseClient,
+  userId: string,
+  options: { allowCancel: boolean }
+): Promise<{ id: number; name: string } | null>;
+export async function pickBean(
+  supabase: SupabaseClient,
+  userId: string,
+  options: { allowCancel?: boolean } = {}
+): Promise<{ id: number; name: string } | null> {
   const { data, error } = await supabase
     .from('green_coffee_inv')
     .select('id, coffee_catalog!catalog_id (name)')
@@ -43,11 +57,15 @@ export async function pickBean(
   }>;
 
   if (rows.length === 0) {
+    if (options.allowCancel) {
+      p.log.warn('No stocked beans found in your inventory. Add some first.');
+      return null;
+    }
     p.cancel('No stocked beans found in your inventory. Add some first.');
     process.exit(0);
   }
 
-  const options = rows.map((row) => {
+  const selectOptions = rows.map((row) => {
     const catalog = Array.isArray(row.coffee_catalog)
       ? (row.coffee_catalog[0] ?? null)
       : row.coffee_catalog;
@@ -57,9 +75,12 @@ export async function pickBean(
 
   const selected = await p.select({
     message: 'Select a bean from your inventory',
-    options,
+    options: selectOptions,
   });
 
+  if (options.allowCancel && p.isCancel(selected)) {
+    return null;
+  }
   guardCancel(selected);
 
   const selectedId = parseInt(selected as string, 10);

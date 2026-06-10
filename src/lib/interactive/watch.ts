@@ -59,7 +59,6 @@ interface StartWatchOpts {
   startedAt?: string;
   resumeImports?: ImportRecord[];
   promptEach?: boolean;
-  startSequence?: number;
   autoMatch?: boolean;
   ozIn?: number;
   roastNotes?: string;
@@ -255,7 +254,9 @@ function printVerificationTableStandard(imports: ImportRecord[]): void {
           ? '✓'
           : rec.status === 'pending'
             ? '… queued'
-            : `✗ ${rec.error?.slice(0, 5) ?? 'Error'}`;
+            : rec.status === 'needs-review'
+              ? '⚠ review'
+              : `✗ ${rec.error?.slice(0, 5) ?? 'Error'}`;
       lines.push(row(file, id, batch, status));
     }
   }
@@ -265,8 +266,12 @@ function printVerificationTableStandard(imports: ImportRecord[]): void {
   const succeeded = imports.filter((r) => r.status === 'success').length;
   const failed = imports.filter((r) => r.status === 'failed').length;
   const pending = imports.filter((r) => r.status === 'pending').length;
+  const needsReview = imports.filter((r) => r.status === 'needs-review').length;
   lines.push('');
   let summary = `Session: ${imports.length} file${imports.length !== 1 ? 's' : ''} processed, ${succeeded} succeeded, ${failed} failed`;
+  if (needsReview > 0) {
+    summary += `, ${needsReview} need${needsReview !== 1 ? '' : 's'} review`;
+  }
   if (pending > 0) {
     summary += `, ${pending} queued`;
   }
@@ -434,8 +439,6 @@ export async function startWatch(
     imports: opts.resumeImports ? [...opts.resumeImports] : [],
   };
 
-  const startSequence = opts.startSequence ?? 0;
-
   // 4. Debounce map: filename → timeout handle
   const debounceTimers = new Map<string, NodeJS.Timeout>();
 
@@ -524,17 +527,35 @@ export async function startWatch(
     if (processing.has(filename) || shuttingDown) return;
     processing.add(filename);
 
-    const sequence = startSequence + session.imports.length + 1;
+    // session.imports already includes resumed records, so length alone yields
+    // the next sequential batch number across resume boundaries.
+    const sequence = session.imports.length + 1;
     const batchName = generateBatchName(opts.batchPrefix, sequence);
 
     // If promptEach: let user override the bean selection
     let effectiveCoffeeId = opts.coffeeId;
     let effectiveCoffeeName = opts.coffeeName;
     if (opts.promptEach) {
-      const { pickBean, guardCancel } = await import('./forms.js');
+      const { pickBean } = await import('./forms.js');
       process.stderr.write(`\nNew file detected: ${filename}\n`);
-      const bean = await pickBean(supabase, userId);
-      guardCancel(bean);
+      // allowCancel keeps the watch session alive on Ctrl+C / Escape so the
+      // shutdown path can still print the summary and commit queued imports.
+      const bean = await pickBean(supabase, userId, { allowCancel: true });
+      if (!bean) {
+        const record: ImportRecord = {
+          fileName: filename,
+          roastId: null,
+          batchName,
+          status: 'needs-review',
+          error: 'Bean selection cancelled',
+          importedAt: new Date().toISOString(),
+        };
+        session.imports.push(record);
+        await saveSession(session);
+        process.stderr.write(`⚠ Skipped ${filename} — bean selection cancelled.\n`);
+        processing.delete(filename);
+        return;
+      }
       effectiveCoffeeId = bean.id;
       effectiveCoffeeName = bean.name;
     }
@@ -736,9 +757,10 @@ export async function startWatch(
             printVerificationTable(session, opts.autoMatch);
           }
 
-          // Prompt about unmatched files if in auto-match mode
+          // Point at manual recovery for any files left needing review
+          // (auto-match low confidence, or cancelled prompt-each selections)
           const needsReview = session.imports.filter((r) => r.status === 'needs-review');
-          if (opts.autoMatch && needsReview.length > 0) {
+          if (needsReview.length > 0) {
             process.stderr.write(
               `⚠  ${needsReview.length} file${needsReview.length !== 1 ? 's need' : ' needs'} manual bean assignment:\n`
             );

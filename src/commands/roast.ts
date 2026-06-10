@@ -748,7 +748,6 @@ Notes:
             commitMode: saved.commitMode ?? 'batch',
             startedAt: saved.startedAt,
             resumeImports: saved.imports,
-            startSequence: saved.imports.length,
             ozIn: saved.ozIn,
             roastNotes: saved.roastNotes,
             roastTargets: saved.roastTargets,

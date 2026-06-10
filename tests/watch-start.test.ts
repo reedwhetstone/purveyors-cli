@@ -325,6 +325,117 @@ describe('startWatch', () => {
     await rm(watchDir, { recursive: true, force: true });
   });
 
+  it('continues sequential batch numbering for new files after resume', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-resume-seq-'));
+    const runtime = createRuntime();
+    runtime.importRoastFromFileImpl.mockResolvedValue(createImportResult(606));
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-7',
+      watchDir,
+      {
+        coffeeId: 7,
+        coffeeName: 'Original Bean',
+        batchPrefix: 'Original Bean',
+        commitMode: 'individual',
+        resumeImports: [
+          {
+            fileName: 'done.alog',
+            roastId: 99,
+            batchName: 'Original Bean #1',
+            status: 'success',
+            importedAt: '2026-04-12T00:00:00.000Z',
+            selectedCoffeeId: 7,
+            selectedCoffeeName: 'Original Bean',
+          },
+        ],
+      },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    await writeFile(join(watchDir, 'next.alog'), 'next content');
+    runtime.emitFileEvent('next.alog');
+    await sleep(10);
+
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.importRoastFromFileImpl).toHaveBeenCalledWith(
+      {},
+      'user-7',
+      expect.objectContaining({
+        fileName: 'next.alog',
+        batchName: 'Original Bean #2',
+      })
+    );
+    expect(session.imports).toHaveLength(2);
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('skips a file and keeps the session alive when bean selection is cancelled', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-cancel-'));
+    const runtime = createRuntime();
+    runtime.importRoastFromFileImpl.mockResolvedValue(createImportResult(707));
+    pickBeanMock.mockReset();
+    pickBeanMock.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 9, name: 'Picked Bean' });
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-8',
+      watchDir,
+      {
+        coffeeId: 7,
+        coffeeName: 'Original Bean',
+        batchPrefix: 'Original Bean',
+        commitMode: 'batch',
+        promptEach: true,
+      },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    await writeFile(join(watchDir, 'cancelled.alog'), 'cancelled content');
+    runtime.emitFileEvent('cancelled.alog');
+    await sleep(10);
+
+    await writeFile(join(watchDir, 'picked.alog'), 'picked content');
+    runtime.emitFileEvent('picked.alog');
+    await sleep(10);
+
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(pickBeanMock).toHaveBeenCalledWith({}, 'user-8', { allowCancel: true });
+    expect(session.imports[0]).toEqual(
+      expect.objectContaining({
+        fileName: 'cancelled.alog',
+        status: 'needs-review',
+        error: 'Bean selection cancelled',
+      })
+    );
+    expect(session.imports[1]).toEqual(
+      expect.objectContaining({
+        fileName: 'picked.alog',
+        status: 'success',
+        selectedCoffeeId: 9,
+      })
+    );
+    expect(runtime.importRoastFromFileImpl).toHaveBeenCalledTimes(1);
+    expect(runtime.importRoastFromFileImpl).toHaveBeenCalledWith(
+      {},
+      'user-8',
+      expect.objectContaining({ fileName: 'picked.alog', coffeeId: 9 })
+    );
+    const combined = stderrOutput.join('');
+    expect(combined).toContain('Skipped cancelled.alog');
+    expect(combined).toContain('manual bean assignment');
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
   it('persists watch mode flags in the saved session state', async () => {
     const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-prompt-each-'));
     const runtime = createRuntime();
