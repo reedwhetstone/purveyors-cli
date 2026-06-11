@@ -440,15 +440,18 @@ const commandGroups: CliCommandGroupContract[] = [
         summary: 'List supplier aggregates from catalog rows',
         auth: 'viewer',
         options: [
+          { flags: '--country <country>' },
           { flags: '--stocked' },
+          { flags: '--non-wholesale-only' },
           { flags: '--sample-size <n>', defaultValue: 5000 },
           { flags: '--limit <n>', defaultValue: 25 },
         ],
         notes: [
           'Summarizes supplier counts, stocked counts, Purveyor Score coverage, average score, average confidence, price range, origin/process coverage, and representative top coffees with score qualifiers.',
+          'Country and non-wholesale filters are applied at the catalog query layer before supplier aggregation.',
           'Output metadata reports source-ordered pagination, rows examined, and whether the aggregate is sample-limited.',
         ],
-        examples: ['purvey catalog supplier-list --stocked --pretty'],
+        examples: ['purvey catalog supplier-list --country Ethiopia --non-wholesale-only --pretty'],
       },
       {
         name: 'supplier-detail',
@@ -462,7 +465,9 @@ const commandGroups: CliCommandGroupContract[] = [
           },
         ],
         options: [
+          { flags: '--country <country>' },
           { flags: '--stocked' },
+          { flags: '--non-wholesale-only' },
           { flags: '--top-coffees <n>', defaultValue: 5 },
           { flags: '--sample-size <n>', defaultValue: 5000 },
         ],
@@ -477,16 +482,21 @@ const commandGroups: CliCommandGroupContract[] = [
         summary: 'Rank suppliers by average Purveyor Score and stocked coverage',
         auth: 'viewer',
         options: [
+          { flags: '--country <country>' },
           { flags: '--stocked' },
+          { flags: '--non-wholesale-only' },
           { flags: '--min-coffees <n>', defaultValue: 1 },
           { flags: '--sample-size <n>', defaultValue: 5000 },
           { flags: '--limit <n>', defaultValue: 25 },
         ],
         notes: [
           'Ranks suppliers by average Purveyor Score, then currently stocked count.',
+          'Country and non-wholesale filters are applied at the catalog query layer before supplier aggregation.',
           'Output metadata reports source-ordered pagination, rows examined, and whether the aggregate is sample-limited.',
         ],
-        examples: ['purvey catalog supplier-rank --stocked --min-coffees 3 --pretty'],
+        examples: [
+          'purvey catalog supplier-rank --country Ethiopia --non-wholesale-only --min-coffees 3 --pretty',
+        ],
       },
       {
         name: 'similar',

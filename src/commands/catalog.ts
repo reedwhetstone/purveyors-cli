@@ -588,7 +588,9 @@ Notes:
   catalog
     .command('supplier-list')
     .description('List supplier aggregates from catalog rows')
+    .option('--country <country>', 'Filter by country')
     .option('--stocked', 'Only include currently stocked coffees')
+    .option('--non-wholesale-only', 'Exclude wholesale listings before aggregation')
     .option(
       '--sample-size <n>',
       'Catalog rows to fetch per page before aggregation (1-5000)',
@@ -600,6 +602,7 @@ Notes:
       `
 Examples:
   purvey catalog supplier-list --stocked --pretty
+  purvey catalog supplier-list --country Ethiopia --non-wholesale-only --json
   purvey catalog supplier-list --limit 50 --json
 
 Notes:
@@ -612,7 +615,9 @@ Notes:
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
         const input = {
+          country: opts.country as string | undefined,
           stocked: opts.stocked ? true : undefined,
+          nonWholesaleOnly: opts.nonWholesaleOnly ? true : undefined,
           sampleSize: parseBoundedPositiveIntegerArg(
             opts.sampleSize as string,
             '--sample-size',
@@ -631,7 +636,9 @@ Notes:
   catalog
     .command('supplier-detail <supplier>')
     .description('Show aggregate detail for a supplier query')
+    .option('--country <country>', 'Filter by country')
     .option('--stocked', 'Only include currently stocked coffees')
+    .option('--non-wholesale-only', 'Exclude wholesale listings before aggregation')
     .option('--top-coffees <n>', 'Representative top coffees to include (1-25)', '5')
     .option(
       '--sample-size <n>',
@@ -643,7 +650,7 @@ Notes:
       `
 Examples:
   purvey catalog supplier-detail "Royal Coffee" --pretty
-  purvey catalog supplier-detail "Cafe Imports" --stocked --json
+  purvey catalog supplier-detail "Cafe Imports" --country Colombia --stocked --json
 
 Notes:
   Supplier matching is case-insensitive and partial, mirroring catalog search.
@@ -655,7 +662,9 @@ Notes:
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
         const input = {
           supplier,
+          country: opts.country as string | undefined,
           stocked: opts.stocked ? true : undefined,
+          nonWholesaleOnly: opts.nonWholesaleOnly ? true : undefined,
           topCoffees: parseBoundedPositiveIntegerArg(
             opts.topCoffees as string,
             '--top-coffees',
@@ -679,7 +688,9 @@ Notes:
   catalog
     .command('supplier-rank')
     .description('Rank suppliers by average Purveyor Score and stocked coverage')
+    .option('--country <country>', 'Filter by country')
     .option('--stocked', 'Only include currently stocked coffees')
+    .option('--non-wholesale-only', 'Exclude wholesale listings before aggregation')
     .option('--min-coffees <n>', 'Minimum catalog rows required per supplier', '1')
     .option(
       '--sample-size <n>',
@@ -692,7 +703,7 @@ Notes:
       `
 Examples:
   purvey catalog supplier-rank --stocked --min-coffees 3 --pretty
-  purvey catalog supplier-rank --limit 10 --json
+  purvey catalog supplier-rank --country Ethiopia --non-wholesale-only --limit 10 --json
 
 Notes:
   Ranks suppliers by average Purveyor Score, then currently stocked count.
@@ -703,7 +714,9 @@ Notes:
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
         const input = {
+          country: opts.country as string | undefined,
           stocked: opts.stocked ? true : undefined,
+          nonWholesaleOnly: opts.nonWholesaleOnly ? true : undefined,
           minCoffees: parsePositiveIntegerArg(
             opts.minCoffees as string,
             `Invalid --min-coffees: "${opts.minCoffees}". Must be a positive integer.`
