@@ -332,8 +332,10 @@ export interface SupplierAggregateResponse {
     returned: number;
     filters: {
       supplier?: string;
+      country?: string;
       stocked?: boolean;
       minCoffees?: number;
+      non_wholesale_only: boolean;
     };
     caveats: string[];
   };
@@ -474,7 +476,9 @@ export type CatalogRankPremiumInput = z.input<typeof catalogRankPremiumSchema>;
 
 export const supplierAggregateSchema = z.object({
   supplier: z.string().optional(),
+  country: z.string().optional(),
   stocked: z.boolean().optional(),
+  nonWholesaleOnly: z.boolean().default(false).optional(),
   minCoffees: z.number().int().min(1).default(1).optional(),
   topCoffees: z.number().int().min(1).max(25).default(5).optional(),
   limit: z.number().int().min(1).max(100).default(25).optional(),
@@ -1322,7 +1326,9 @@ function buildCatalogIntelligenceQuery(
     origin?: string;
     process?: string;
     supplier?: string;
+    country?: string;
     stocked?: boolean;
+    nonWholesaleOnly?: boolean;
     priceMax?: number;
     minScore?: number;
     sampleSize?: number;
@@ -1348,6 +1354,10 @@ function buildCatalogIntelligenceQuery(
     query = query.ilike('source', `%${sanitizeFilterValue(parsed.supplier)}%`);
   }
 
+  if (parsed.country) {
+    query = query.ilike('country', `%${sanitizeFilterValue(parsed.country)}%`);
+  }
+
   if (parsed.stocked !== undefined) {
     query = query.eq('stocked', parsed.stocked);
   }
@@ -1358,6 +1368,10 @@ function buildCatalogIntelligenceQuery(
 
   if (parsed.minScore !== undefined) {
     query = query.gte('purveyor_score', parsed.minScore);
+  }
+
+  if (parsed.nonWholesaleOnly) {
+    query = query.or('wholesale.is.null,wholesale.eq.false');
   }
 
   if (parsed.orderByScore) {
@@ -1376,7 +1390,10 @@ function buildCatalogIntelligenceQuery(
 
 async function fetchSupplierAggregateRows(
   supabase: SupabaseClient,
-  parsed: Pick<SupplierAggregateInput, 'supplier' | 'stocked' | 'sampleSize'>
+  parsed: Pick<
+    SupplierAggregateInput,
+    'supplier' | 'country' | 'stocked' | 'nonWholesaleOnly' | 'sampleSize'
+  >
 ): Promise<CatalogItem[]> {
   const sampleSize = parsed.sampleSize ?? SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE;
   const pageSize = Math.min(sampleSize, SUPABASE_DATA_API_MAX_PAGE_SIZE);
@@ -1387,7 +1404,9 @@ async function fetchSupplierAggregateRows(
       supabase,
       {
         supplier: parsed.supplier,
+        country: parsed.country,
         stocked: parsed.stocked,
+        nonWholesaleOnly: parsed.nonWholesaleOnly,
       },
       { applyRange: false }
     )
@@ -1769,7 +1788,9 @@ async function getSupplierAggregates(
   const sampleSize = parsed.sampleSize ?? SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE;
   const rows = await fetchSupplierAggregateRows(supabase, {
     supplier: parsed.supplier,
+    country: parsed.country,
     stocked: parsed.stocked,
+    nonWholesaleOnly: parsed.nonWholesaleOnly,
     sampleSize,
   });
 
@@ -1790,8 +1811,10 @@ async function getSupplierAggregates(
       returned: aggregates.length,
       filters: {
         supplier: parsed.supplier,
+        country: parsed.country,
         stocked: parsed.stocked,
         minCoffees: parsed.minCoffees ?? 1,
+        non_wholesale_only: parsed.nonWholesaleOnly ?? false,
       },
       caveats: supplierAggregateCaveats,
     },

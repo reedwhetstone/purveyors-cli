@@ -366,9 +366,9 @@ Notes:
 
 `catalog supplier-*` options:
 
-- `supplier-list`: `--stocked`, `--sample-size <n>` (catalog rows per fetch page, default `5000`, max `5000`), `--limit <n>`
-- `supplier-detail <supplier>`: `--stocked`, `--top-coffees <n>`, `--sample-size <n>` (catalog rows per fetch page, default `5000`, max `5000`)
-- `supplier-rank`: `--stocked`, `--min-coffees <n>`, `--sample-size <n>` (catalog rows per fetch page, default `5000`, max `5000`), `--limit <n>`
+- `supplier-list`: `--country <country>`, `--stocked`, `--non-wholesale-only`, `--sample-size <n>` (catalog rows per fetch page, default `5000`, max `5000`), `--limit <n>`
+- `supplier-detail <supplier>`: `--country <country>`, `--stocked`, `--non-wholesale-only`, `--top-coffees <n>`, `--sample-size <n>` (catalog rows per fetch page, default `5000`, max `5000`)
+- `supplier-rank`: `--country <country>`, `--stocked`, `--non-wholesale-only`, `--min-coffees <n>`, `--sample-size <n>` (catalog rows per fetch page, default `5000`, max `5000`), `--limit <n>`
 
 Examples:
 
@@ -386,7 +386,7 @@ purvey catalog similar 1182 --json | jq '.data.groups.canonical_candidates'
 purvey catalog facets supplier --pretty
 purvey catalog rank --objective value --country Ethiopia --price-max 12 --json
 purvey catalog rank-premium --stocked --limit 10 --pretty
-purvey catalog supplier-rank --stocked --min-coffees 3 --json
+purvey catalog supplier-rank --country Ethiopia --non-wholesale-only --min-coffees 3 --json
 purvey catalog supplier-detail "Royal Coffee" --pretty
 purvey catalog stats --pretty
 purvey catalog get 1182 --pretty

@@ -809,6 +809,29 @@ describe('catalog intelligence helpers', () => {
     expect(query.ilike).toHaveBeenCalledWith('source', '%Royal%');
   });
 
+  it('applies supplier aggregate country and non-wholesale filters before aggregation', async () => {
+    const { supabase, query } = makeSearchSupabase({
+      data: [
+        makeItem({ id: 1, source: 'Retail Ethiopia', country: 'Ethiopia', wholesale: false }),
+        makeItem({ id: 2, source: 'Unknown Ethiopia', country: 'Ethiopia', wholesale: null }),
+      ],
+    });
+
+    const response = await supplierList(supabase, {
+      country: 'Ethiopia',
+      nonWholesaleOnly: true,
+      limit: 5,
+    });
+
+    expect(query.ilike).toHaveBeenCalledWith('country', '%Ethiopia%');
+    expect(query.or).toHaveBeenCalledWith('wholesale.is.null,wholesale.eq.false');
+    expect(response.meta.rows_examined).toBe(2);
+    expect(response.meta.filters).toMatchObject({
+      country: 'Ethiopia',
+      non_wholesale_only: true,
+    });
+  });
+
   it('paginates supplier rows with a stable tie-breaker before aggregating so later suppliers are not omitted', async () => {
     const rows = [
       makeItem({ id: 1, source: 'Alpha Coffee', purveyor_score: 50 }),
@@ -1244,6 +1267,39 @@ describe('catalog command auth and structured filter parsing', () => {
       stderrSpy.mockRestore();
       exitSpy.mockRestore();
     }
+  });
+
+  it('passes supplier aggregate CLI country and non-wholesale flags to the query layer', async () => {
+    const { supabase, query } = makeSearchSupabase({
+      data: [makeItem({ id: 1, source: 'Royal Coffee', country: 'Ethiopia', wholesale: false })],
+    });
+    vi.mocked(requireAuth).mockResolvedValue({ supabase, userId: 'user-1' });
+
+    await runCatalogCommand([
+      'supplier-rank',
+      '--country',
+      'Ethiopia',
+      '--non-wholesale-only',
+      '--min-coffees',
+      '1',
+      '--limit',
+      '5',
+    ]);
+
+    expect(requireAuth).toHaveBeenCalledWith('viewer');
+    expect(query.ilike).toHaveBeenCalledWith('country', '%Ethiopia%');
+    expect(query.or).toHaveBeenCalledWith('wholesale.is.null,wholesale.eq.false');
+    expect(outputData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        meta: expect.objectContaining({
+          filters: expect.objectContaining({
+            country: 'Ethiopia',
+            non_wholesale_only: true,
+          }),
+        }),
+      }),
+      expect.any(Object)
+    );
   });
 
   it.each([
