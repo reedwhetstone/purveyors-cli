@@ -339,6 +339,72 @@ export interface SupplierAggregateResponse {
   };
 }
 
+export type CatalogFacetField =
+  | 'supplier'
+  | 'country'
+  | 'processing_base_method'
+  | 'fermentation_type'
+  | 'drying_method'
+  | 'grade'
+  | 'wholesale';
+
+export interface CatalogFacetValue {
+  value: string;
+  count: number;
+}
+
+export interface CatalogFacetsResponse {
+  data: CatalogFacetValue[];
+  meta: {
+    resource: 'catalog-facets';
+    field: CatalogFacetField;
+    source_column: string;
+    stocked_only: boolean;
+    scope: 'stocked_only' | 'all_visible';
+    sample_size: number;
+    sample_limited: boolean;
+    sample_order: 'id_asc';
+    truncated: boolean;
+    rows_examined: number;
+    distinct_values: number;
+    returned: number;
+    caveats: string[];
+  };
+}
+
+export type CatalogRankObjective = 'premium' | 'value' | 'fresh_arrival' | 'rare_origin';
+
+export interface CatalogRankedItem extends CatalogItem {
+  rank: number;
+  rank_basis: string;
+}
+
+export interface CatalogRankingResponse {
+  data: CatalogRankedItem[];
+  meta: {
+    resource: 'catalog-ranking';
+    objective: CatalogRankObjective;
+    scoring_source: 'coffee_catalog.purveyor_score';
+    sample_size: number;
+    sample_limited: boolean;
+    sample_order: 'id_asc';
+    truncated: boolean;
+    candidates_considered: number;
+    returned: number;
+    filters: {
+      supplier?: string;
+      country?: string;
+      process?: string;
+      stocked_only: boolean;
+      scope: 'stocked_only' | 'all_visible';
+      priceMax?: number;
+      minScore?: number;
+      nonWholesaleOnly: boolean;
+    };
+    caveats: string[];
+  };
+}
+
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
 export const catalogSortFields = ['price', 'price-desc', 'name', 'origin', 'newest'] as const;
@@ -422,6 +488,54 @@ export const supplierAggregateSchema = z.object({
 });
 
 export type SupplierAggregateInput = z.input<typeof supplierAggregateSchema>;
+
+export const catalogFacetFields = [
+  'supplier',
+  'country',
+  'processing_base_method',
+  'fermentation_type',
+  'drying_method',
+  'grade',
+  'wholesale',
+] as const;
+
+export const catalogFacetsSchema = z.object({
+  field: z.enum(catalogFacetFields),
+  stockedOnly: z.boolean().default(true).optional(),
+  limit: z.number().int().min(1).max(100).default(60).optional(),
+  sampleSize: z
+    .number()
+    .int()
+    .min(1)
+    .max(CATALOG_INTELLIGENCE_MAX_SAMPLE_SIZE)
+    .default(SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE)
+    .optional(),
+});
+
+export type CatalogFacetsInput = z.input<typeof catalogFacetsSchema>;
+
+export const catalogRankObjectives = ['premium', 'value', 'fresh_arrival', 'rare_origin'] as const;
+
+export const catalogRankSchema = z.object({
+  objective: z.enum(catalogRankObjectives).default('premium').optional(),
+  stockedOnly: z.boolean().default(true).optional(),
+  supplier: z.string().optional(),
+  country: z.string().optional(),
+  process: z.string().optional(),
+  priceMax: z.number().optional(),
+  minScore: z.number().optional(),
+  nonWholesaleOnly: z.boolean().default(false).optional(),
+  limit: z.number().int().min(1).max(50).default(10).optional(),
+  sampleSize: z
+    .number()
+    .int()
+    .min(1)
+    .max(CATALOG_INTELLIGENCE_MAX_SAMPLE_SIZE)
+    .default(SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE)
+    .optional(),
+});
+
+export type CatalogRankInput = z.input<typeof catalogRankSchema>;
 
 export const catalogSimilarityModes = ['all', 'likely_same', 'similar_profile'] as const;
 
@@ -1282,7 +1396,7 @@ async function fetchSupplierAggregateRows(
 
     if (error) throw error;
 
-    const page = (data ?? []) as CatalogItem[];
+    const page = (data ?? []) as unknown as CatalogItem[];
     rows.push(...page);
 
     if (page.length < pageSize) break;
@@ -1315,7 +1429,7 @@ async function fetchCatalogPremiumSampleRows(
 
     if (error) throw error;
 
-    const page = (data ?? []) as CatalogItem[];
+    const page = (data ?? []) as unknown as CatalogItem[];
     rows.push(...page);
 
     if (page.length < pageEnd - offset + 1) break;
@@ -1341,6 +1455,265 @@ const supplierAggregateCaveats = [
   ...catalogIntelligenceCaveats,
   'Supplier aggregates paginate catalog rows ordered by source ascending, then id ascending; meta.sample_size is the requested fetch page size and meta.rows_examined reports the rows included in aggregation.',
 ];
+
+const catalogFacetColumns: Record<CatalogFacetField, keyof CatalogItem> = {
+  supplier: 'source',
+  country: 'country',
+  processing_base_method: 'processing_base_method',
+  fermentation_type: 'fermentation_type',
+  drying_method: 'drying_method',
+  grade: 'grade',
+  wholesale: 'wholesale',
+};
+
+const catalogFacetCaveats = [
+  'Facet counts are computed from catalog rows visible to the current client and are intended for value discovery, not inventory guarantees.',
+];
+
+const catalogRankingCaveats = [
+  ...catalogIntelligenceCaveats,
+  'Generic catalog ranking samples catalog rows ordered by id ascending before applying deterministic objective-specific ranking; meta.truncated indicates more rows matched than the requested sample_size.',
+];
+
+function asPositiveNumber(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function scoreBasis(item: CatalogItem): string {
+  const score = summarizePurveyorScore(item);
+  if (score.value === null) return 'no Purveyor Score yet';
+  const tier = score.tier ? `, ${score.tier}` : '';
+  return `Purveyor Score ${score.value}${tier}`;
+}
+
+async function fetchCatalogFacetRows(
+  supabase: SupabaseClient,
+  parsed: z.output<typeof catalogFacetsSchema>
+): Promise<{ rows: CatalogItem[]; truncated: boolean }> {
+  const sampleSize = parsed.sampleSize ?? SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE;
+  const targetRows = sampleSize + 1;
+  const pageSize = Math.min(targetRows, SUPABASE_DATA_API_MAX_PAGE_SIZE);
+  const rows: CatalogItem[] = [];
+  const column = catalogFacetColumns[parsed.field];
+
+  for (let offset = 0; rows.length < targetRows; offset += pageSize) {
+    const pageEnd = Math.min(offset + pageSize - 1, targetRows - 1);
+    let query = supabase.from('coffee_catalog').select(`id, ${String(column)}`);
+    if (parsed.stockedOnly ?? true) query = query.eq('stocked', true);
+
+    const { data, error } = await query.order('id', { ascending: true }).range(offset, pageEnd);
+    if (error) throw error;
+
+    const page = (data ?? []) as unknown as CatalogItem[];
+    rows.push(...page);
+    if (page.length < pageEnd - offset + 1) break;
+  }
+
+  return { rows: rows.slice(0, sampleSize), truncated: rows.length > sampleSize };
+}
+
+async function fetchCatalogRankRows(
+  supabase: SupabaseClient,
+  parsed: z.output<typeof catalogRankSchema>
+): Promise<{ rows: CatalogItem[]; truncated: boolean }> {
+  const sampleSize = parsed.sampleSize ?? SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE;
+  const targetRows = sampleSize + 1;
+  const pageSize = Math.min(targetRows, SUPABASE_DATA_API_MAX_PAGE_SIZE);
+  const rows: CatalogItem[] = [];
+
+  for (let offset = 0; rows.length < targetRows; offset += pageSize) {
+    const pageEnd = Math.min(offset + pageSize - 1, targetRows - 1);
+    let query = supabase.from('coffee_catalog').select('*');
+    if (parsed.stockedOnly ?? true) query = query.eq('stocked', true);
+    if (parsed.supplier) query = query.ilike('source', `%${sanitizeFilterValue(parsed.supplier)}%`);
+    if (parsed.country) query = query.ilike('country', `%${sanitizeFilterValue(parsed.country)}%`);
+    if (parsed.process) {
+      const process = sanitizeFilterValue(parsed.process);
+      query = query.or(`processing.ilike.%${process}%,processing_base_method.ilike.%${process}%`);
+    }
+    if (parsed.priceMax !== undefined) query = query.lte('price_per_lb', parsed.priceMax);
+    if (parsed.minScore !== undefined) query = query.gte('purveyor_score', parsed.minScore);
+    if (parsed.nonWholesaleOnly) query = query.or('wholesale.is.null,wholesale.eq.false');
+
+    const { data, error } = await query.order('id', { ascending: true }).range(offset, pageEnd);
+    if (error) throw error;
+
+    const page = (data ?? []) as unknown as CatalogItem[];
+    rows.push(...page);
+    if (page.length < pageEnd - offset + 1) break;
+  }
+
+  return { rows: rows.slice(0, sampleSize), truncated: rows.length > sampleSize };
+}
+
+function rankCatalogRows(
+  rows: CatalogItem[],
+  objective: CatalogRankObjective,
+  limit: number
+): CatalogRankedItem[] {
+  const byScoreDesc = (a: CatalogItem, b: CatalogItem) =>
+    (getPurveyorScoreValue(b) ?? -Infinity) - (getPurveyorScoreValue(a) ?? -Infinity) ||
+    String(b.stocked_date ?? '').localeCompare(String(a.stocked_date ?? '')) ||
+    a.id - b.id;
+
+  let ranked: Array<{ row: CatalogItem; basis: string }>;
+
+  switch (objective) {
+    case 'premium':
+      ranked = [...rows].sort(byScoreDesc).map((row) => ({ row, basis: scoreBasis(row) }));
+      break;
+    case 'value': {
+      ranked = rows
+        .map((row) => {
+          const score = getPurveyorScoreValue(row);
+          const price = asPositiveNumber(getPerLbPrice(row));
+          if (score === null || price === null) return null;
+          return { row, ratio: score / price };
+        })
+        .filter((entry): entry is { row: CatalogItem; ratio: number } => entry !== null)
+        .sort((a, b) => b.ratio - a.ratio || byScoreDesc(a.row, b.row))
+        .map(({ row, ratio }) => ({
+          row,
+          basis: `${scoreBasis(row)} at $${getPerLbPrice(row)}/lb (${round(ratio, 1)} score points per dollar)`,
+        }));
+      break;
+    }
+    case 'fresh_arrival':
+      ranked = [...rows]
+        .sort(
+          (a, b) =>
+            String(b.stocked_date ?? '').localeCompare(String(a.stocked_date ?? '')) ||
+            String(b.arrival_date ?? '').localeCompare(String(a.arrival_date ?? '')) ||
+            byScoreDesc(a, b)
+        )
+        .map((row) => ({
+          row,
+          basis: `stocked ${row.stocked_date ?? 'date unknown'}; ${scoreBasis(row)}`,
+        }));
+      break;
+    case 'rare_origin': {
+      const originCounts = new Map<string, number>();
+      for (const row of rows) {
+        const country = row.country?.trim();
+        if (country) originCounts.set(country, (originCounts.get(country) ?? 0) + 1);
+      }
+      const rarity = (row: CatalogItem) => {
+        const country = row.country?.trim();
+        return country
+          ? (originCounts.get(country) ?? Number.MAX_SAFE_INTEGER)
+          : Number.MAX_SAFE_INTEGER;
+      };
+      ranked = [...rows]
+        .filter((row) => Boolean(row.country?.trim()))
+        .sort((a, b) => rarity(a) - rarity(b) || byScoreDesc(a, b))
+        .map((row) => ({
+          row,
+          basis: `${row.country} has ${rarity(row)} matching listing(s); ${scoreBasis(row)}`,
+        }));
+      break;
+    }
+  }
+
+  return ranked.slice(0, limit).map(({ row, basis }, index) => ({
+    ...row,
+    rank: index + 1,
+    rank_basis: basis,
+  }));
+}
+
+/** List distinct catalog facet values with counts for agent/client filter discovery. */
+export async function listCatalogFacets(
+  supabase: SupabaseClient,
+  input: CatalogFacetsInput
+): Promise<CatalogFacetsResponse> {
+  const parsed = catalogFacetsSchema.parse(input);
+  const limit = parsed.limit ?? 60;
+  const sampleSize = parsed.sampleSize ?? SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE;
+  const { rows, truncated } = await fetchCatalogFacetRows(supabase, parsed);
+  const column = catalogFacetColumns[parsed.field];
+  const counts = new Map<string, number>();
+
+  for (const row of rows) {
+    const raw = row[column];
+    const value =
+      typeof raw === 'boolean' ? String(raw) : typeof raw === 'string' ? raw.trim() : '';
+    if (!value) continue;
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+
+  const values = [...counts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
+
+  return {
+    data: values.slice(0, limit),
+    meta: {
+      resource: 'catalog-facets',
+      field: parsed.field,
+      source_column: String(column),
+      stocked_only: parsed.stockedOnly ?? true,
+      scope: (parsed.stockedOnly ?? true) ? 'stocked_only' : 'all_visible',
+      sample_size: sampleSize,
+      sample_limited: true,
+      sample_order: 'id_asc',
+      truncated: truncated || values.length > limit,
+      rows_examined: rows.length,
+      distinct_values: values.length,
+      returned: Math.min(values.length, limit),
+      caveats: catalogFacetCaveats,
+    },
+  };
+}
+
+/** Rank catalog candidates by deterministic product-intelligence objectives. */
+export async function rankCatalog(
+  supabase: SupabaseClient,
+  input: CatalogRankInput = {}
+): Promise<CatalogRankingResponse> {
+  const parsed = catalogRankSchema.parse(input);
+  const sampleSize = parsed.sampleSize ?? SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE;
+  const objective = parsed.objective ?? 'premium';
+  const limit = parsed.limit ?? 10;
+  const { rows, truncated } = await fetchCatalogRankRows(supabase, parsed);
+  const data = rankCatalogRows(rows, objective, limit);
+  const caveats = [...catalogRankingCaveats];
+  if (objective === 'value') {
+    caveats.push(
+      'Value objective ranks by Purveyor Score per dollar; rows without score or price are excluded.'
+    );
+  }
+  if (objective === 'rare_origin' && parsed.country) {
+    caveats.push(
+      'rare_origin combined with a country filter measures rarity only within that country filter.'
+    );
+  }
+
+  return {
+    data,
+    meta: {
+      resource: 'catalog-ranking',
+      objective,
+      scoring_source: 'coffee_catalog.purveyor_score',
+      sample_size: sampleSize,
+      sample_limited: true,
+      sample_order: 'id_asc',
+      truncated,
+      candidates_considered: rows.length,
+      returned: data.length,
+      filters: {
+        supplier: parsed.supplier,
+        country: parsed.country,
+        process: parsed.process,
+        stocked_only: parsed.stockedOnly ?? true,
+        scope: (parsed.stockedOnly ?? true) ? 'stocked_only' : 'all_visible',
+        priceMax: parsed.priceMax,
+        minScore: parsed.minScore,
+        nonWholesaleOnly: parsed.nonWholesaleOnly ?? false,
+      },
+      caveats,
+    },
+  };
+}
 
 /**
  * Rank premium catalog candidates by Purveyor Score, with pricing and sourcing signals.

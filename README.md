@@ -292,6 +292,8 @@ Notes:
 - `purvey catalog search`
 - `purvey catalog get <id>`
 - `purvey catalog stats`
+- `purvey catalog facets <field>`
+- `purvey catalog rank`
 - `purvey catalog rank-premium`
 - `purvey catalog supplier-list`
 - `purvey catalog supplier-detail <supplier>`
@@ -329,6 +331,27 @@ Notes:
 - `--stocked-only`; request only currently stocked coffees
 - `--mode <all|likely_same|similar_profile>`; default `all`
 
+`catalog facets <field>` options:
+
+- Fields: `supplier`, `country`, `processing_base_method`, `fermentation_type`, `drying_method`, `grade`, `wholesale`
+- `--all`; use all visible catalog rows instead of the default stocked-only scope.
+- `--sample-size <n>`; catalog rows to sample before counting, default `5000`, max `5000`
+- `--limit <n>`; default `60`, max `100`
+
+`catalog rank` options:
+
+- `--objective <premium|value|fresh_arrival|rare_origin>`; default `premium`
+- `--country <country>`; optional country filter
+- `--process <method>`; optional process filter
+- `--supplier <name>`; optional supplier filter
+- `--stocked`; only include currently stocked coffees. This is the default unless `--all` is passed.
+- `--all`; use all visible catalog rows instead of the default stocked-only scope
+- `--price-max <n>`; maximum USD/lb
+- `--min-score <n>`; minimum Purveyor Score
+- `--non-wholesale-only`; exclude wholesale listings at query time before sampling
+- `--sample-size <n>`; rows to sample before ranking, default `5000`, max `5000`
+- `--limit <n>`; default `10`, max `50`
+
 `catalog rank-premium` options:
 
 - `--origin <origin>`; optional origin filter
@@ -360,6 +383,8 @@ purvey catalog search --origin "Ethiopia" --include-proof --json
 PARCHMENT_API_KEY="$PURVEYORS_API_KEY" purvey catalog search --origin "Ethiopia" --include-proof --limit 5 --json
 purvey catalog similar 1182 --threshold 0.85 --stocked-only --pretty
 purvey catalog similar 1182 --json | jq '.data.groups.canonical_candidates'
+purvey catalog facets supplier --pretty
+purvey catalog rank --objective value --country Ethiopia --price-max 12 --json
 purvey catalog rank-premium --stocked --limit 10 --pretty
 purvey catalog supplier-rank --stocked --min-coffees 3 --json
 purvey catalog supplier-detail "Royal Coffee" --pretty
@@ -377,8 +402,9 @@ Notes:
 - `--include-proof` rejects CLI-only filters that `/v1/catalog` cannot yet preserve exactly, such as `--flavor`, `--supplier`, `--drying-method`, and `--sort newest`.
 - If you want proof output against an API-key deployment, set `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY` before running the command. Otherwise the CLI uses your logged-in Purveyors session token.
 - `catalog get` and `catalog similar` both take `coffee_catalog.catalog_id`.
-- `catalog rank-premium` reads `coffee_catalog.purveyor_score` and returns confidence, tier, factor breakdown, version, and update metadata in the `purveyor_score` object; the CLI does not recompute the upstream Purveyor Score model.
-- Catalog intelligence responses include `meta.sample_limited`, `meta.sample_order`, and `meta.truncated` where relevant so agents can distinguish ranked samples from full supplier aggregates. Supplier aggregate responses also include `meta.rows_examined`.
+- `catalog rank` and `catalog rank-premium` read `coffee_catalog.purveyor_score` as the canonical quality signal; the CLI does not recompute the upstream Purveyor Score model.
+- `catalog facets` and `catalog rank` are generic agent/client intelligence surfaces. Their responses include `stocked_only`/`scope` and sample metadata so callers do not mistake all-visible scope, sampled rarity, or sampled counts for whole-catalog guarantees.
+- Catalog intelligence responses include `meta.sample_limited`, `meta.sample_order`, `meta.truncated`, and rows-examined style metadata where relevant so agents can distinguish ranked samples from full supplier aggregates. Supplier aggregate responses also include `meta.rows_examined`.
 - Supplier aggregate commands summarize catalog row counts, stocked counts, Purveyor Score coverage, average score, average confidence, price range, origin/process coverage, and representative top coffees with score qualifiers.
 - `catalog similar` uses the beta canonical `/v1/catalog/{id}/similar` API contract, not the legacy direct RPC path.
 - `catalog similar --json` requires member access or a paid API tier and returns the grouped canonical response object: `data.target`, `data.groups.canonical_candidates`, `data.groups.similar_recommendations`, optional `data.matches`, and `meta`.
