@@ -636,6 +636,51 @@ describe('catalog intelligence helpers', () => {
     expect(response.data[0]?.rank_basis).toContain('score points per dollar');
   });
 
+  it('rankCatalog ignores legacy score_value when canonical Purveyor Score ties or is missing', async () => {
+    const { supabase } = makeSearchSupabase({
+      data: [
+        makeItem({
+          id: 1,
+          name: 'Canonical tie first',
+          purveyor_score: 90,
+          score_value: 10,
+          stocked_date: '2026-05-01',
+        }),
+        makeItem({
+          id: 2,
+          name: 'Legacy score higher',
+          purveyor_score: 90,
+          score_value: 99,
+          stocked_date: '2026-05-01',
+        }),
+        makeItem({
+          id: 3,
+          name: 'Unscored first',
+          purveyor_score: null,
+          score_value: 1,
+          stocked_date: '2026-04-01',
+        }),
+        makeItem({
+          id: 4,
+          name: 'Unscored legacy score higher',
+          purveyor_score: null,
+          score_value: 100,
+          stocked_date: '2026-04-01',
+        }),
+      ],
+    });
+
+    const response = await rankCatalog(supabase, {
+      objective: 'premium',
+      stockedOnly: true,
+      limit: 4,
+      sampleSize: 25,
+    });
+
+    expect(response.meta.scoring_source).toBe('coffee_catalog.purveyor_score');
+    expect(response.data.map((row) => row.id)).toEqual([1, 2, 3, 4]);
+  });
+
   it('rankCatalog applies non-wholesale-only in the query before sampling', async () => {
     const { supabase, query } = makeSearchSupabase({
       data: [

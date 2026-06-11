@@ -1553,7 +1553,6 @@ function rankCatalogRows(
 ): CatalogRankedItem[] {
   const byScoreDesc = (a: CatalogItem, b: CatalogItem) =>
     (getPurveyorScoreValue(b) ?? -Infinity) - (getPurveyorScoreValue(a) ?? -Infinity) ||
-    (b.score_value ?? -Infinity) - (a.score_value ?? -Infinity) ||
     String(b.stocked_date ?? '').localeCompare(String(a.stocked_date ?? '')) ||
     a.id - b.id;
 
