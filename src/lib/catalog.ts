@@ -335,7 +335,7 @@ export interface SupplierAggregateResponse {
       country?: string;
       stocked?: boolean;
       minCoffees?: number;
-      non_wholesale_only: boolean;
+      nonWholesaleOnly: boolean;
     };
     caveats: string[];
   };
@@ -1814,7 +1814,7 @@ async function getSupplierAggregates(
         country: parsed.country,
         stocked: parsed.stocked,
         minCoffees: parsed.minCoffees ?? 1,
-        non_wholesale_only: parsed.nonWholesaleOnly ?? false,
+        nonWholesaleOnly: parsed.nonWholesaleOnly ?? false,
       },
       caveats: supplierAggregateCaveats,
     },

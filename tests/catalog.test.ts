@@ -828,7 +828,7 @@ describe('catalog intelligence helpers', () => {
     expect(response.meta.rows_examined).toBe(2);
     expect(response.meta.filters).toMatchObject({
       country: 'Ethiopia',
-      non_wholesale_only: true,
+      nonWholesaleOnly: true,
     });
   });
 
@@ -1294,7 +1294,7 @@ describe('catalog command auth and structured filter parsing', () => {
         meta: expect.objectContaining({
           filters: expect.objectContaining({
             country: 'Ethiopia',
-            non_wholesale_only: true,
+            nonWholesaleOnly: true,
           }),
         }),
       }),
