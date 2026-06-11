@@ -21,6 +21,8 @@ import {
   computeSupplierAggregates,
   summarizePurveyorScore,
   catalogRankPremium,
+  listCatalogFacets,
+  rankCatalog,
   supplierList,
   supplierDetail,
   supplierRank,
@@ -539,6 +541,162 @@ describe('catalog intelligence helpers', () => {
     expect(response.data).toHaveLength(1);
   });
 
+  it('listCatalogFacets counts sorted values with explicit sample metadata', async () => {
+    const { supabase, query, select } = makeSearchSupabase({
+      data: [
+        makeItem({ id: 1, source: 'Royal Coffee' }),
+        makeItem({ id: 2, source: 'Royal Coffee' }),
+        makeItem({ id: 3, source: 'Cafe Imports' }),
+      ],
+    });
+
+    const response = await listCatalogFacets(supabase, {
+      field: 'supplier',
+      stockedOnly: true,
+      limit: 10,
+      sampleSize: 25,
+    });
+
+    expect(select).toHaveBeenCalledWith('id, source');
+    expect(query.eq).toHaveBeenCalledWith('stocked', true);
+    expect(query.order).toHaveBeenCalledWith('id', { ascending: true });
+    expect(query.range).toHaveBeenCalledWith(0, 25);
+    expect(response).toMatchObject({
+      data: [
+        { value: 'Royal Coffee', count: 2 },
+        { value: 'Cafe Imports', count: 1 },
+      ],
+      meta: {
+        resource: 'catalog-facets',
+        field: 'supplier',
+        source_column: 'source',
+        stocked_only: true,
+        scope: 'stocked_only',
+        sample_size: 25,
+        sample_limited: true,
+        sample_order: 'id_asc',
+        rows_examined: 3,
+        distinct_values: 2,
+        truncated: false,
+      },
+    });
+  });
+
+  it('rankCatalog ranks value candidates by Purveyor Score per dollar', async () => {
+    const { supabase, query } = makeSearchSupabase({
+      data: [
+        makeItem({
+          id: 1,
+          name: 'Expensive',
+          purveyor_score: 90,
+          price_per_lb: 18,
+          price_tiers: null,
+        }),
+        makeItem({ id: 2, name: 'Value', purveyor_score: 88, price_per_lb: 8, price_tiers: null }),
+        makeItem({
+          id: 3,
+          name: 'Unpriced',
+          purveyor_score: 99,
+          price_per_lb: null,
+          price_tiers: null,
+          cost_lb: null,
+        }),
+      ],
+    });
+
+    const response = await rankCatalog(supabase, {
+      objective: 'value',
+      country: 'Ethiopia',
+      stockedOnly: true,
+      limit: 2,
+      sampleSize: 25,
+    });
+
+    expect(query.ilike).toHaveBeenCalledWith('country', '%Ethiopia%');
+    expect(query.eq).toHaveBeenCalledWith('stocked', true);
+    expect(query.order).toHaveBeenCalledWith('id', { ascending: true });
+    expect(query.range).toHaveBeenCalledWith(0, 25);
+    expect(response.meta).toMatchObject({
+      resource: 'catalog-ranking',
+      objective: 'value',
+      scoring_source: 'coffee_catalog.purveyor_score',
+      sample_size: 25,
+      sample_limited: true,
+      sample_order: 'id_asc',
+      candidates_considered: 3,
+      returned: 2,
+      filters: {
+        country: 'Ethiopia',
+        stocked_only: true,
+        scope: 'stocked_only',
+        nonWholesaleOnly: false,
+      },
+    });
+    expect(response.data.map((row) => row.id)).toEqual([2, 1]);
+    expect(response.data[0]?.rank_basis).toContain('score points per dollar');
+  });
+
+  it('rankCatalog applies non-wholesale-only in the query before sampling', async () => {
+    const { supabase, query } = makeSearchSupabase({
+      data: [
+        makeItem({ id: 1, name: 'Retail', wholesale: false, purveyor_score: 90 }),
+        makeItem({ id: 2, name: 'Unknown wholesale', wholesale: null, purveyor_score: 85 }),
+      ],
+    });
+
+    const response = await rankCatalog(supabase, {
+      nonWholesaleOnly: true,
+      sampleSize: 25,
+    });
+
+    expect(query.or).toHaveBeenCalledWith('wholesale.is.null,wholesale.eq.false');
+    expect(response.meta.candidates_considered).toBe(2);
+    expect(response.meta.filters.nonWholesaleOnly).toBe(true);
+  });
+
+  it('rankCatalog labels rare-origin scope and truncation explicitly', async () => {
+    const apiPageCap = 1000;
+    const rows = [
+      ...Array.from({ length: apiPageCap }, (_, index) =>
+        makeItem({ id: index + 1, country: 'Ethiopia', purveyor_score: 80 })
+      ),
+      makeItem({ id: apiPageCap + 1, country: 'Panama', purveyor_score: 95 }),
+      makeItem({ id: apiPageCap + 2, country: 'Yemen', purveyor_score: 92 }),
+    ];
+    const query = {
+      data: [] as CatalogItem[],
+      error: null,
+      or: vi.fn(() => query),
+      ilike: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      contains: vi.fn(() => query),
+      gte: vi.fn(() => query),
+      lte: vi.fn(() => query),
+      in: vi.fn(() => query),
+      order: vi.fn(() => query),
+      range: vi.fn((from: number, to: number) => {
+        query.data = rows.slice(from, Math.min(to, from + apiPageCap - 1) + 1);
+        return query;
+      }),
+    };
+    const select = vi.fn(() => query);
+    const from = vi.fn(() => ({ select }));
+    const supabase = { from } as unknown as SupabaseClient;
+
+    const response = await rankCatalog(supabase, {
+      objective: 'rare_origin',
+      sampleSize: apiPageCap + 1,
+      limit: 2,
+    });
+
+    expect(query.range).toHaveBeenCalledWith(0, 999);
+    expect(query.range).toHaveBeenCalledWith(1000, 1001);
+    expect(response.meta.truncated).toBe(true);
+    expect(response.meta.sample_order).toBe('id_asc');
+    expect(response.data[0]?.id).toBe(apiPageCap + 1);
+    expect(response.data[0]?.rank_basis).toContain('1 matching listing');
+  });
+
   it('pages premium samples within the Supabase API row cap before ranking', async () => {
     const apiPageCap = 1000;
     const rows = [
@@ -1044,6 +1202,26 @@ describe('catalog command auth and structured filter parsing', () => {
   });
 
   it.each([
+    {
+      args: ['facets', 'not-a-field'],
+      message: 'Invalid field',
+      value: 'not-a-field',
+    },
+    {
+      args: ['facets', 'supplier', '--limit', '101'],
+      message: 'Invalid --limit',
+      value: '101',
+    },
+    {
+      args: ['rank', '--objective', 'fastest'],
+      message: 'Invalid --objective',
+      value: 'fastest',
+    },
+    {
+      args: ['rank', '--sample-size', '0'],
+      message: 'Invalid --sample-size',
+      value: '0',
+    },
     {
       args: ['rank-premium', '--limit', 'nope'],
       message: 'Invalid --limit',

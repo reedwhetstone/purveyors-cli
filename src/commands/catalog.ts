@@ -7,6 +7,8 @@ import {
   getCatalog,
   getCatalogStats,
   getCatalogSimilarity,
+  listCatalogFacets,
+  rankCatalog,
   catalogRankPremium,
   supplierList,
   supplierDetail,
@@ -14,6 +16,8 @@ import {
   computeCatalogStats,
   sanitizeFilterValue,
   catalogSortFields,
+  catalogFacetFields,
+  catalogRankObjectives,
   catalogSimilarityModes,
 } from '../lib/catalog.js';
 import type { CatalogItem, CatalogStats, CatalogSortField } from '../lib/catalog.js';
@@ -377,6 +381,139 @@ Notes:
 
         const stats = await getCatalogStats(supabase);
         outputData(stats, globalOpts);
+      })
+    );
+
+  // ── catalog facets ───────────────────────────────────────────────────────
+  catalog
+    .command('facets <field>')
+    .description('List distinct catalog facet values with counts')
+    .option('--all', 'Use all visible catalog rows instead of default stocked-only scope')
+    .option('--sample-size <n>', 'Catalog rows to sample before counting (1-5000)', '5000')
+    .option('--limit <n>', 'Maximum facet values to return (1-100)', '60')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey catalog facets supplier --pretty
+  purvey catalog facets country --limit 25 --json
+  purvey catalog facets processing_base_method --pretty
+
+Fields:
+  supplier, country, processing_base_method, fermentation_type, drying_method, grade, wholesale
+
+Notes:
+  Facet counts are computed from catalog rows visible to the current client.
+  By default only currently stocked catalog rows are included; use --all for all visible rows.
+  meta.stocked_only/scope, meta.rows_examined, and meta.truncated describe sample semantics.
+  Requires an authenticated viewer session.
+`
+    )
+    .action(
+      withErrorHandling(async (field: string, opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        if (!catalogFacetFields.includes(field as (typeof catalogFacetFields)[number])) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid field: "${field}". Must be one of: ${catalogFacetFields.join(', ')}.`
+          );
+        }
+        const input = {
+          field: field as (typeof catalogFacetFields)[number],
+          stockedOnly: opts.all ? false : true,
+          sampleSize: parseBoundedPositiveIntegerArg(
+            opts.sampleSize as string,
+            '--sample-size',
+            1,
+            5000
+          ),
+          limit: parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 100),
+        };
+        const { supabase } = await requireAuth('viewer');
+        const data = await listCatalogFacets(supabase, input);
+
+        outputData(data, globalOpts);
+      })
+    );
+
+  // ── catalog rank ─────────────────────────────────────────────────────────
+  catalog
+    .command('rank')
+    .description('Rank catalog candidates by a deterministic objective')
+    .option(
+      '--objective <objective>',
+      `Ranking objective: ${catalogRankObjectives.join(', ')}`,
+      'premium'
+    )
+    .option('--country <country>', 'Filter by country')
+    .option('--process <method>', 'Filter by processing method')
+    .option('--supplier <name>', 'Filter by supplier/source name')
+    .option('--stocked', 'Only include currently stocked coffees')
+    .option('--all', 'Use all visible catalog rows instead of default stocked-only scope')
+    .option('--price-max <n>', 'Maximum price per lb (USD)')
+    .option('--min-score <n>', 'Minimum Purveyor Score')
+    .option('--non-wholesale-only', 'Exclude wholesale listings before sampling')
+    .option('--sample-size <n>', 'Rows to sample before ranking (1-5000)', '5000')
+    .option('--limit <n>', 'Maximum ranked coffees to return (1-50)', '10')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey catalog rank --objective premium --stocked --limit 10 --pretty
+  purvey catalog rank --objective value --country Ethiopia --price-max 12 --json
+  purvey catalog rank --objective rare_origin --stocked --pretty
+
+Notes:
+  Objectives: premium, value, fresh_arrival, rare_origin.
+  Uses coffee_catalog.purveyor_score as the canonical quality signal.
+  Generic ranking samples catalog rows ordered by id before deterministic ranking;
+  meta.stocked_only/scope, sample_size, and truncated describe that scope, which matters for rare_origin.
+  Requires an authenticated viewer session.
+`
+    )
+    .action(
+      withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        const objective = opts.objective as string;
+        if (!catalogRankObjectives.includes(objective as (typeof catalogRankObjectives)[number])) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid --objective: "${objective}". Must be one of: ${catalogRankObjectives.join(', ')}.`
+          );
+        }
+        const input = {
+          objective: objective as (typeof catalogRankObjectives)[number],
+          country: opts.country as string | undefined,
+          process: opts.process as string | undefined,
+          supplier: opts.supplier as string | undefined,
+          stockedOnly: opts.all ? false : opts.stocked ? true : true,
+          priceMax:
+            opts.priceMax !== undefined
+              ? parseFiniteNumberArg(
+                  opts.priceMax as string,
+                  `Invalid --price-max: "${opts.priceMax}". Must be a number.`
+                )
+              : undefined,
+          minScore:
+            opts.minScore !== undefined
+              ? parseFiniteNumberArg(
+                  opts.minScore as string,
+                  `Invalid --min-score: "${opts.minScore}". Must be a number.`
+                )
+              : undefined,
+          nonWholesaleOnly: opts.nonWholesaleOnly ? true : undefined,
+          sampleSize: parseBoundedPositiveIntegerArg(
+            opts.sampleSize as string,
+            '--sample-size',
+            1,
+            5000
+          ),
+          limit: parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 50),
+        };
+        const { supabase } = await requireAuth('viewer');
+        const data = await rankCatalog(supabase, input);
+
+        outputData(data, globalOpts);
       })
     );
 

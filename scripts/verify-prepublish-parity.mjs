@@ -38,7 +38,14 @@ export const REQUIRED_SELF_IMPORT_EXPORTS = Object.fromEntries(
 );
 
 export const REQUIRED_SELF_IMPORT_MEMBERS = {
-  './catalog': ['searchCatalog', 'getCatalog', 'getCatalogStats', 'findSimilarBeans'],
+  './catalog': [
+    'searchCatalog',
+    'getCatalog',
+    'getCatalogStats',
+    'listCatalogFacets',
+    'rankCatalog',
+    'findSimilarBeans',
+  ],
   './inventory': [
     'listInventory',
     'getInventory',
@@ -56,7 +63,15 @@ export const REQUIRED_SELF_IMPORT_MEMBERS = {
   ],
   './sales': ['listSales', 'recordSale', 'updateSale', 'deleteSale'],
   './tasting': ['getTastingNotes', 'rateCoffee'],
-  './lib': ['searchCatalog', 'listInventory', 'listRoasts', 'recordSale', 'getCliManifest'],
+  './lib': [
+    'searchCatalog',
+    'listCatalogFacets',
+    'rankCatalog',
+    'listInventory',
+    'listRoasts',
+    'recordSale',
+    'getCliManifest',
+  ],
   './manifest': ['getCliManifest', 'renderContextText'],
   './artisan': ['parseAlogFile', 'importArtisanData'],
   './ai': ['classifyRoast'],

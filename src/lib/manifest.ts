@@ -347,6 +347,70 @@ const commandGroups: CliCommandGroupContract[] = [
         examples: ['purvey catalog stats --pretty'],
       },
       {
+        name: 'facets',
+        summary: 'List distinct catalog facet values with counts',
+        auth: 'viewer',
+        arguments: [
+          {
+            name: 'field',
+            description:
+              'facet field: supplier, country, processing_base_method, fermentation_type, drying_method, grade, wholesale',
+            required: true,
+          },
+        ],
+        options: [
+          {
+            flags: '--all',
+            description: 'Use all visible catalog rows instead of the default stocked-only scope.',
+          },
+          { flags: '--sample-size <n>', defaultValue: 5000 },
+          { flags: '--limit <n>', defaultValue: 60 },
+        ],
+        notes: [
+          'Counts values from catalog rows visible to the current client.',
+          'Defaults to currently stocked catalog rows; use --all for all visible rows.',
+          'Output metadata reports stocked_only/scope, rows_examined, sample scope, and truncation for deterministic agent use.',
+        ],
+        examples: [
+          'purvey catalog facets supplier --pretty',
+          'purvey catalog facets country --limit 25 --json',
+        ],
+      },
+      {
+        name: 'rank',
+        summary: 'Rank catalog candidates by deterministic objective',
+        auth: 'viewer',
+        options: [
+          { flags: '--objective <objective>', defaultValue: 'premium' },
+          { flags: '--country <country>' },
+          { flags: '--process <method>' },
+          { flags: '--supplier <name>' },
+          { flags: '--stocked' },
+          {
+            flags: '--all',
+            description: 'Use all visible catalog rows instead of the default stocked-only scope.',
+          },
+          { flags: '--price-max <n>' },
+          { flags: '--min-score <n>' },
+          {
+            flags: '--non-wholesale-only',
+            description:
+              'Apply a query-level filter for non-wholesale or unknown-wholesale listings before sampling.',
+          },
+          { flags: '--sample-size <n>', defaultValue: 5000 },
+          { flags: '--limit <n>', defaultValue: 10 },
+        ],
+        notes: [
+          'Objectives are premium, value, fresh_arrival, and rare_origin.',
+          'Uses coffee_catalog.purveyor_score as the canonical quality signal.',
+          'Output metadata reports stocked_only/scope, sample scope, and truncation; rare_origin is rarity within sampled matching candidates.',
+        ],
+        examples: [
+          'purvey catalog rank --objective premium --stocked --pretty',
+          'purvey catalog rank --objective value --country Ethiopia --price-max 12 --json',
+        ],
+      },
+      {
         name: 'rank-premium',
         summary: 'Rank premium catalog candidates by Purveyor Score',
         auth: 'viewer',
