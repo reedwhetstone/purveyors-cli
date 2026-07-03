@@ -70,7 +70,7 @@ Notes:
         if (opts.limit !== undefined)
           query.limit = parsePositiveInt(opts.limit as string, '--limit');
 
-        const client = await createParchmentClient();
+        const client = await createParchmentClient('member');
         const result = await client.priceIndex.list(query);
         const data = unwrapParchment(result, 'price-index');
         outputData(data, globalOpts);

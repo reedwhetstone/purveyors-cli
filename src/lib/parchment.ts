@@ -1,5 +1,5 @@
 import { createParchmentClient as createSdkClient, type ParchmentClient } from '@purveyors/sdk';
-import { requireAuth } from './auth-guard.js';
+import { requireAuth, type RequiredRole } from './auth-guard.js';
 import { AuthError, PrvrsError } from './errors.js';
 
 const DEFAULT_PARCHMENT_BASE_URL = 'https://api.purveyors.io';
@@ -25,13 +25,15 @@ export function getParchmentBaseUrl(): string {
  * catalog auth pattern: an explicit API key wins, otherwise the stored Supabase
  * session JWT is used. Auth is resolved server-side against the token.
  */
-export async function resolveParchmentToken(): Promise<string> {
+export async function resolveParchmentToken(
+  requiredRole: RequiredRole = 'viewer'
+): Promise<string> {
   const apiKey = process.env.PARCHMENT_API_KEY ?? process.env.PURVEYORS_API_KEY;
   if (apiKey) {
     return apiKey;
   }
 
-  const { supabase } = await requireAuth('viewer');
+  const { supabase } = await requireAuth(requiredRole);
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -46,8 +48,10 @@ export async function resolveParchmentToken(): Promise<string> {
 }
 
 /** Build an authenticated Parchment SDK client for the canonical API. */
-export async function createParchmentClient(): Promise<ParchmentClient> {
-  const token = await resolveParchmentToken();
+export async function createParchmentClient(
+  requiredRole: RequiredRole = 'viewer'
+): Promise<ParchmentClient> {
+  const token = await resolveParchmentToken(requiredRole);
   return createSdkClient({ baseUrl: getParchmentBaseUrl(), token });
 }
 

@@ -2,7 +2,7 @@
 
 Coffee intelligence from your terminal.
 
-`purvey` is the official CLI for [purveyors.io](https://purveyors.io). It gives coffee professionals, developers, and AI agents direct access to the Purveyors platform from the terminal: catalog search, inventory tracking, roast logging, sales records, tasting notes, and Artisan `.alog` import.
+`purvey` is the official CLI for [purveyors.io](https://purveyors.io). It gives coffee professionals, developers, and AI agents direct access to the Purveyors platform from the terminal: catalog search, price-index snapshots, procurement brief reads, inventory tracking, roast logging, sales records, tasting notes, and Artisan `.alog` import.
 
 Use `purvey --help` for quick command discovery, `purvey context` for the dense human-readable operator reference, `purvey manifest` for the preferred machine-readable contract, or `@purveyors/cli/manifest` in-process.
 
@@ -13,7 +13,7 @@ Use `purvey --help` for quick command discovery, `purvey context` for the dense 
 - Runtime: Node.js 20+
 - No pre-existing session required: `auth`, `config`, `context`, `manifest`
 - Viewer role required: `catalog` (excluding structured process filters on `catalog search`)
-- Member role required: `inventory`, `roast`, `sales`, `tasting`
+- Member role required: `price-index`, `procurement`, `inventory`, `roast`, `sales`, `tasting`
 - Preferred machine-readable contract: `purvey manifest`
 - Dense human-readable reference: `purvey context`
 - Compatibility JSON alias: `purvey context --json`
@@ -62,7 +62,7 @@ The CLI is an agent-first product surface. Treat the binary, exported functions,
 ## Quick Start
 
 ```bash
-# 1. Authenticate before using catalog, inventory, roast, sales, or tasting commands
+# 1. Authenticate before using catalog, market intelligence, inventory, roast, sales, or tasting commands
 purvey auth login
 
 # For agents, CI, or remote machines, use headless flow:
@@ -135,7 +135,7 @@ All remote data commands require a valid authenticated session:
 
 - `catalog` requires the `viewer` role by default
 - `catalog search` structured process filters require the `member` role under the current session-authenticated CLI path
-- `inventory`, `roast`, `sales`, and `tasting` require the `member` role
+- `price-index`, `procurement`, `inventory`, `roast`, `sales`, and `tasting` require the `member` role under the session-authenticated CLI path
 
 `purvey` uses Google OAuth through purveyors.io.
 
@@ -174,10 +174,10 @@ Credentials are stored at `~/.config/purvey/credentials.json`.
 
 ### Auth roles
 
-| Role     | Access                                                                                                                                                                         |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `viewer` | `catalog search`, `catalog get`, `catalog stats`, excluding structured process filters                                                                                         |
-| `member` | All viewer commands, `catalog similar`, structured process filters on `catalog search`, plus `inventory`, `roast`, `sales`, `tasting` under the session-authenticated CLI path |
+| Role     | Access                                                                                                                                                                                                       |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `viewer` | `catalog search`, `catalog get`, `catalog stats`, excluding structured process filters                                                                                                                       |
+| `member` | All viewer commands, `catalog similar`, structured process filters on `catalog search`, plus `price-index`, `procurement`, `inventory`, `roast`, `sales`, `tasting` under the session-authenticated CLI path |
 
 `auth`, `config`, `context`, and `manifest` remain available without a pre-existing session.
 
@@ -411,6 +411,61 @@ Notes:
 - `canonical_candidates` are likely same-lot candidates; `similar_recommendations` are substitutes/profile matches and include blocker reasons when identity gates disagree.
 - The command preserves `classification_version`, `query_strategy`, score dimensions, proof summaries, pricing metadata, and classification/blocker details supplied by the API.
 - `catalog stats` returns aggregate catalog metrics, not your personal inventory metrics.
+
+### price-index
+
+- `purvey price-index`
+
+`price-index` filters:
+
+- `--origin <origin>`
+- `--process <method>`
+- `--grade <grade>`
+- `--from <YYYY-MM-DD>`
+- `--to <YYYY-MM-DD>`
+- `--wholesale <true|false>`
+- `--page <n>`; 1-based page number
+- `--limit <n>`; results per page
+
+Examples:
+
+```bash
+purvey price-index --pretty
+purvey price-index --origin "Ethiopia" --from 2026-01-01 --to 2026-06-30 --json
+PARCHMENT_API_KEY="$PURVEYORS_API_KEY" purvey price-index --limit 25 --json
+```
+
+Notes:
+
+- `price-index` is backed by the canonical Parchment API `GET /v1/price-index` through `@purveyors/sdk`.
+- Session-token use requires the local `member` role; API-key use is accepted via `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY` and PPI entitlement is enforced server-side.
+- `PARCHMENT_API_BASE_URL` overrides the canonical API base for this SDK-backed command. `PURVEYORS_BASE_URL` is also accepted for shared environment compatibility.
+
+### procurement
+
+- `purvey procurement list`
+- `purvey procurement get <id>`
+- `purvey procurement matches <id>`
+
+`procurement matches <id>` options:
+
+- `--page <n>`; 1-based page number
+- `--limit <n>`; matches per page
+
+Examples:
+
+```bash
+purvey procurement list --pretty
+purvey procurement get <brief-id> --pretty
+purvey procurement matches <brief-id> --page 2 --limit 50 --json
+PARCHMENT_API_KEY="$PURVEYORS_API_KEY" purvey procurement list --json
+```
+
+Notes:
+
+- Procurement reads are backed by the canonical Parchment API `/v1/procurement/briefs` endpoints through `@purveyors/sdk`.
+- Session-token use requires the local `member` role; API-key use is accepted via `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY` and procurement access is enforced server-side.
+- Brief creation is intentionally not exposed here. It is a write path and belongs to the Phase 2 write build-out.
 
 ### inventory
 
@@ -769,8 +824,9 @@ Use the right ID for the right command.
 - `PURVEYORS_SUPABASE_URL`: override the Supabase project URL
 - `PURVEYORS_SUPABASE_ANON_KEY`: override the Supabase anon key
 - `PURVEYORS_BASE_URL`: override the Purveyors web base URL
-- `PURVEYORS_API_KEY`: API-key token used by API-backed catalog proof reads and paid-tier similarity reads when you want to call canonical API contracts without relying on the local OAuth session
-- `PARCHMENT_API_KEY`: alternate API-key variable accepted for the same API-backed proof and paid-tier similarity path
+- `PURVEYORS_API_KEY`: API-key token used by API-backed catalog proof reads, paid-tier similarity reads, and SDK-backed Parchment commands when you want to call canonical API contracts without relying on the local OAuth session
+- `PARCHMENT_API_KEY`: preferred API-key variable for SDK-backed Parchment commands; also accepted for API-backed proof and paid-tier similarity paths
+- `PARCHMENT_API_BASE_URL`: override the SDK-backed Parchment API base URL for `price-index` and `procurement` commands
 - `PURVEY_DEBUG`: enable verbose error output
 
 ## For AI agents
@@ -803,9 +859,10 @@ Agent integration rules of thumb:
 
 - Discover first with `purvey manifest`, then call the narrowest command or package subpath that fits the job.
 - Use `purvey context` when a human-readable operator summary is useful before tool selection.
-- Prefer OAuth session tokens for normal user workflows; use `PURVEYORS_API_KEY` or `PARCHMENT_API_KEY` only when you intentionally need the API-key catalog proof path or a paid-tier similarity path.
+- Prefer OAuth session tokens for normal user workflows; use `PURVEYORS_API_KEY` or `PARCHMENT_API_KEY` only when you intentionally need an API-key-backed Parchment path such as catalog proof, paid-tier similarity, price-index, or procurement reads.
 - Treat `--include-proof` as API output, not a local scoring feature. If a filter cannot round-trip through `/v1/catalog?include=proof`, the CLI rejects that invocation instead of returning misleading proof data.
 - Treat `catalog similar` as the canonical `/v1/catalog/{id}/similar` contract. Preserve the distinction between `canonical_candidates` and `similar_recommendations`; do not flatten or re-sort grouped results unless you have a specific downstream reason.
+- Treat `price-index` and `procurement` as SDK-backed canonical API reads. Do not add procurement create/write behavior to this command group until the Phase 2 write contract ships.
 
 ## Troubleshooting
 

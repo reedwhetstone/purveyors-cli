@@ -40,7 +40,7 @@ Examples:
     .action(
       withErrorHandling(async (_opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const client = await createParchmentClient();
+        const client = await createParchmentClient('member');
         const result = await client.procurement.briefs.list();
         const data = unwrapParchment(result, 'procurement list');
         outputData(data, globalOpts);
@@ -60,7 +60,7 @@ Examples:
     .action(
       withErrorHandling(async (id: string, _opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const client = await createParchmentClient();
+        const client = await createParchmentClient('member');
         const result = await client.procurement.briefs.get(id);
         const data = unwrapParchment(result, 'procurement get');
         outputData(data, globalOpts);
@@ -89,7 +89,7 @@ Examples:
         if (opts.limit !== undefined)
           query.limit = parsePositiveInt(opts.limit as string, '--limit');
 
-        const client = await createParchmentClient();
+        const client = await createParchmentClient('member');
         const result = await client.procurement.briefs.matches(id, query);
         const data = unwrapParchment(result, 'procurement matches');
         outputData(data, globalOpts);

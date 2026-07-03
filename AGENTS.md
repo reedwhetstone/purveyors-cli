@@ -9,7 +9,7 @@ Use this file as the single maintained guide for humans and agents. `CLAUDE.md` 
 - Package: `@purveyors/cli`
 - Binary: `purvey`
 - Runtime: Node.js 20+
-- Stack: TypeScript, Commander.js, Supabase JS, Vitest
+- Stack: TypeScript, Commander.js, Supabase JS, Parchment SDK, Vitest
 - Version source of truth: `package.json` and `purvey --version`
 - Binary entrypoint: `purvey` via package `bin` field
 - Package contract source of truth: `package.json` `exports` plus `src/lib/manifest.ts`
@@ -30,6 +30,8 @@ Current command groups:
 
 - `auth`: `login`, `status`, `logout`
 - `catalog`: `search` (filters: origin, process, price-min/max, flavor, name, supplier, ids, stocked, variety, drying-method, stocked-days, processing-base-method, fermentation-type, process-additive, processing-disclosure-level, processing-confidence-min, sort, offset, limit; proof output via `--include-proof`), `get <id>`, `stats`, `facets <field>`, `rank`, `rank-premium`, `supplier-list` (filters: country, stocked, non-wholesale-only, sample-size, limit), `supplier-detail <supplier>` (filters: country, stocked, non-wholesale-only, top-coffees, sample-size), `supplier-rank` (filters: country, stocked, non-wholesale-only, min-coffees, sample-size, limit), `similar <id>`. Structured processing filters require the `member` role under the current session-authenticated CLI path.
+- `price-index`: Parchment Price Index snapshots via the canonical API and `@purveyors/sdk` (filters: origin, process, grade, from, to, wholesale, page, limit). Session-token use requires `member`; API-key use is enforced server-side for PPI access.
+- `procurement`: `list`, `get <id>`, `matches <id>` for saved sourcing briefs via the canonical API and `@purveyors/sdk`. Session-token use requires `member`; API-key use is enforced server-side. No create/write command belongs here until the Phase 2 write contract ships.
 - `inventory`: `list` (filters: stocked, catalog-id, purchase-date-start, purchase-date-end, origin, limit, offset), `get <id>`, `add`, `update <id>`, `delete <id>` (`--force` for cascade delete)
 - `roast`: `list` (filters: coffee-id, roast-id, batch-name, coffee-name, date-start, date-end, stocked, catalog-id, limit, offset), `get <id>`, `create`, `update <id>`, `delete <id>`, `import [file]`, `watch [directory]`
 - `sales`: `list` (filters: roast-id, date-start, date-end, buyer, limit, offset), `record`, `update <id>`, `delete <id>`
@@ -100,6 +102,8 @@ Command files:
 
 - `auth.ts`: browser OAuth with pasted-callback fallback, headless OAuth, status, logout
 - `catalog.ts`: catalog search, fetch, stats, premium ranking, supplier aggregates, similar-bean lookup
+- `price-index.ts`: SDK-backed Parchment Price Index read command
+- `procurement.ts`: SDK-backed procurement brief read commands
 - `inventory.ts`: personal green coffee inventory CRUD
 - `roast.ts`: roast CRUD, Artisan import, watch mode
 - `sales.ts`: sales CRUD
@@ -113,7 +117,8 @@ Command files:
 ### Auth and roles
 
 - Use `requireAuth('viewer')` for catalog commands and other viewer-level access, except `catalog search` structured processing filters, which require `member`.
-- Use `requireAuth('member')` for personal data and writes.
+- Use `requireAuth('member')` for personal data, SDK-backed market intelligence session tokens, and writes.
+- SDK-backed Parchment commands should use `src/lib/parchment.ts` so API-key auth can bypass local role checks while session-token auth still enforces the command's local role boundary.
 - `auth`, `config`, `context`, and `manifest` do not require a pre-existing authenticated session.
 - `catalog`, `inventory`, `roast`, `sales`, and `tasting` require authentication.
 - Keep docs aligned with actual handler behavior. If auth requirements change, update README, help text, and context in the same PR.
@@ -198,7 +203,7 @@ The published package and binary run from `dist/`, not `src/`. Any command-surfa
 When doing a docs-only refresh, confirm these before opening a PR:
 
 - README command reference matches `src/commands/*` and `src/lib/manifest.ts`.
-- Auth and role claims match the actual `requireAuth` boundary: catalog is viewer, with `catalog search` structured processing filters elevated to member; inventory, roast, sales, and tasting are member; auth, config, context, and manifest are local or unauthenticated.
+- Auth and role claims match the actual `requireAuth` boundary: catalog is viewer, with `catalog search` structured processing filters elevated to member; price-index, procurement, inventory, roast, sales, and tasting are member under session-token use; auth, config, context, and manifest are local or unauthenticated.
 - Headless OAuth remains documented as first-class, not as a fallback.
 - `purvey manifest` is documented as the preferred shell contract; `purvey context --json` is documented as compatibility.
 - `@purveyors/cli/manifest` and package subpath exports are documented as supported in-process contracts.
