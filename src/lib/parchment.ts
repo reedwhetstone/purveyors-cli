@@ -94,6 +94,18 @@ export function unwrapParchment<T>(result: ParchmentResult<T>, context: string):
   const status = result.response.status;
   const body = result.error;
 
+  if (status === 400) {
+    // Mirror the catalog API wrapper: a 400 means the server rejected
+    // user-supplied query params (bad date, over-limit, etc.), so it maps to
+    // INVALID_ARGUMENT/exit 2, not the generic GENERAL_ERROR fallback below.
+    // This keeps bad-input failures distinguishable from real server errors.
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      messageFromErrorBody(body, `${context}: invalid request. Check the provided arguments.`),
+      body
+    );
+  }
+
   if (status === 401) {
     throw new AuthError(
       messageFromErrorBody(
