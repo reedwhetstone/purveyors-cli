@@ -28,7 +28,9 @@ export function getParchmentBaseUrl(): string {
 export async function resolveParchmentToken(
   requiredRole: RequiredRole = 'viewer'
 ): Promise<string> {
-  const apiKey = process.env.PARCHMENT_API_KEY ?? process.env.PURVEYORS_API_KEY;
+  // Prefer the first non-empty key: an empty PARCHMENT_API_KEY (a common
+  // optional-secret shape in CI) must not mask a real PURVEYORS_API_KEY.
+  const apiKey = process.env.PARCHMENT_API_KEY || process.env.PURVEYORS_API_KEY;
   if (apiKey) {
     return apiKey;
   }
