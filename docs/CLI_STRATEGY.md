@@ -21,6 +21,8 @@ Current command groups:
 
 - `auth`: `login`, `status`, `logout`
 - `catalog`: `search`, `get`, `stats`, `similar`
+- `price-index`: Parchment Price Index aggregate snapshots through `@purveyors/sdk`
+- `procurement`: saved sourcing brief reads and matches through `@purveyors/sdk`
 - `inventory`: `list`, `get`, `add`, `update`, `delete`
 - `roast`: `list`, `get`, `create`, `update`, `delete`, `import`, `watch`
 - `sales`: `list`, `record`, `update`, `delete`
@@ -85,7 +87,7 @@ The shipped auth model is role-based:
 
 - No pre-existing session required: `auth`, `config`, `context`, `manifest`
 - Authenticated `viewer` role required: `catalog`
-- Authenticated `member` role required: structured process filters on `catalog search`, plus `inventory`, `roast`, `sales`, `tasting`
+- Authenticated `member` role required under session-token use: structured process filters on `catalog search`, plus `price-index`, `procurement`, `inventory`, `roast`, `sales`, `tasting`
 
 Google OAuth is available in two supported flows:
 
@@ -123,6 +125,8 @@ Catalog intelligence boundaries:
 - `catalog similar <id>` consumes the beta canonical `/v1/catalog/{id}/similar` contract, not the legacy direct RPC path, and requires member access or a paid API tier.
 - Similarity output must keep `canonical_candidates` separate from `similar_recommendations` and preserve blocker, proof, pricing, score-dimension, `classification_version`, and `query_strategy` metadata for agents.
 - Structured process filters map to canonical `/v1/catalog` query names and require member access under the current session-authenticated CLI path.
+- `price-index` and `procurement` are SDK-backed canonical API reads. They default to `api.purveyors.io`, accept `PARCHMENT_API_BASE_URL` for alternate deployments, use `PARCHMENT_API_KEY`/`PURVEYORS_API_KEY` when provided, and otherwise send the stored session JWT after local member-role validation.
+- Procurement brief creation is intentionally absent from the CLI read surface until the Phase 2 write contract ships.
 
 Reference surfaces:
 

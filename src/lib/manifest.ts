@@ -991,6 +991,91 @@ const commandGroups: CliCommandGroupContract[] = [
       examples: ['purvey manifest', 'purvey manifest --pretty'],
     },
   },
+  {
+    name: 'price-index',
+    summary: 'Parchment Price Index aggregate snapshots; requires price-index (PPI) access',
+    auth: 'member',
+    command: {
+      name: 'price-index',
+      summary: 'Fetch Parchment Price Index aggregate snapshots from the canonical API',
+      auth: 'member',
+      options: [
+        { flags: '--origin <origin>' },
+        { flags: '--process <method>' },
+        { flags: '--grade <grade>' },
+        { flags: '--from <date>' },
+        { flags: '--to <date>' },
+        { flags: '--wholesale <true|false>' },
+        { flags: '--page <n>' },
+        { flags: '--limit <n>' },
+      ],
+      notes: [
+        'Backed by the canonical API GET /v1/price-index via @purveyors/sdk against api.purveyors.io.',
+        'Requires a Purveyors session or API key with price-index (PPI) access; the API enforces the entitlement.',
+        'Set PARCHMENT_API_KEY or PURVEYORS_API_KEY to use an API key instead of the logged-in session.',
+        '--from and --to accept ISO dates (YYYY-MM-DD); --wholesale accepts "true" or "false".',
+      ],
+      examples: [
+        'purvey price-index --pretty',
+        'purvey price-index --origin "Ethiopia" --json',
+        'purvey price-index --from 2026-01-01 --to 2026-06-30 --pretty',
+      ],
+    },
+  },
+  {
+    name: 'procurement',
+    summary: 'Read saved sourcing briefs and their catalog matches from the canonical API',
+    auth: 'member',
+    subcommands: [
+      {
+        name: 'list',
+        summary: 'List your saved sourcing briefs',
+        auth: 'member',
+        notes: [
+          'Backed by the canonical API GET /v1/procurement/briefs via @purveyors/sdk.',
+          'Brief creation is a write handled by the Phase 2 write build-out (PADR-0016), not this read surface.',
+        ],
+        examples: ['purvey procurement list --pretty'],
+      },
+      {
+        name: 'get',
+        summary: 'Get a single saved sourcing brief by id',
+        auth: 'member',
+        arguments: [
+          {
+            name: 'brief_id',
+            cliToken: 'id',
+            description: 'sourcing brief id',
+            required: true,
+          },
+        ],
+        notes: ['Backed by the canonical API GET /v1/procurement/briefs/{id} via @purveyors/sdk.'],
+        examples: ['purvey procurement get <brief-id> --pretty'],
+      },
+      {
+        name: 'matches',
+        summary: 'Run a saved brief against the catalog and page through matches',
+        auth: 'member',
+        arguments: [
+          {
+            name: 'brief_id',
+            cliToken: 'id',
+            description: 'sourcing brief id',
+            required: true,
+          },
+        ],
+        options: [{ flags: '--page <n>' }, { flags: '--limit <n>' }],
+        notes: [
+          'Backed by the canonical API GET /v1/procurement/briefs/{id}/matches via @purveyors/sdk.',
+          '--limit maxes at 100 (default 25); --page is 1-based (default 1).',
+        ],
+        examples: [
+          'purvey procurement matches <brief-id> --pretty',
+          'purvey procurement matches <brief-id> --page 2 --limit 50 --json',
+        ],
+      },
+    ],
+  },
 ];
 
 const workflows: CliWorkflowContract[] = [
