@@ -259,11 +259,14 @@ describe('CLI manifest contract', () => {
     expect(helpText).toContain('Human reference:  purvey context');
     expect(helpText).toContain('JSON manifest:    purvey manifest');
     expect(helpText).toContain('Module import:    @purveyors/cli/manifest');
-    expect(helpText).toContain(
-      'context           Output the dense human-readable operator reference; use --json/--pretty only for manifest parity'
+    // Padding/wrapping in commander's auto command list shifts as commands are
+    // added; assert the command term + start of its description rather than a
+    // fixed-width single-line slice so the check survives column reflow.
+    expect(helpText).toMatch(
+      /context \[options\]\s+Output the dense human-readable operator reference/
     );
-    expect(helpText).toContain(
-      'manifest [options]  Output the preferred stable machine-readable CLI manifest'
+    expect(helpText).toMatch(
+      /manifest \[options\]\s+Output the preferred stable machine-readable CLI/
     );
   });
 
