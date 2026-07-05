@@ -7,6 +7,7 @@
 export * from './catalog.js';
 export * from './inventory.js';
 export * from './manifest.js';
+export * from './market.js';
 export * from './roast.js';
 export * from './sales.js';
 export * from './tasting.js';

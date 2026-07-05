@@ -8,6 +8,7 @@ import { buildConfigCommand } from './commands/config.js';
 import { buildContextCommand } from './commands/context.js';
 import { buildInventoryCommand } from './commands/inventory.js';
 import { buildManifestCommand } from './commands/manifest.js';
+import { buildMarketCommand } from './commands/market.js';
 import { buildPriceIndexCommand } from './commands/price-index.js';
 import { buildProcurementCommand } from './commands/procurement.js';
 import { buildRoastCommand } from './commands/roast.js';
@@ -99,7 +100,10 @@ Personal Data (member role required):
   tasting get       Get tasting notes for a coffee
   tasting rate      Rate a coffee bean with cupping scores
 
-Market intelligence (canonical API; price-index requires PPI access):
+Market intelligence (canonical API; entitled slices require PPI access):
+  market signals      Actionable value signals (public summary via --summary)
+  market stats        Price movement-significance stats (public retail summary)
+  market metadata     Metadata-trend index (public process/retail/month slice)
   price-index         Parchment Price Index aggregate snapshots
   procurement list    List your saved sourcing briefs
   procurement get     Get a saved sourcing brief by id
@@ -153,6 +157,7 @@ Module import:    @purveyors/cli/manifest
   program.addCommand(buildContextCommand());
   program.addCommand(buildInventoryCommand());
   program.addCommand(buildManifestCommand());
+  program.addCommand(buildMarketCommand());
   program.addCommand(buildPriceIndexCommand());
   program.addCommand(buildProcurementCommand());
   program.addCommand(buildRoastCommand());

@@ -992,6 +992,84 @@ const commandGroups: CliCommandGroupContract[] = [
     },
   },
   {
+    name: 'market',
+    summary:
+      'Market Index decision surface: value signals, movement stats, and metadata trends via the canonical API',
+    auth: 'mixed',
+    subcommands: [
+      {
+        name: 'signals',
+        summary: 'Actionable market value signals; unfiltered summary is a public teaser',
+        auth: 'none',
+        options: [
+          { flags: '--summary' },
+          {
+            flags: '--type <type>',
+            notes: ['repeatable or comma-separated: price_drop|below_market|value_quality'],
+          },
+          { flags: '--origin <origin>' },
+          { flags: '--process <method>' },
+          { flags: '--market <retail|wholesale|all>' },
+          { flags: '--min-discount <n>' },
+          { flags: '--min-score <n>' },
+          { flags: '--window <7d|30d>' },
+          { flags: '--limit <n>' },
+        ],
+        notes: [
+          'Backed by the canonical API GET /v1/market/signals via @purveyors/sdk against api.purveyors.io.',
+          '--summary is the only unauthenticated slice (counts only); any filter requires Parchment Intelligence access, enforced server-side (403 on denial).',
+          '--json emits the API response verbatim (§3.3 evidence object, §3.4 enums); no client-side reshaping.',
+        ],
+        examples: [
+          'purvey market signals --summary --pretty',
+          'purvey market signals --type price_drop --type below_market --origin "Ethiopia" --json',
+        ],
+      },
+      {
+        name: 'stats',
+        summary: 'Price movement-significance stats; unfiltered retail slice is public',
+        auth: 'none',
+        options: [
+          { flags: '--origin <origin>' },
+          { flags: '--process <method>' },
+          { flags: '--market <retail|wholesale|all>' },
+          { flags: '--window <7d|30d>' },
+          { flags: '--baseline-weeks <n>' },
+        ],
+        notes: [
+          'Backed by the canonical API GET /v1/price-index/stats via @purveyors/sdk.',
+          'The no-origin/no-process retail slice is public; origin/process/wholesale filters require Intelligence access.',
+        ],
+        examples: [
+          'purvey market stats --pretty',
+          'purvey market stats --origin "Colombia" --window 30d --json',
+        ],
+      },
+      {
+        name: 'metadata',
+        summary: 'Metadata-trend index; process/retail/month slice is public',
+        auth: 'none',
+        options: [
+          { flags: '--dimension <process|disclosure|score>' },
+          { flags: '--origin <origin>' },
+          { flags: '--market <retail|wholesale|all>' },
+          { flags: '--grain <week|month>' },
+          { flags: '--from <date>' },
+          { flags: '--to <date>' },
+        ],
+        notes: [
+          'Backed by the canonical API GET /v1/market/metadata-index via @purveyors/sdk.',
+          'Public slice: dimension=process, no origin, market=retail, grain=month; anything else requires Intelligence access.',
+          'cultivar and drying dimensions are out of scope for v1 (await taxonomy normalization).',
+        ],
+        examples: [
+          'purvey market metadata --pretty',
+          'purvey market metadata --dimension score --origin "Ethiopia" --grain month --json',
+        ],
+      },
+    ],
+  },
+  {
     name: 'price-index',
     summary: 'Parchment Price Index aggregate snapshots; requires price-index (PPI) access',
     auth: 'member',
