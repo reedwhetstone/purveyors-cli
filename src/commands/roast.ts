@@ -3,7 +3,7 @@ import * as p from '@clack/prompts';
 import { access, readFile } from 'fs/promises';
 import { basename } from 'path';
 import { outputData, info, success } from '../lib/output.js';
-import { withErrorHandling, PrvrsError } from '../lib/errors.js';
+import { withErrorHandling, PrvrsError, AuthError } from '../lib/errors.js';
 import { requireAuth } from '../lib/auth-guard.js';
 import { confirm, todayIso } from '../lib/prompts.js';
 import { listRoasts, getRoast, createRoast, deleteRoast, updateRoast } from '../lib/roast.js';
@@ -32,11 +32,13 @@ export type { RoastProfile, TemperatureEntry, RoastEventEntry };
  * {@link ImportRoastResult} output shape, so `--pretty` and machine output stay
  * stable now that Artisan parsing and persistence happen server-side.
  *
- * `RoastDetailResource` exposes only a subset of Artisan milestones (charge,
- * first-crack start/end, drop); dry-end / second-crack / cool markers are
- * omitted when the API does not surface them.
+ * `RoastDetailResource` surfaces only charge / first-crack / drop as top-level
+ * time columns, but the full Artisan milestone set (dry-end, second-crack
+ * start/end, cool) is persisted as milestone roast events. Recover those from
+ * `roast.events` so JSON and `--pretty` output keep the same milestone timing
+ * the pre-SDK local importer exposed, without re-parsing the `.alog` locally.
  */
-function mapSdkImportResult(
+export function mapSdkImportResult(
   payload: RoastImportPayload,
   fallbackCoffeeId: number,
   fallbackBatchName: string
@@ -49,6 +51,31 @@ function mapSdkImportResult(
   if (roast.fc_start_time != null) milestones.fc_start = roast.fc_start_time;
   if (roast.fc_end_time != null) milestones.fc_end = roast.fc_end_time;
   if (roast.drop_time != null) milestones.drop = roast.drop_time;
+
+  // Fill any remaining markers (notably dry_end / sc_start / sc_end / cool,
+  // which have no dedicated column) from the canonical milestone events. The
+  // top-level columns above win; events only backfill gaps.
+  const MILESTONE_KEYS: ReadonlyArray<keyof ImportRoastResult['milestones']> = [
+    'charge',
+    'dry_end',
+    'fc_start',
+    'fc_end',
+    'sc_start',
+    'sc_end',
+    'drop',
+    'cool',
+  ];
+  for (const event of roast.events ?? []) {
+    const key = event.event_string as keyof ImportRoastResult['milestones'] | null;
+    if (
+      key != null &&
+      MILESTONE_KEYS.includes(key) &&
+      milestones[key] == null &&
+      event.time_seconds != null
+    ) {
+      milestones[key] = event.time_seconds;
+    }
+  }
 
   const totalTime = roast.total_roast_time ?? 0;
   const temperatureUnit: 'F' | 'C' = roast.temperature_unit === 'C' ? 'C' : 'F';
@@ -603,10 +630,19 @@ Required: <file> path and --coffee-id (unless using --form)
             const spin = p.spinner();
             spin.start('Importing roast data...');
             // Parse + persist happen server-side via the canonical Parchment
-            // API; `bean` was resolved through the authenticated Supabase
-            // client above (pickBean), and the API re-resolves identity from
-            // the bearer token.
-            const client = await createParchmentClient('member');
+            // API. `bean` was resolved through the authenticated Supabase
+            // session above (pickBean), so the import must run under that same
+            // session identity. Pin the request to the session access token
+            // instead of letting an exported PARCHMENT_API_KEY/PURVEYORS_API_KEY
+            // for another account authorize an import against a coffeeId owned
+            // by the session user.
+            const {
+              data: { session: formSession },
+            } = await supabase.auth.getSession();
+            if (!formSession?.access_token) {
+              throw new AuthError('Session expired mid-import. Run `purvey auth login` and retry.');
+            }
+            const client = await createParchmentClient('member', formSession.access_token);
             const payload = unwrapParchment(
               await client.roasts.import({
                 fileContent,
@@ -1067,6 +1103,7 @@ function printImportPretty(result: ImportRoastResult, coffeeId: number): void {
       fc_start: 'FC Start',
       fc_end: 'FC End',
       sc_start: 'SC Start',
+      sc_end: 'SC End',
       drop: 'Drop',
       cool: 'Cool',
     };

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { importRoastSchema, extractOzFromAlog, defaultBatchName } from '../src/lib/roast.js';
+import { mapSdkImportResult } from '../src/commands/roast.js';
 
 // ── importRoastSchema ─────────────────────────────────────────────────────────
 
@@ -88,6 +89,57 @@ describe('importRoastSchema', () => {
     if (result.success) {
       expect(result.data.ozIn).toBeUndefined();
     }
+  });
+});
+
+// ── SDK import response mapping ──────────────────────────────────────────────
+
+describe('mapSdkImportResult', () => {
+  it('recovers the full Artisan milestone set from roast events', () => {
+    const payload = {
+      data: {
+        roast: {
+          roast_id: 101,
+          batch_name: 'SDK Batch',
+          coffee_id: 42,
+          coffee_name: 'Ethiopia Guji',
+          charge_time: 12,
+          fc_start_time: 388,
+          fc_end_time: 433,
+          drop_time: 602,
+          total_roast_time: 602,
+          temperature_unit: 'F',
+          dry_percent: 45,
+          maillard_percent: 32,
+          development_percent: 23,
+          events: [
+            { event_string: 'charge', time_seconds: 10 },
+            { event_string: 'dry_end', time_seconds: 285 },
+            { event_string: 'sc_start', time_seconds: 510 },
+            { event_string: 'sc_end', time_seconds: 540 },
+            { event_string: 'cool', time_seconds: 640 },
+          ],
+        },
+        import: {
+          temperaturePoints: 120,
+          milestoneEvents: 8,
+          controlEvents: 3,
+        },
+      },
+    } as Parameters<typeof mapSdkImportResult>[0];
+
+    const result = mapSdkImportResult(payload, 99, 'Fallback Batch');
+
+    expect(result.milestones).toEqual({
+      charge: 12,
+      dry_end: 285,
+      fc_start: 388,
+      fc_end: 433,
+      sc_start: 510,
+      sc_end: 540,
+      drop: 602,
+      cool: 640,
+    });
   });
 });
 

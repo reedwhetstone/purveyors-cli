@@ -49,11 +49,20 @@ export async function resolveParchmentToken(
   return session.access_token;
 }
 
-/** Build an authenticated Parchment SDK client for the canonical API. */
+/**
+ * Build an authenticated Parchment SDK client for the canonical API.
+ *
+ * `tokenOverride` pins the request to a specific bearer token instead of the
+ * usual API-key-then-session precedence. Interactive flows that already resolved
+ * a Supabase session (and selected session-scoped resources like a bean) use it
+ * so an exported API key for another account can't authorize the request under a
+ * mismatched identity.
+ */
 export async function createParchmentClient(
-  requiredRole: RequiredRole = 'viewer'
+  requiredRole: RequiredRole = 'viewer',
+  tokenOverride?: string
 ): Promise<ParchmentClient> {
-  const token = await resolveParchmentToken(requiredRole);
+  const token = tokenOverride ?? (await resolveParchmentToken(requiredRole));
   return createSdkClient({ baseUrl: getParchmentBaseUrl(), token });
 }
 
