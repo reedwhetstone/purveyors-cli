@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AuthError, PrvrsError } from './errors.js';
 import { sanitizeFilterValue } from './catalog.js';
-import type { ArtisanImportResult } from './artisan/import.js';
+import type { MilestoneData, ProcessedRoastData } from './artisan/types.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -461,7 +461,15 @@ export const importRoastSchema = z.object({
 
 export type ImportRoastInput = z.input<typeof importRoastSchema>;
 
-export interface ImportRoastResult extends ArtisanImportResult {
+export interface ImportRoastResult {
+  success: boolean;
+  message: string;
+  milestones: MilestoneData;
+  phases: ProcessedRoastData['phases'];
+  total_time: number;
+  temperature_unit: 'F' | 'C';
+  milestone_events: number;
+  control_events: number;
   roast_id: number;
   batch_name: string;
   coffee_name: string;
