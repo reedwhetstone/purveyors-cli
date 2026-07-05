@@ -13,7 +13,7 @@ Use this file as the single maintained guide for humans and agents. `CLAUDE.md` 
 - Version source of truth: `package.json` and `purvey --version`
 - Binary entrypoint: `purvey` via package `bin` field
 - Package contract source of truth: `package.json` `exports` plus `src/lib/manifest.ts`
-- In-process product exports: `@purveyors/cli/catalog`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, and `/ai`
+- In-process product exports: `@purveyors/cli/catalog`, `/market`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, and `/ai`
 - In-process manifest export: `@purveyors/cli/manifest` via package export `./manifest`
 - Live docs: `/docs/cli/*` and `/docs/api/*` on `https://purveyors.io`
 
@@ -204,7 +204,7 @@ The published package and binary run from `dist/`, not `src/`. Any command-surfa
 When doing a docs-only refresh, confirm these before opening a PR:
 
 - README command reference matches `src/commands/*` and `src/lib/manifest.ts`.
-- Auth and role claims match the actual `requireAuth` boundary: catalog is viewer, with `catalog search` structured processing filters elevated to member; price-index, procurement, inventory, roast, sales, and tasting are member under session-token use; auth, config, context, and manifest are local or unauthenticated.
+- Auth and role claims match the actual boundary: catalog is viewer, with `catalog search` structured processing filters elevated to member; market has unauthenticated public teaser slices and Parchment Intelligence-gated filtered slices; price-index, procurement, inventory, roast, sales, and tasting are member under session-token use; auth, config, context, and manifest are local or unauthenticated.
 - Headless OAuth remains documented as first-class, not as a fallback.
 - `purvey manifest` is documented as the preferred shell contract; `purvey context --json` is documented as compatibility.
 - `@purveyors/cli/manifest` and package subpath exports are documented as supported in-process contracts.

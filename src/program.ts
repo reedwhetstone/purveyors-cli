@@ -100,7 +100,7 @@ Personal Data (member role required):
   tasting get       Get tasting notes for a coffee
   tasting rate      Rate a coffee bean with cupping scores
 
-Market intelligence (canonical API; entitled slices require PPI access):
+Market intelligence (canonical API; entitled slices require Parchment Intelligence access):
   market signals      Actionable value signals (public summary via --summary)
   market stats        Price movement-significance stats (public retail summary)
   market metadata     Metadata-trend index (public process/retail/month slice)
