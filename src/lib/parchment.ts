@@ -50,6 +50,30 @@ export async function resolveParchmentToken(
 }
 
 /**
+ * Return the stored session token when a valid local session satisfies the
+ * requested role, without making that session mandatory. Commands that can be
+ * API-key-only but should prefer the logged-in user's identity when one exists
+ * use this to avoid mixing session-selected resource IDs with another account's
+ * exported API key.
+ */
+export async function resolveParchmentSessionTokenIfAvailable(
+  requiredRole: RequiredRole = 'viewer'
+): Promise<string | undefined> {
+  try {
+    const { supabase } = await requireAuth(requiredRole);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    return session?.access_token;
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+/**
  * Build an authenticated Parchment SDK client for the canonical API.
  *
  * `tokenOverride` pins the request to a specific bearer token instead of the

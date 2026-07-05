@@ -17,7 +17,11 @@ import { pickBean, guardCancel } from '../lib/interactive/forms.js';
 import { normalizePathInput } from '../lib/path-input.js';
 import { startWatch, loadWatchSession } from '../lib/interactive/watch.js';
 import { getConfigValue } from '../lib/config.js';
-import { createParchmentClient, unwrapParchment } from '../lib/parchment.js';
+import {
+  createParchmentClient,
+  resolveParchmentSessionTokenIfAvailable,
+  unwrapParchment,
+} from '../lib/parchment.js';
 import type { components } from '@purveyors/sdk';
 import type { OutputOptions } from '../types/index.js';
 
@@ -719,7 +723,12 @@ Required: <file> path and --coffee-id (unless using --form)
           // parses the raw .alog, creates the roast, and persists the curve +
           // events atomically; identity is resolved from the bearer token
           // (session JWT or owner-bound API key), so there is no local write.
-          const client = await createParchmentClient('member');
+          // Prefer an existing logged-in member session for flag mode too:
+          // users often copy --coffee-id from session-scoped inventory, and an
+          // exported API key for another account must not steal that request.
+          // If no valid session exists, the API-key-only path still works.
+          const sessionToken = await resolveParchmentSessionTokenIfAvailable('member');
+          const client = await createParchmentClient('member', sessionToken);
           const payload = unwrapParchment(
             await client.roasts.import({
               fileContent,
