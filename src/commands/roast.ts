@@ -16,6 +16,8 @@ import type {
 import { pickBean, guardCancel } from '../lib/interactive/forms.js';
 import { normalizePathInput } from '../lib/path-input.js';
 import { startWatch, loadWatchSession } from '../lib/interactive/watch.js';
+import type { WatchRoastImporter } from '../lib/interactive/watch.js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { getConfigValue } from '../lib/config.js';
 import {
   createParchmentClient,
@@ -102,6 +104,40 @@ export function mapSdkImportResult(
     batch_name: roast.batch_name ?? fallbackBatchName,
     coffee_name: roast.coffee_name ?? '',
     coffee_id: roast.coffee_id ?? fallbackCoffeeId,
+  };
+}
+
+/**
+ * Build the roast importer used by `purvey roast watch`. Each import resolves
+ * the current member session token at call time (so long-running watch sessions
+ * survive token refresh) and forwards the raw `.alog` to the canonical Parchment
+ * API via the SDK, which parses and persists the roast server-side. The session
+ * JWT is pinned per request so an exported PARCHMENT_API_KEY/PURVEYORS_API_KEY
+ * for another account cannot authorize a write against the session user's beans.
+ */
+export function createWatchRoastImporter(supabase: SupabaseClient): WatchRoastImporter {
+  return async (args) => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      throw new AuthError('Session expired mid-watch. Run `purvey auth login` and retry.');
+    }
+    const client = await createParchmentClient('member', session.access_token);
+    const payload = unwrapParchment(
+      await client.roasts.import({
+        fileContent: args.fileContent,
+        fileName: args.fileName,
+        coffeeId: args.coffeeId,
+        batchName: args.batchName,
+        ozIn: args.ozIn,
+        roastNotes: args.roastNotes,
+        roastTargets: args.roastTargets,
+        fileSize: Buffer.byteLength(args.fileContent, 'utf-8'),
+      }),
+      'roast import'
+    );
+    return mapSdkImportResult(payload, args.coffeeId, args.batchName);
   };
 }
 
@@ -806,6 +842,7 @@ Notes:
     .action(
       withErrorHandling(async (directory: string | undefined, opts: Record<string, unknown>) => {
         const { supabase, userId } = await requireAuth('member');
+        const roastImporter = createWatchRoastImporter(supabase);
 
         const parseCommitMode = (value: unknown, fallback: 'batch' | 'individual' = 'batch') => {
           if (value === undefined || value === null || String(value).trim() === '') {
@@ -845,19 +882,25 @@ Notes:
               'No watch session to resume. Start a new one with: purvey roast watch <dir> --coffee-id <id>'
             );
           }
-          await startWatch(supabase, userId, saved.directory, {
-            coffeeId: saved.coffeeId,
-            coffeeName: saved.coffeeName,
-            batchPrefix: saved.batchPrefix,
-            promptEach: Boolean(saved.promptEach),
-            autoMatch: Boolean(saved.autoMatch),
-            commitMode: saved.commitMode ?? 'batch',
-            startedAt: saved.startedAt,
-            resumeImports: saved.imports,
-            ozIn: saved.ozIn,
-            roastNotes: saved.roastNotes,
-            roastTargets: saved.roastTargets,
-          });
+          await startWatch(
+            supabase,
+            userId,
+            saved.directory,
+            {
+              coffeeId: saved.coffeeId,
+              coffeeName: saved.coffeeName,
+              batchPrefix: saved.batchPrefix,
+              promptEach: Boolean(saved.promptEach),
+              autoMatch: Boolean(saved.autoMatch),
+              commitMode: saved.commitMode ?? 'batch',
+              startedAt: saved.startedAt,
+              resumeImports: saved.imports,
+              ozIn: saved.ozIn,
+              roastNotes: saved.roastNotes,
+              roastTargets: saved.roastTargets,
+            },
+            { roastImporter }
+          );
           return;
         }
 
@@ -971,19 +1014,25 @@ Notes:
           });
           guardCancel(roastNotesRaw);
 
-          await startWatch(supabase, userId, watchDir, {
-            coffeeId: watchCoffeeId,
-            coffeeName: watchCoffeeName,
-            batchPrefix,
-            commitMode,
-            promptEach: useAutoMatch ? false : Boolean(promptEachRaw),
-            autoMatch: useAutoMatch,
-            ozIn: parseOptionalPositiveNumber(ozInRaw, 'green weight'),
-            roastTargets:
-              String(roastTargetsRaw).trim() !== '' ? String(roastTargetsRaw).trim() : undefined,
-            roastNotes:
-              String(roastNotesRaw).trim() !== '' ? String(roastNotesRaw).trim() : undefined,
-          });
+          await startWatch(
+            supabase,
+            userId,
+            watchDir,
+            {
+              coffeeId: watchCoffeeId,
+              coffeeName: watchCoffeeName,
+              batchPrefix,
+              commitMode,
+              promptEach: useAutoMatch ? false : Boolean(promptEachRaw),
+              autoMatch: useAutoMatch,
+              ozIn: parseOptionalPositiveNumber(ozInRaw, 'green weight'),
+              roastTargets:
+                String(roastTargetsRaw).trim() !== '' ? String(roastTargetsRaw).trim() : undefined,
+              roastNotes:
+                String(roastNotesRaw).trim() !== '' ? String(roastNotesRaw).trim() : undefined,
+            },
+            { roastImporter }
+          );
           return;
         }
 
@@ -1062,17 +1111,23 @@ Notes:
 
         const watchDir = normalizePathInput(directory);
 
-        await startWatch(supabase, userId, watchDir, {
-          coffeeId,
-          coffeeName,
-          batchPrefix,
-          commitMode,
-          promptEach: Boolean(opts.promptEach),
-          autoMatch,
-          ozIn,
-          roastNotes,
-          roastTargets,
-        });
+        await startWatch(
+          supabase,
+          userId,
+          watchDir,
+          {
+            coffeeId,
+            coffeeName,
+            batchPrefix,
+            commitMode,
+            promptEach: Boolean(opts.promptEach),
+            autoMatch,
+            ozIn,
+            roastNotes,
+            roastTargets,
+          },
+          { roastImporter }
+        );
       })
     );
 

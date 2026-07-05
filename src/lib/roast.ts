@@ -2,7 +2,6 @@ import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AuthError, PrvrsError } from './errors.js';
 import { sanitizeFilterValue } from './catalog.js';
-import { importArtisanData } from './artisan/import.js';
 import type { ArtisanImportResult } from './artisan/import.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -512,100 +511,9 @@ export function defaultBatchName(coffeeName: string, dateIso: string): string {
   return `${coffeeName} ${dateIso}`;
 }
 
-/**
- * Import a roast from an Artisan .alog file in one step:
- *   1. Verify inventory ownership + get coffee name
- *   2. Create a new roast_profile row
- *   3. Run the full Artisan import (temperatures, events, profile metadata)
- *   4. Return the combined result
- *
- * The supabase client must already be authenticated as userId.
- */
-export async function importRoastFromFile(
-  supabase: SupabaseClient,
-  userId: string,
-  input: ImportRoastInput
-): Promise<ImportRoastResult> {
-  const parsed = importRoastSchema.parse(input);
-
-  // 1. Verify ownership and get coffee name
-  const { data: invItem, error: invError } = await supabase
-    .from('green_coffee_inv')
-    .select('id, coffee_catalog!catalog_id (name)')
-    .eq('id', parsed.coffeeId)
-    .eq('user', userId)
-    .single();
-
-  if (invError || !invItem) {
-    throw new AuthError(`Inventory item ${parsed.coffeeId} not found or does not belong to you.`);
-  }
-
-  const catalogRaw = invItem.coffee_catalog as
-    | { name: string | null }
-    | { name: string | null }[]
-    | null;
-  const catalog = Array.isArray(catalogRaw) ? (catalogRaw[0] ?? null) : catalogRaw;
-  const coffeeName = catalog?.name ?? `Coffee #${parsed.coffeeId}`;
-
-  // 2. Extract roast date + weight from the .alog if not provided by caller
-  let artisanRaw: Record<string, unknown> | undefined;
-  try {
-    // Light pre-parse to grab roastdate and weight without a full import cycle.
-    // We import parseArtisanFile lazily here to keep imports tidy.
-    const { parseArtisanFile } = await import('./artisan/import.js');
-    const artisan = await parseArtisanFile(parsed.fileContent, parsed.fileName);
-    artisanRaw = artisan as unknown as Record<string, unknown>;
-  } catch {
-    // Pre-parse failure is non-fatal here; the real import will surface the error
-  }
-
-  const roastDate: string =
-    (artisanRaw?.roastdate as string | undefined) ?? new Date().toISOString().slice(0, 10);
-
-  let ozIn = parsed.ozIn;
-  if (ozIn === undefined && artisanRaw?.weight) {
-    ozIn = extractOzFromAlog(artisanRaw.weight as [number, number, string]);
-  }
-
-  const batchName = parsed.batchName ?? defaultBatchName(coffeeName, roastDate);
-
-  // 3. Create roast_profile row
-  const insertPayload: Record<string, unknown> = {
-    user: userId,
-    coffee_id: parsed.coffeeId,
-    coffee_name: coffeeName,
-    batch_name: batchName,
-    roast_date: roastDate,
-    data_source: 'artisan_import',
-  };
-  if (ozIn !== undefined) insertPayload.oz_in = ozIn;
-  if (parsed.roastNotes !== undefined) insertPayload.roast_notes = parsed.roastNotes;
-  if (parsed.roastTargets !== undefined) insertPayload.roast_targets = parsed.roastTargets;
-
-  const { data: inserted, error: insertError } = await supabase
-    .from('roast_profiles')
-    .insert(insertPayload)
-    .select('roast_id')
-    .single();
-
-  if (insertError) throw insertError;
-
-  const roastId: number = (inserted as { roast_id: number }).roast_id;
-
-  // 4. Run the full Artisan import (updates profile metadata + writes temps/events)
-  const importResult = await importArtisanData(
-    supabase,
-    roastId,
-    userId,
-    parsed.fileContent,
-    parsed.fileName
-  );
-
-  return {
-    ...importResult,
-    roast_id: roastId,
-    batch_name: batchName,
-    coffee_name: coffeeName,
-    coffee_id: parsed.coffeeId,
-  };
-}
+// NOTE: The legacy direct-to-Supabase importer `importRoastFromFile` was
+// removed once `purvey roast import` and `purvey roast watch` both moved to the
+// canonical Parchment API (`client.roasts.import`), which parses the raw `.alog`
+// and persists the curve + events server-side. The pure helpers below
+// (`importRoastSchema`, `extractOzFromAlog`, `defaultBatchName`,
+// `ImportRoastResult`) remain the stable contract for that SDK-backed path.

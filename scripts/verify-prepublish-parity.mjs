@@ -53,14 +53,7 @@ export const REQUIRED_SELF_IMPORT_MEMBERS = {
     'updateInventory',
     'deleteInventory',
   ],
-  './roast': [
-    'listRoasts',
-    'getRoast',
-    'createRoast',
-    'updateRoast',
-    'deleteRoast',
-    'importRoastFromFile',
-  ],
+  './roast': ['listRoasts', 'getRoast', 'createRoast', 'updateRoast', 'deleteRoast'],
   './sales': ['listSales', 'recordSale', 'updateSale', 'deleteSale'],
   './tasting': ['getTastingNotes', 'rateCoffee'],
   './lib': [
