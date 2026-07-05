@@ -3,17 +3,10 @@ import * as p from '@clack/prompts';
 import { access, readFile } from 'fs/promises';
 import { basename } from 'path';
 import { outputData, info, success } from '../lib/output.js';
-import { withErrorHandling, PrvrsError } from '../lib/errors.js';
+import { withErrorHandling, PrvrsError, AuthError } from '../lib/errors.js';
 import { requireAuth } from '../lib/auth-guard.js';
 import { confirm, todayIso } from '../lib/prompts.js';
-import {
-  listRoasts,
-  getRoast,
-  createRoast,
-  deleteRoast,
-  updateRoast,
-  importRoastFromFile,
-} from '../lib/roast.js';
+import { listRoasts, getRoast, createRoast, deleteRoast, updateRoast } from '../lib/roast.js';
 import type {
   RoastProfile,
   TemperatureEntry,
@@ -24,10 +17,93 @@ import { pickBean, guardCancel } from '../lib/interactive/forms.js';
 import { normalizePathInput } from '../lib/path-input.js';
 import { startWatch, loadWatchSession } from '../lib/interactive/watch.js';
 import { getConfigValue } from '../lib/config.js';
+import {
+  createParchmentClient,
+  resolveParchmentSessionTokenIfAvailable,
+  unwrapParchment,
+} from '../lib/parchment.js';
+import type { components } from '@purveyors/sdk';
 import type { OutputOptions } from '../types/index.js';
+
+/** Canonical `POST /v1/roasts/imports` response payload. */
+type RoastImportPayload = components['schemas']['RoastImportResponse'];
 
 // Re-export types for backwards compatibility
 export type { RoastProfile, TemperatureEntry, RoastEventEntry };
+
+/**
+ * Map the canonical Parchment `roasts.import` response onto the CLI's existing
+ * {@link ImportRoastResult} output shape, so `--pretty` and machine output stay
+ * stable now that Artisan parsing and persistence happen server-side.
+ *
+ * `RoastDetailResource` surfaces only charge / first-crack / drop as top-level
+ * time columns, but the full Artisan milestone set (dry-end, second-crack
+ * start/end, cool) is persisted as milestone roast events. Recover those from
+ * `roast.events` so JSON and `--pretty` output keep the same milestone timing
+ * the pre-SDK local importer exposed, without re-parsing the `.alog` locally.
+ */
+export function mapSdkImportResult(
+  payload: RoastImportPayload,
+  fallbackCoffeeId: number,
+  fallbackBatchName: string
+): ImportRoastResult {
+  const roast = payload.data.roast;
+  const summary = payload.data.import;
+
+  const milestones: ImportRoastResult['milestones'] = {};
+  if (roast.charge_time != null) milestones.charge = roast.charge_time;
+  if (roast.fc_start_time != null) milestones.fc_start = roast.fc_start_time;
+  if (roast.fc_end_time != null) milestones.fc_end = roast.fc_end_time;
+  if (roast.drop_time != null) milestones.drop = roast.drop_time;
+
+  // Fill any remaining markers (notably dry_end / sc_start / sc_end / cool,
+  // which have no dedicated column) from the canonical milestone events. The
+  // top-level columns above win; events only backfill gaps.
+  const MILESTONE_KEYS: ReadonlyArray<keyof ImportRoastResult['milestones']> = [
+    'charge',
+    'dry_end',
+    'fc_start',
+    'fc_end',
+    'sc_start',
+    'sc_end',
+    'drop',
+    'cool',
+  ];
+  for (const event of roast.events ?? []) {
+    const key = event.event_string as keyof ImportRoastResult['milestones'] | null;
+    if (
+      key != null &&
+      MILESTONE_KEYS.includes(key) &&
+      milestones[key] == null &&
+      event.time_seconds != null
+    ) {
+      milestones[key] = event.time_seconds;
+    }
+  }
+
+  const totalTime = roast.total_roast_time ?? 0;
+  const temperatureUnit: 'F' | 'C' = roast.temperature_unit === 'C' ? 'C' : 'F';
+
+  return {
+    success: true,
+    message: `Imported ${summary.temperaturePoints} data points, ${summary.milestoneEvents} milestones, ${summary.controlEvents} control events`,
+    milestones,
+    phases: {
+      drying_percent: roast.dry_percent ?? 0,
+      maillard_percent: roast.maillard_percent ?? 0,
+      development_percent: roast.development_percent ?? 0,
+      total_time_seconds: totalTime,
+    },
+    total_time: totalTime,
+    temperature_unit: temperatureUnit,
+    milestone_events: summary.milestoneEvents,
+    control_events: summary.controlEvents,
+    roast_id: roast.roast_id,
+    batch_name: roast.batch_name ?? fallbackBatchName,
+    coffee_name: roast.coffee_name ?? '',
+    coffee_id: roast.coffee_id ?? fallbackCoffeeId,
+  };
+}
 
 // ─── Command builder ──────────────────────────────────────────────────────────
 
@@ -557,15 +633,34 @@ Required: <file> path and --coffee-id (unless using --form)
 
             const spin = p.spinner();
             spin.start('Importing roast data...');
-            const result = await importRoastFromFile(supabase, userId, {
-              fileContent,
-              fileName,
-              coffeeId: bean.id,
-              batchName,
-              ozIn,
-              roastNotes: notesStr !== '' ? notesStr : undefined,
-              roastTargets: targetsStr !== '' ? targetsStr : undefined,
-            });
+            // Parse + persist happen server-side via the canonical Parchment
+            // API. `bean` was resolved through the authenticated Supabase
+            // session above (pickBean), so the import must run under that same
+            // session identity. Pin the request to the session access token
+            // instead of letting an exported PARCHMENT_API_KEY/PURVEYORS_API_KEY
+            // for another account authorize an import against a coffeeId owned
+            // by the session user.
+            const {
+              data: { session: formSession },
+            } = await supabase.auth.getSession();
+            if (!formSession?.access_token) {
+              throw new AuthError('Session expired mid-import. Run `purvey auth login` and retry.');
+            }
+            const client = await createParchmentClient('member', formSession.access_token);
+            const payload = unwrapParchment(
+              await client.roasts.import({
+                fileContent,
+                fileName,
+                coffeeId: bean.id,
+                batchName,
+                ozIn,
+                roastNotes: notesStr !== '' ? notesStr : undefined,
+                roastTargets: targetsStr !== '' ? targetsStr : undefined,
+                fileSize: Buffer.byteLength(fileContent, 'utf-8'),
+              }),
+              'roast import'
+            );
+            const result = mapSdkImportResult(payload, bean.id, batchName);
             spin.stop('Done');
 
             p.outro(`Roast imported! Profile #${result.roast_id} created.`);
@@ -597,10 +692,7 @@ Required: <file> path and --coffee-id (unless using --form)
           const fileContent = await readFile(filePath, 'utf-8');
           const fileName = basename(filePath);
 
-          // 3. Authenticate
-          const { supabase, userId } = await requireAuth('member');
-
-          // 4. Parse --coffee-id
+          // 3. Parse --coffee-id
           if (!opts.coffeeId) {
             throw new PrvrsError(
               'INVALID_ARGUMENT',
@@ -613,7 +705,7 @@ Required: <file> path and --coffee-id (unless using --form)
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --coffee-id: "${opts.coffeeId}".`);
           }
 
-          // 5. Parse --oz-in if provided
+          // 4. Parse --oz-in if provided
           let ozIn: number | undefined;
           if (opts.ozIn !== undefined) {
             ozIn = parseFloat(opts.ozIn as string);
@@ -627,18 +719,32 @@ Required: <file> path and --coffee-id (unless using --form)
               ? opts.roastTargets.trim()
               : undefined;
 
-          // 6. Run the import
-          const result = await importRoastFromFile(supabase, userId, {
-            fileContent,
-            fileName,
-            coffeeId,
-            batchName: opts.batchName as string | undefined,
-            ozIn,
-            roastNotes: opts.roastNotes as string | undefined,
-            roastTargets,
-          });
+          // 5. Run the import via the canonical Parchment API. The server
+          // parses the raw .alog, creates the roast, and persists the curve +
+          // events atomically; identity is resolved from the bearer token
+          // (session JWT or owner-bound API key), so there is no local write.
+          // Prefer an existing logged-in member session for flag mode too:
+          // users often copy --coffee-id from session-scoped inventory, and an
+          // exported API key for another account must not steal that request.
+          // If no valid session exists, the API-key-only path still works.
+          const sessionToken = await resolveParchmentSessionTokenIfAvailable('member');
+          const client = await createParchmentClient('member', sessionToken);
+          const payload = unwrapParchment(
+            await client.roasts.import({
+              fileContent,
+              fileName,
+              coffeeId,
+              batchName: opts.batchName as string | undefined,
+              ozIn,
+              roastNotes: opts.roastNotes as string | undefined,
+              roastTargets,
+              fileSize: Buffer.byteLength(fileContent, 'utf-8'),
+            }),
+            'roast import'
+          );
+          const result = mapSdkImportResult(payload, coffeeId, (opts.batchName as string) ?? '');
 
-          // 7. Output
+          // 6. Output
           if (globalOpts.pretty) {
             printImportPretty(result, coffeeId);
           } else {
@@ -1006,6 +1112,7 @@ function printImportPretty(result: ImportRoastResult, coffeeId: number): void {
       fc_start: 'FC Start',
       fc_end: 'FC End',
       sc_start: 'SC Start',
+      sc_end: 'SC End',
       drop: 'Drop',
       cool: 'Cool',
     };
