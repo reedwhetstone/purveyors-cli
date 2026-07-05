@@ -13,7 +13,7 @@ Use this file as the single maintained guide for humans and agents. `CLAUDE.md` 
 - Version source of truth: `package.json` and `purvey --version`
 - Binary entrypoint: `purvey` via package `bin` field
 - Package contract source of truth: `package.json` `exports` plus `src/lib/manifest.ts`
-- In-process product exports: `@purveyors/cli/catalog`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, and `/ai`
+- In-process product exports: `@purveyors/cli/catalog`, `/market`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, and `/ai`
 - In-process manifest export: `@purveyors/cli/manifest` via package export `./manifest`
 - Live docs: `/docs/cli/*` and `/docs/api/*` on `https://purveyors.io`
 
@@ -32,6 +32,7 @@ Current command groups:
 - `catalog`: `search` (filters: origin, process, price-min/max, flavor, name, supplier, ids, stocked, variety, drying-method, stocked-days, processing-base-method, fermentation-type, process-additive, processing-disclosure-level, processing-confidence-min, sort, offset, limit; proof output via `--include-proof`), `get <id>`, `stats`, `facets <field>`, `rank`, `rank-premium`, `supplier-list` (filters: country, stocked, non-wholesale-only, sample-size, limit), `supplier-detail <supplier>` (filters: country, stocked, non-wholesale-only, top-coffees, sample-size), `supplier-rank` (filters: country, stocked, non-wholesale-only, min-coffees, sample-size, limit), `similar <id>`. Structured processing filters require the `member` role under the current session-authenticated CLI path.
 - `price-index`: Parchment Price Index snapshots via the canonical API and `@purveyors/sdk` (filters: origin, process, grade, from, to, wholesale, page, limit). Session-token use requires `member`; API-key use is enforced server-side for PPI access.
 - `procurement`: `list`, `get <id>`, `matches <id>` for saved sourcing briefs via the canonical API and `@purveyors/sdk`. Session-token use requires `member`; API-key use is enforced server-side. No create/write command belongs here until the Phase 2 write contract ships.
+- `market`: `signals`, `stats`, `metadata` — Market Index decision surface via the canonical API and `@purveyors/sdk` (thin read wrappers; no client-side computation). Mixed auth: each command has a public teaser slice that works unauthenticated (`signals --summary`, `stats` with no origin/process at `market=retail`, `metadata` at dimension=process/no-origin/market=retail/grain=month); all other filters require Parchment Intelligence access, enforced server-side (403 on denial). `--json` returns the API response verbatim.
 - `inventory`: `list` (filters: stocked, catalog-id, purchase-date-start, purchase-date-end, origin, limit, offset), `get <id>`, `add`, `update <id>`, `delete <id>` (`--force` for cascade delete)
 - `roast`: `list` (filters: coffee-id, roast-id, batch-name, coffee-name, date-start, date-end, stocked, catalog-id, limit, offset), `get <id>`, `create`, `update <id>`, `delete <id>`, `import [file]`, `watch [directory]`
 - `sales`: `list` (filters: roast-id, date-start, date-end, buyer, limit, offset), `record`, `update <id>`, `delete <id>`
@@ -203,7 +204,7 @@ The published package and binary run from `dist/`, not `src/`. Any command-surfa
 When doing a docs-only refresh, confirm these before opening a PR:
 
 - README command reference matches `src/commands/*` and `src/lib/manifest.ts`.
-- Auth and role claims match the actual `requireAuth` boundary: catalog is viewer, with `catalog search` structured processing filters elevated to member; price-index, procurement, inventory, roast, sales, and tasting are member under session-token use; auth, config, context, and manifest are local or unauthenticated.
+- Auth and role claims match the actual boundary: catalog is viewer, with `catalog search` structured processing filters elevated to member; market has unauthenticated public teaser slices and Parchment Intelligence-gated filtered slices; price-index, procurement, inventory, roast, sales, and tasting are member under session-token use; auth, config, context, and manifest are local or unauthenticated.
 - Headless OAuth remains documented as first-class, not as a fallback.
 - `purvey manifest` is documented as the preferred shell contract; `purvey context --json` is documented as compatibility.
 - `@purveyors/cli/manifest` and package subpath exports are documented as supported in-process contracts.

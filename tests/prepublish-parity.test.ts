@@ -123,6 +123,7 @@ describe('prepublish parity guardrail', () => {
         '.': './dist/index.js',
         './catalog': './dist/lib/catalog.js',
         './manifest': './dist/lib/manifest.js',
+        './market': './dist/lib/market.js',
         './ai': './dist/lib/ai.js',
       })
     );

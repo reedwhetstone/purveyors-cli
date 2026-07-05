@@ -90,6 +90,20 @@ export async function createParchmentClient(
   return createSdkClient({ baseUrl: getParchmentBaseUrl(), token });
 }
 
+/**
+ * Build a Parchment SDK client that authenticates when possible but never
+ * requires it. An explicit API key wins; otherwise a valid local session is
+ * attached if one exists; otherwise the request is anonymous. Used by the
+ * `market` command family, whose public teaser slices are readable without
+ * auth while entitled slices are enforced server-side (the API returns
+ * 401/403, which `unwrapParchment` maps to the CLI error contract).
+ */
+export async function createOptionalParchmentClient(): Promise<ParchmentClient> {
+  const apiKey = process.env.PARCHMENT_API_KEY || process.env.PURVEYORS_API_KEY;
+  const token = apiKey || (await resolveParchmentSessionTokenIfAvailable('viewer'));
+  return createSdkClient({ baseUrl: getParchmentBaseUrl(), token });
+}
+
 /** openapi-fetch result shape: `{ data?, error?, response }`. */
 export interface ParchmentResult<T> {
   data?: T;

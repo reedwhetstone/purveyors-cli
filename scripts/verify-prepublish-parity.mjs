@@ -29,6 +29,7 @@ export const REQUIRED_PACKAGE_EXPORTS = {
   './tasting': './dist/lib/tasting.js',
   './lib': './dist/lib/index.js',
   './manifest': './dist/lib/manifest.js',
+  './market': './dist/lib/market.js',
   './ai': './dist/lib/ai.js',
 };
 
@@ -65,6 +66,7 @@ export const REQUIRED_SELF_IMPORT_MEMBERS = {
     'getCliManifest',
   ],
   './manifest': ['getCliManifest', 'renderContextText'],
+  './market': ['marketSignals', 'marketSignalsSummary', 'marketStats', 'marketMetadataIndex'],
   './ai': ['classifyRoast'],
 };
 
