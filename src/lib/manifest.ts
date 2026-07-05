@@ -1327,13 +1327,19 @@ function renderRoles(
     .filter((group) => group.auth === 'none' && group.name !== 'auth')
     .map((group) => group.name)
     .sort();
+  const mixedAccessCommands = groups
+    .filter((group) => group.auth === 'mixed')
+    .map((group) => group.name)
+    .sort();
 
   return [
     'ROLES',
     '-----',
     `No pre-existing session required for: ${unauthenticatedCommands.join(', ')}.`,
     `Local-only commands: ${localOnlyCommands.join(', ')}.`,
-    'Commands that talk to purveyors.io require authentication, except for the auth commands that establish or inspect a session.',
+    `Mixed public and entitled access: ${mixedAccessCommands.join(', ')}.`,
+    'Mixed-access public teaser slices can run without a session; filtered or non-public slices require server-side entitlements.',
+    'Commands that talk to purveyors.io generally require authentication unless listed above as public, local-only, or mixed-access teaser slices.',
     ...roleContracts.map((role) => `${role.role.padEnd(7, ' ')} ${role.description}`),
     '',
     'Both roles are granted on sign-in through purveyors.io.',

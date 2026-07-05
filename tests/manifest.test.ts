@@ -209,6 +209,10 @@ describe('CLI manifest contract', () => {
       'No pre-existing session required for: auth, config, context, manifest.'
     );
     expect(text).toContain('Local-only commands: config, context, manifest.');
+    expect(text).toContain('Mixed public and entitled access: market.');
+    expect(text).toContain(
+      'Mixed-access public teaser slices can run without a session; filtered or non-public slices require server-side entitlements.'
+    );
     expect(text).not.toContain('ALL commands require authentication.');
     expect(text).toContain('Machine-mode error envelope: stderr');
     expect(text).toContain('guaranteed fields: error, code, exitCode, message');
@@ -334,6 +338,7 @@ describe('CLI manifest contract', () => {
       'No pre-existing session required for: auth, config, context, manifest.'
     );
     expect(output).toContain('Local-only commands: config, context, manifest.');
+    expect(output).toContain('Mixed public and entitled access: market.');
     expect(output.trim().startsWith('{')).toBe(false);
   }, 15000);
 });
