@@ -29,7 +29,6 @@ export const REQUIRED_PACKAGE_EXPORTS = {
   './tasting': './dist/lib/tasting.js',
   './lib': './dist/lib/index.js',
   './manifest': './dist/lib/manifest.js',
-  './artisan': './dist/lib/artisan/index.js',
   './ai': './dist/lib/ai.js',
 };
 
@@ -66,7 +65,6 @@ export const REQUIRED_SELF_IMPORT_MEMBERS = {
     'getCliManifest',
   ],
   './manifest': ['getCliManifest', 'renderContextText'],
-  './artisan': ['parseAlogFile', 'importArtisanData'],
   './ai': ['classifyRoast'],
 };
 

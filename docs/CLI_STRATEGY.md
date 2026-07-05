@@ -134,7 +134,7 @@ Reference surfaces:
 - `purvey context` is the dense human-readable reference.
 - `purvey context --json` emits the same JSON as `purvey manifest`, but is maintained for compatibility with existing wrappers and parity checks.
 - `@purveyors/cli/manifest` exposes the same contract in-process for Node.js consumers.
-- `@purveyors/cli/catalog`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, `/artisan`, and `/ai` expose the shared function layer used by agents and the website.
+- `@purveyors/cli/catalog`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, and `/ai` expose the shared function layer used by agents and the website.
 
 Package export changes are product changes. They need the same care as CLI command changes because coffee-app and agent runtimes consume those paths directly.
 
@@ -165,7 +165,7 @@ It provides:
 - one stable binary for operators, scripts, and agents
 - a documented auth and role model
 - explicit machine-readable and human-readable reference surfaces
-- reusable in-process exports for catalog, inventory, roast, sales, tasting, shared library helpers, manifest, Artisan import, and AI workflows
+- reusable in-process exports for catalog, inventory, roast, sales, tasting, shared library helpers, manifest, and AI workflows
 - a first-class headless OAuth path for agents, CI, SSH sessions, and remote containers
 - compiled artifact checks that keep the published package aligned with source
 - a shared execution layer whose ergonomics directly affect the website and agent

@@ -115,7 +115,6 @@ The npm package is both a binary and a shared TypeScript product surface. `coffe
 | `@purveyors/cli/tasting`   | Tasting note and rating operations                                                   |
 | `@purveyors/cli/lib`       | Shared library helpers                                                               |
 | `@purveyors/cli/manifest`  | Stable machine-readable CLI manifest                                                 |
-| `@purveyors/cli/artisan`   | Artisan `.alog` parsing and import utilities                                         |
 | `@purveyors/cli/ai`        | AI helper surface used by CLI workflows                                              |
 
 Shell integrations should usually start with `purvey manifest`. In-process agent and website integrations should import the smallest relevant subpath instead of shelling out when they are already running in Node.js.
