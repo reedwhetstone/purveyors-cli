@@ -13,7 +13,7 @@ Use this file as the single maintained guide for humans and agents. `CLAUDE.md` 
 - Version source of truth: `package.json` and `purvey --version`
 - Binary entrypoint: `purvey` via package `bin` field
 - Package contract source of truth: `package.json` `exports` plus `src/lib/manifest.ts`
-- In-process product exports: `@purveyors/cli/catalog`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, `/artisan`, and `/ai`
+- In-process product exports: `@purveyors/cli/catalog`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, and `/ai`
 - In-process manifest export: `@purveyors/cli/manifest` via package export `./manifest`
 - Live docs: `/docs/cli/*` and `/docs/api/*` on `https://purveyors.io`
 
