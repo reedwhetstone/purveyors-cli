@@ -11,9 +11,33 @@ import { readFile, access, writeFile, mkdir } from 'fs/promises';
 import { join, extname } from 'path';
 import { constants } from 'fs';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { importRoastFromFile } from '../roast.js';
+import type { ImportRoastResult } from '../roast.js';
 import type { MilestoneData, ProcessedRoastData } from '../artisan/types.js';
 import { CONFIG_DIR } from '../config.js';
+
+// ─── Roast importer seam ────────────────────────────────────────────────────
+
+/**
+ * Arguments for a single watched roast import. Identity is resolved by the
+ * importer itself (session JWT / API key), so the watcher never handles the
+ * caller's credentials directly.
+ */
+export interface WatchRoastImportArgs {
+  fileContent: string;
+  fileName: string;
+  coffeeId: number;
+  batchName: string;
+  ozIn?: number;
+  roastNotes?: string;
+  roastTargets?: string;
+}
+
+/**
+ * Imports one .alog roast and returns the CLI's canonical import result shape.
+ * The production implementation forwards to the Parchment API via the SDK
+ * (`client.roasts.import`); the raw `.alog` is parsed and persisted server-side.
+ */
+export type WatchRoastImporter = (args: WatchRoastImportArgs) => Promise<ImportRoastResult>;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -70,7 +94,7 @@ export interface StartWatchRuntime {
   readFileImpl?: typeof readFile;
   readdirImpl?: (typeof import('fs/promises'))['readdir'];
   saveWatchSessionImpl?: typeof saveWatchSession;
-  importRoastFromFileImpl?: typeof importRoastFromFile;
+  roastImporter?: WatchRoastImporter;
   watchImpl?: typeof watch;
   addSignalListener?: (signal: 'SIGINT' | 'SIGTERM', listener: () => void) => void;
   removeSignalListener?: (signal: 'SIGINT' | 'SIGTERM', listener: () => void) => void;
@@ -393,7 +417,10 @@ export async function startWatch(
   const accessFile = runtime.accessImpl ?? access;
   const readFileText = runtime.readFileImpl ?? readFile;
   const saveSession = runtime.saveWatchSessionImpl ?? saveWatchSession;
-  const importRoast = runtime.importRoastFromFileImpl ?? importRoastFromFile;
+  if (!runtime.roastImporter) {
+    throw new Error('startWatch requires a roastImporter to import roasts.');
+  }
+  const importRoast = runtime.roastImporter;
   const watchDirectory = runtime.watchImpl ?? watch;
   const addSignalListener = runtime.addSignalListener ?? process.on.bind(process);
   const removeSignalListener = runtime.removeSignalListener ?? process.removeListener.bind(process);
@@ -480,7 +507,7 @@ export async function startWatch(
     }
 
     try {
-      const result = await importRoast(supabase, userId, {
+      const result = await importRoast({
         fileContent,
         fileName: record.fileName,
         coffeeId,

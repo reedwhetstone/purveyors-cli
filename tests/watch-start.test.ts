@@ -62,7 +62,7 @@ function createRuntime() {
   let callback: ((eventType: string, filename: string) => void) | null = null;
   const close = vi.fn();
   const saveWatchSessionImpl = vi.fn().mockResolvedValue(undefined);
-  const importRoastFromFileImpl = vi.fn();
+  const roastImporter = vi.fn();
   const signalListeners = new Map<'SIGINT' | 'SIGTERM', () => void>();
   let exitKeyListener: (() => void) | null = null;
   const cleanupExitKeyListener = vi.fn(() => {
@@ -72,7 +72,7 @@ function createRuntime() {
   const runtime: StartWatchRuntime = {
     debounceMs: 1,
     saveWatchSessionImpl,
-    importRoastFromFileImpl,
+    roastImporter,
     addSignalListener: vi.fn((signal, listener) => {
       signalListeners.set(signal, listener);
     }),
@@ -93,7 +93,7 @@ function createRuntime() {
     runtime,
     close,
     saveWatchSessionImpl,
-    importRoastFromFileImpl,
+    roastImporter,
     emitFileEvent(filename: string) {
       if (!callback) {
         throw new Error('watch callback was not registered');
@@ -171,7 +171,7 @@ describe('startWatch', () => {
   it('queues batch imports and commits them on shutdown with metadata preserved', async () => {
     const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-'));
     const runtime = createRuntime();
-    runtime.importRoastFromFileImpl.mockResolvedValue(createImportResult(101));
+    runtime.roastImporter.mockResolvedValue(createImportResult(101));
 
     const sessionPromise = startWatch(
       {} as never,
@@ -194,15 +194,13 @@ describe('startWatch', () => {
     runtime.emitFileEvent('new-roast.alog');
     await sleep(10);
 
-    expect(runtime.importRoastFromFileImpl).not.toHaveBeenCalled();
+    expect(runtime.roastImporter).not.toHaveBeenCalled();
 
     runtime.emitSignal('SIGINT');
     const session = await sessionPromise;
 
-    expect(runtime.importRoastFromFileImpl).toHaveBeenCalledTimes(1);
-    expect(runtime.importRoastFromFileImpl).toHaveBeenCalledWith(
-      {},
-      'user-1',
+    expect(runtime.roastImporter).toHaveBeenCalledTimes(1);
+    expect(runtime.roastImporter).toHaveBeenCalledWith(
       expect.objectContaining({
         fileContent: 'alog content',
         fileName: 'new-roast.alog',
@@ -234,7 +232,7 @@ describe('startWatch', () => {
 
     processAlogFileMock.mockReturnValue({ title: 'Exit Key Roast' });
     pickBeanMock.mockResolvedValue({ id: 7, name: 'Test Coffee' });
-    runtime.importRoastFromFileImpl?.mockResolvedValue(createImportResult(456));
+    runtime.roastImporter?.mockResolvedValue(createImportResult(456));
 
     const promise = startWatch(
       {} as never,
@@ -261,7 +259,7 @@ describe('startWatch', () => {
     const session = await promise;
 
     expect(session.imports[0]?.status).toBe('success');
-    expect(runtime.importRoastFromFileImpl).toHaveBeenCalledOnce();
+    expect(runtime.roastImporter).toHaveBeenCalledOnce();
     expect(cleanupExitKeyListener).toHaveBeenCalledOnce();
     expect(hasExitKeyListener()).toBe(false);
   });
@@ -269,7 +267,7 @@ describe('startWatch', () => {
   it('rehydrates pending resume imports and finalizes them on shutdown', async () => {
     const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-resume-'));
     const runtime = createRuntime();
-    runtime.importRoastFromFileImpl.mockResolvedValue(createImportResult(202));
+    runtime.roastImporter.mockResolvedValue(createImportResult(202));
     await writeFile(join(watchDir, 'resume.alog'), 'resume content');
 
     const sessionPromise = startWatch(
@@ -301,10 +299,8 @@ describe('startWatch', () => {
     runtime.emitSignal('SIGTERM');
     const session = await sessionPromise;
 
-    expect(runtime.importRoastFromFileImpl).toHaveBeenCalledTimes(1);
-    expect(runtime.importRoastFromFileImpl).toHaveBeenCalledWith(
-      {},
-      'user-2',
+    expect(runtime.roastImporter).toHaveBeenCalledTimes(1);
+    expect(runtime.roastImporter).toHaveBeenCalledWith(
       expect.objectContaining({
         fileContent: 'resume content',
         fileName: 'resume.alog',
@@ -328,7 +324,7 @@ describe('startWatch', () => {
   it('continues sequential batch numbering for new files after resume', async () => {
     const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-resume-seq-'));
     const runtime = createRuntime();
-    runtime.importRoastFromFileImpl.mockResolvedValue(createImportResult(606));
+    runtime.roastImporter.mockResolvedValue(createImportResult(606));
 
     const sessionPromise = startWatch(
       {} as never,
@@ -362,9 +358,7 @@ describe('startWatch', () => {
     runtime.emitSignal('SIGINT');
     const session = await sessionPromise;
 
-    expect(runtime.importRoastFromFileImpl).toHaveBeenCalledWith(
-      {},
-      'user-7',
+    expect(runtime.roastImporter).toHaveBeenCalledWith(
       expect.objectContaining({
         fileName: 'next.alog',
         batchName: 'Original Bean #2',
@@ -378,7 +372,7 @@ describe('startWatch', () => {
   it('skips a file and keeps the session alive when bean selection is cancelled', async () => {
     const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-cancel-'));
     const runtime = createRuntime();
-    runtime.importRoastFromFileImpl.mockResolvedValue(createImportResult(707));
+    runtime.roastImporter.mockResolvedValue(createImportResult(707));
     pickBeanMock.mockReset();
     pickBeanMock.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 9, name: 'Picked Bean' });
 
@@ -423,10 +417,8 @@ describe('startWatch', () => {
         selectedCoffeeId: 9,
       })
     );
-    expect(runtime.importRoastFromFileImpl).toHaveBeenCalledTimes(1);
-    expect(runtime.importRoastFromFileImpl).toHaveBeenCalledWith(
-      {},
-      'user-8',
+    expect(runtime.roastImporter).toHaveBeenCalledTimes(1);
+    expect(runtime.roastImporter).toHaveBeenCalledWith(
       expect.objectContaining({ fileName: 'picked.alog', coffeeId: 9 })
     );
     const combined = stderrOutput.join('');
@@ -439,7 +431,7 @@ describe('startWatch', () => {
   it('persists watch mode flags in the saved session state', async () => {
     const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-prompt-each-'));
     const runtime = createRuntime();
-    runtime.importRoastFromFileImpl.mockResolvedValue(createImportResult(240));
+    runtime.roastImporter.mockResolvedValue(createImportResult(240));
     pickBeanMock.mockResolvedValue({ id: 24, name: 'Prompt Resume Bean' });
 
     const sessionPromise = startWatch(
@@ -484,7 +476,7 @@ describe('startWatch', () => {
   it('restores auto-match behavior for new files after resume', async () => {
     const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-auto-resume-'));
     const runtime = createRuntime();
-    runtime.importRoastFromFileImpl.mockResolvedValue(createImportResult(404));
+    runtime.roastImporter.mockResolvedValue(createImportResult(404));
     classifyRoastMock.mockResolvedValue({
       match: {
         inventoryId: 88,
@@ -533,17 +525,13 @@ describe('startWatch', () => {
     runtime.emitSignal('SIGTERM');
     const session = await sessionPromise;
 
-    expect(runtime.importRoastFromFileImpl).toHaveBeenCalledWith(
-      expect.anything(),
-      'user-5',
+    expect(runtime.roastImporter).toHaveBeenCalledWith(
       expect.objectContaining({
         fileName: 'resumed-auto.alog',
         coffeeId: 88,
       })
     );
-    expect(runtime.importRoastFromFileImpl).not.toHaveBeenCalledWith(
-      expect.anything(),
-      'user-5',
+    expect(runtime.roastImporter).not.toHaveBeenCalledWith(
       expect.objectContaining({
         fileName: 'resumed-auto.alog',
         coffeeId: 0,
@@ -563,7 +551,7 @@ describe('startWatch', () => {
   it('restores prompt-each behavior for new files after resume', async () => {
     const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-prompt-resume-'));
     const runtime = createRuntime();
-    runtime.importRoastFromFileImpl.mockResolvedValue(createImportResult(505));
+    runtime.roastImporter.mockResolvedValue(createImportResult(505));
     pickBeanMock.mockResolvedValue({ id: 55, name: 'Resumed Prompt Bean' });
 
     const sessionPromise = startWatch(
@@ -606,9 +594,7 @@ describe('startWatch', () => {
     runtime.emitSignal('SIGINT');
     const session = await sessionPromise;
 
-    expect(runtime.importRoastFromFileImpl).toHaveBeenCalledWith(
-      {},
-      'user-6',
+    expect(runtime.roastImporter).toHaveBeenCalledWith(
       expect.objectContaining({
         fileName: 'resumed-prompt.alog',
         coffeeId: 55,
@@ -630,7 +616,7 @@ describe('startWatch', () => {
     const runtime = createRuntime();
     let resolveImport: ((value: ReturnType<typeof createImportResult>) => void) | undefined;
 
-    runtime.importRoastFromFileImpl.mockImplementation(
+    runtime.roastImporter.mockImplementation(
       () =>
         new Promise((resolve) => {
           resolveImport = resolve;
@@ -658,7 +644,7 @@ describe('startWatch', () => {
     runtime.emitSignal('SIGINT');
     await sleep(10);
 
-    expect(runtime.importRoastFromFileImpl).toHaveBeenCalledTimes(1);
+    expect(runtime.roastImporter).toHaveBeenCalledTimes(1);
     expect(runtime.hasSignalListener('SIGINT')).toBe(true);
 
     let settled = false;
