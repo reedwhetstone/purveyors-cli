@@ -1380,6 +1380,27 @@ describe('catalog command auth and structured filter parsing', () => {
 });
 
 describe('searchCatalog', () => {
+  it('adds an id tie-break after the requested sort for stable offset pagination', async () => {
+    const { supabase, query } = makeSearchSupabase();
+
+    await searchCatalog(supabase, { sort: 'name', offset: 500, limit: 500 });
+
+    expect(query.order.mock.calls).toEqual([
+      ['name', { ascending: true, nullsFirst: false }],
+      ['id', { ascending: true }],
+    ]);
+    expect(query.range).toHaveBeenCalledWith(500, 999);
+  });
+
+  it('uses id ordering when paginating without another sort', async () => {
+    const { supabase, query } = makeSearchSupabase();
+
+    await searchCatalog(supabase, { offset: 25, limit: 25 });
+
+    expect(query.order).toHaveBeenCalledWith('id', { ascending: true });
+    expect(query.range).toHaveBeenCalledWith(25, 49);
+  });
+
   it('maps structured process filters to canonical catalog columns', async () => {
     const { supabase, query } = makeSearchSupabase();
 
