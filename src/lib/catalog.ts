@@ -511,13 +511,6 @@ export const catalogFacetsSchema = z.object({
   field: z.enum(catalogFacetFields),
   stockedOnly: z.boolean().default(true).optional(),
   limit: z.number().int().min(1).max(100).default(60).optional(),
-  sampleSize: z
-    .number()
-    .int()
-    .min(1)
-    .max(CATALOG_INTELLIGENCE_MAX_SAMPLE_SIZE)
-    .default(SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE)
-    .optional(),
 });
 
 export type CatalogFacetsInput = z.input<typeof catalogFacetsSchema>;

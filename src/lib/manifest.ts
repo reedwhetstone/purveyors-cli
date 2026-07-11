@@ -363,13 +363,12 @@ const commandGroups: CliCommandGroupContract[] = [
             flags: '--all',
             description: 'Use all visible catalog rows instead of the default stocked-only scope.',
           },
-          { flags: '--sample-size <n>', defaultValue: 5000 },
           { flags: '--limit <n>', defaultValue: 60 },
         ],
         notes: [
           'Counts values from catalog rows visible to the current client.',
           'Defaults to currently stocked catalog rows; use --all for all visible rows.',
-          'Output metadata reports stocked_only/scope, rows_examined, sample scope, and truncation for deterministic agent use.',
+          'Output metadata reports stocked_only/scope, rows_examined, and truncation for deterministic agent use.',
         ],
         examples: [
           'purvey catalog facets supplier --pretty',

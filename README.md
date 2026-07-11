@@ -348,7 +348,6 @@ Notes:
 
 - Fields: `supplier`, `country`, `processing_base_method`, `fermentation_type`, `drying_method`, `grade`, `wholesale`
 - `--all`; use all visible catalog rows instead of the default stocked-only scope.
-- `--sample-size <n>`; catalog rows to sample before counting, default `5000`, max `5000`
 - `--limit <n>`; default `60`, max `100`
 
 `catalog rank` options:
@@ -416,7 +415,7 @@ Notes:
 - If you want proof output against an API-key deployment, set `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY` before running the command. Otherwise the CLI uses your logged-in Purveyors session token.
 - `catalog get` and `catalog similar` both take `coffee_catalog.catalog_id`.
 - `catalog rank` and `catalog rank-premium` read `coffee_catalog.purveyor_score` as the canonical quality signal; the CLI does not recompute the upstream Purveyor Score model.
-- `catalog facets` and `catalog rank` are generic agent/client intelligence surfaces. Their responses include `stocked_only`/`scope` and sample metadata so callers do not mistake all-visible scope, sampled rarity, or sampled counts for whole-catalog guarantees.
+- `catalog facets` and `catalog rank` are generic agent/client intelligence surfaces. Facet counts come from the canonical API across the selected stocked/all-visible scope; ranking responses include sample metadata so callers do not mistake sampled rarity for whole-catalog guarantees.
 - Catalog intelligence responses include `meta.sample_limited`, `meta.sample_order`, `meta.truncated`, and rows-examined style metadata where relevant so agents can distinguish ranked samples from full supplier aggregates. Supplier aggregate responses also include `meta.rows_examined`.
 - Supplier aggregate commands summarize catalog row counts, stocked counts, Purveyor Score coverage, average score, average confidence, price range, origin/process coverage, and representative top coffees with score qualifiers.
 - `catalog similar` uses the beta canonical `/v1/catalog/{id}/similar` API contract, not the legacy direct RPC path.

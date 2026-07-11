@@ -351,7 +351,6 @@ Notes:
     .command('facets <field>')
     .description('List distinct catalog facet values with counts')
     .option('--all', 'Use all visible catalog rows instead of default stocked-only scope')
-    .option('--sample-size <n>', 'Catalog rows to sample before counting (1-5000)', '5000')
     .option('--limit <n>', 'Maximum facet values to return (1-100)', '60')
     .addHelpText(
       'after',
@@ -367,7 +366,7 @@ Fields:
 Notes:
   Facet counts are computed from catalog rows visible to the current client.
   By default only currently stocked catalog rows are included; use --all for all visible rows.
-  meta.stocked_only/scope, meta.rows_examined, and meta.truncated describe sample semantics.
+  meta.stocked_only/scope, meta.rows_examined, and meta.truncated describe the canonical counted scope.
   Requires an authenticated viewer session.
 `
     )
@@ -383,12 +382,6 @@ Notes:
         const input = {
           field: field as (typeof catalogFacetFields)[number],
           stockedOnly: opts.all ? false : true,
-          sampleSize: parseBoundedPositiveIntegerArg(
-            opts.sampleSize as string,
-            '--sample-size',
-            1,
-            5000
-          ),
           limit: parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 100),
         };
         const data = await listCatalogFacets(input);
