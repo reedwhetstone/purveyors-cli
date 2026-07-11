@@ -1488,22 +1488,22 @@ describe('findSimilarBeansSchema', () => {
     expect(result.threshold).toBe(0.7);
   });
 
-  it('accepts threshold of 0 (inclusive lower bound)', () => {
-    const result = findSimilarBeansSchema.parse({ coffee_id: 1, threshold: 0 });
-    expect(result.threshold).toBe(0);
+  it('accepts threshold of 0.5 (inclusive canonical lower bound)', () => {
+    const result = findSimilarBeansSchema.parse({ coffee_id: 1, threshold: 0.5 });
+    expect(result.threshold).toBe(0.5);
   });
 
-  it('accepts threshold of 1 (inclusive upper bound)', () => {
-    const result = findSimilarBeansSchema.parse({ coffee_id: 1, threshold: 1 });
-    expect(result.threshold).toBe(1);
+  it('accepts threshold of 0.99 (inclusive canonical upper bound)', () => {
+    const result = findSimilarBeansSchema.parse({ coffee_id: 1, threshold: 0.99 });
+    expect(result.threshold).toBe(0.99);
   });
 
-  it('rejects threshold greater than 1', () => {
-    expect(() => findSimilarBeansSchema.parse({ coffee_id: 1, threshold: 1.1 })).toThrow();
+  it('rejects threshold above the canonical maximum', () => {
+    expect(() => findSimilarBeansSchema.parse({ coffee_id: 1, threshold: 1 })).toThrow();
   });
 
-  it('rejects threshold less than 0', () => {
-    expect(() => findSimilarBeansSchema.parse({ coffee_id: 1, threshold: -0.1 })).toThrow();
+  it('rejects threshold below the canonical minimum', () => {
+    expect(() => findSimilarBeansSchema.parse({ coffee_id: 1, threshold: 0.49 })).toThrow();
   });
 
   it('applies default limit of 10 when omitted', () => {
@@ -1516,17 +1516,17 @@ describe('findSimilarBeansSchema', () => {
     expect(result.limit).toBe(1);
   });
 
-  it('accepts limit of 50 (maximum)', () => {
-    const result = findSimilarBeansSchema.parse({ coffee_id: 1, limit: 50 });
-    expect(result.limit).toBe(50);
+  it('accepts limit of 25 (canonical maximum)', () => {
+    const result = findSimilarBeansSchema.parse({ coffee_id: 1, limit: 25 });
+    expect(result.limit).toBe(25);
   });
 
   it('rejects limit of 0', () => {
     expect(() => findSimilarBeansSchema.parse({ coffee_id: 1, limit: 0 })).toThrow();
   });
 
-  it('rejects limit of 51 (exceeds maximum)', () => {
-    expect(() => findSimilarBeansSchema.parse({ coffee_id: 1, limit: 51 })).toThrow();
+  it('rejects limit above the canonical maximum', () => {
+    expect(() => findSimilarBeansSchema.parse({ coffee_id: 1, limit: 26 })).toThrow();
   });
 
   it('rejects non-integer limit', () => {

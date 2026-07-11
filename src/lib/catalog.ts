@@ -540,6 +540,10 @@ export type CatalogRankInput = z.input<typeof catalogRankSchema>;
 
 export const catalogSimilarityModes = ['all', 'likely_same', 'similar_profile'] as const;
 
+const CATALOG_SIMILARITY_MIN_THRESHOLD = 0.5;
+const CATALOG_SIMILARITY_MAX_THRESHOLD = 0.99;
+const CATALOG_SIMILARITY_MAX_RESULTS = 25;
+
 export const getCatalogSimilaritySchema = z.object({
   coffee_id: z
     .number()
@@ -548,8 +552,8 @@ export const getCatalogSimilaritySchema = z.object({
     .describe('The coffee_catalog ID to request canonical similarity for'),
   threshold: z
     .number()
-    .min(0.5)
-    .max(0.99)
+    .min(CATALOG_SIMILARITY_MIN_THRESHOLD)
+    .max(CATALOG_SIMILARITY_MAX_THRESHOLD)
     .default(0.7)
     .optional()
     .describe('Minimum canonical similarity threshold (0.5-0.99)'),
@@ -557,7 +561,7 @@ export const getCatalogSimilaritySchema = z.object({
     .number()
     .int()
     .min(1)
-    .max(25)
+    .max(CATALOG_SIMILARITY_MAX_RESULTS)
     .default(10)
     .optional()
     .describe('Maximum canonical similarity results to request'),
@@ -579,19 +583,19 @@ export const findSimilarBeansSchema = z.object({
     .describe('The coffee_catalog ID to find similar beans for'),
   threshold: z
     .number()
-    .min(0)
-    .max(1)
+    .min(CATALOG_SIMILARITY_MIN_THRESHOLD)
+    .max(CATALOG_SIMILARITY_MAX_THRESHOLD)
     .default(0.7)
     .optional()
-    .describe('Minimum similarity score (0-1)'),
+    .describe('Minimum canonical similarity threshold (0.5-0.99)'),
   limit: z
     .number()
     .int()
     .min(1)
-    .max(50)
+    .max(CATALOG_SIMILARITY_MAX_RESULTS)
     .default(10)
     .optional()
-    .describe('Maximum results to return'),
+    .describe('Maximum canonical similarity results to return'),
 });
 
 export type FindSimilarBeansInput = z.input<typeof findSimilarBeansSchema>;
@@ -1396,8 +1400,8 @@ export async function findSimilarBeans(input: FindSimilarBeansInput): Promise<Si
   const parsed = findSimilarBeansSchema.parse(input);
   const response = await getCatalogSimilarity({
     coffee_id: parsed.coffee_id,
-    threshold: Math.max(0.5, parsed.threshold ?? 0.7),
-    limit: Math.min(25, parsed.limit ?? 10),
+    threshold: parsed.threshold,
+    limit: parsed.limit,
   });
   const matches = response.data.matches ?? [
     ...response.data.groups.canonical_candidates,
