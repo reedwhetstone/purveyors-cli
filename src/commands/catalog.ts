@@ -1,7 +1,6 @@
 import { Command } from 'commander';
 import { outputData, info } from '../lib/output.js';
 import { withErrorHandling, PrvrsError } from '../lib/errors.js';
-import { requireAuth } from '../lib/auth-guard.js';
 import {
   searchCatalog,
   getCatalog,
