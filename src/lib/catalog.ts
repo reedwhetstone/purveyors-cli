@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { AuthError, PrvrsError } from './errors.js';
 import {
   createParchmentClient,
@@ -457,7 +456,6 @@ export type GetCatalogStatsInput = z.input<typeof getCatalogStatsSchema>;
 
 const CATALOG_INTELLIGENCE_MAX_SAMPLE_SIZE = 5000;
 const CATALOG_PREMIUM_DEFAULT_SAMPLE_SIZE = 250;
-const SUPABASE_DATA_API_MAX_PAGE_SIZE = 1000;
 const SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE = CATALOG_INTELLIGENCE_MAX_SAMPLE_SIZE;
 
 export const catalogRankPremiumSchema = z.object({
@@ -1223,21 +1221,6 @@ export async function getCatalogStats(): Promise<CatalogStats> {
   return envelope.stats;
 }
 
-const catalogIntelligenceCaveats = [
-  'Purveyor Score is read from coffee_catalog.purveyor_score with confidence, tier, factor breakdown, version, and update metadata; the CLI does not recompute the upstream score model.',
-  'Ranking is catalog-only and does not account for a roaster’s owned inventory, roast history, or target menu fit.',
-];
-
-const catalogPremiumRankingCaveats = [
-  ...catalogIntelligenceCaveats,
-  'Premium ranking samples catalog rows ordered by purveyor_score descending, then id ascending, before applying agent-facing ranking logic; meta.truncated indicates more rows matched than the requested sample_size.',
-];
-
-const supplierAggregateCaveats = [
-  ...catalogIntelligenceCaveats,
-  'Supplier aggregates paginate catalog rows ordered by source ascending, then id ascending; meta.sample_size is the requested fetch page size and meta.rows_examined reports the rows included in aggregation.',
-];
-
 const catalogFacetColumns: Record<CatalogFacetField, keyof CatalogItem> = {
   supplier: 'source',
   country: 'country',
@@ -1251,97 +1234,6 @@ const catalogFacetColumns: Record<CatalogFacetField, keyof CatalogItem> = {
 const catalogFacetCaveats = [
   'Facet counts are computed from catalog rows visible to the current client and are intended for value discovery, not inventory guarantees.',
 ];
-
-const catalogRankingCaveats = [
-  ...catalogIntelligenceCaveats,
-  'Generic catalog ranking samples catalog rows ordered by id ascending before applying deterministic objective-specific ranking; meta.truncated indicates more rows matched than the requested sample_size.',
-];
-
-function asPositiveNumber(value: number | null | undefined): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
-}
-
-function scoreBasis(item: CatalogItem): string {
-  const score = summarizePurveyorScore(item);
-  if (score.value === null) return 'no Purveyor Score yet';
-  const tier = score.tier ? `, ${score.tier}` : '';
-  return `Purveyor Score ${score.value}${tier}`;
-}
-
-function rankCatalogRows(
-  rows: CatalogItem[],
-  objective: CatalogRankObjective,
-  limit: number
-): CatalogRankedItem[] {
-  const byScoreDesc = (a: CatalogItem, b: CatalogItem) =>
-    (getPurveyorScoreValue(b) ?? -Infinity) - (getPurveyorScoreValue(a) ?? -Infinity) ||
-    String(b.stocked_date ?? '').localeCompare(String(a.stocked_date ?? '')) ||
-    a.id - b.id;
-
-  let ranked: Array<{ row: CatalogItem; basis: string }>;
-
-  switch (objective) {
-    case 'premium':
-      ranked = [...rows].sort(byScoreDesc).map((row) => ({ row, basis: scoreBasis(row) }));
-      break;
-    case 'value': {
-      ranked = rows
-        .map((row) => {
-          const score = getPurveyorScoreValue(row);
-          const price = asPositiveNumber(getPerLbPrice(row));
-          if (score === null || price === null) return null;
-          return { row, ratio: score / price };
-        })
-        .filter((entry): entry is { row: CatalogItem; ratio: number } => entry !== null)
-        .sort((a, b) => b.ratio - a.ratio || byScoreDesc(a.row, b.row))
-        .map(({ row, ratio }) => ({
-          row,
-          basis: `${scoreBasis(row)} at $${getPerLbPrice(row)}/lb (${round(ratio, 1)} score points per dollar)`,
-        }));
-      break;
-    }
-    case 'fresh_arrival':
-      ranked = [...rows]
-        .sort(
-          (a, b) =>
-            String(b.stocked_date ?? '').localeCompare(String(a.stocked_date ?? '')) ||
-            String(b.arrival_date ?? '').localeCompare(String(a.arrival_date ?? '')) ||
-            byScoreDesc(a, b)
-        )
-        .map((row) => ({
-          row,
-          basis: `stocked ${row.stocked_date ?? 'date unknown'}; ${scoreBasis(row)}`,
-        }));
-      break;
-    case 'rare_origin': {
-      const originCounts = new Map<string, number>();
-      for (const row of rows) {
-        const country = row.country?.trim();
-        if (country) originCounts.set(country, (originCounts.get(country) ?? 0) + 1);
-      }
-      const rarity = (row: CatalogItem) => {
-        const country = row.country?.trim();
-        return country
-          ? (originCounts.get(country) ?? Number.MAX_SAFE_INTEGER)
-          : Number.MAX_SAFE_INTEGER;
-      };
-      ranked = [...rows]
-        .filter((row) => Boolean(row.country?.trim()))
-        .sort((a, b) => rarity(a) - rarity(b) || byScoreDesc(a, b))
-        .map((row) => ({
-          row,
-          basis: `${row.country} has ${rarity(row)} matching listing(s); ${scoreBasis(row)}`,
-        }));
-      break;
-    }
-  }
-
-  return ranked.slice(0, limit).map(({ row, basis }, index) => ({
-    ...row,
-    rank: index + 1,
-    rank_basis: basis,
-  }));
-}
 
 /** List distinct catalog facet values with counts for agent/client filter discovery. */
 export async function listCatalogFacets(input: CatalogFacetsInput): Promise<CatalogFacetsResponse> {

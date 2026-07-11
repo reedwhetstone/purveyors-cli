@@ -38,6 +38,8 @@ function runCli(args: string[], options: { formMode?: boolean; timeout?: number 
     env: {
       ...process.env,
       HOME: home,
+      COREPACK_HOME:
+        process.env.COREPACK_HOME ?? resolve(process.env.HOME ?? home, '.cache/node/corepack'),
     },
   });
 }

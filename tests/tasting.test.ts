@@ -222,48 +222,6 @@ describe('parseCuppingScore', () => {
   });
 });
 
-// ─── getTastingNotes query-builder tests ──────────────────────────────────────
-
-/**
- * Build a minimal Supabase mock for tasting operations.
- * Supports coffee_catalog and green_coffee_inv table paths.
- */
-function makeTastingSupabase(overrides: {
-  coffee_catalog?: { data?: unknown; error?: unknown };
-  green_coffee_inv?: { data?: unknown; error?: unknown };
-}) {
-  let currentTable = '';
-
-  const chain = {
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    order: vi.fn().mockReturnThis(),
-    limit: vi.fn().mockReturnThis(),
-    single: vi.fn().mockImplementation(() => {
-      if (currentTable === 'coffee_catalog') {
-        return Promise.resolve(overrides.coffee_catalog ?? { data: null, error: null });
-      }
-      return Promise.resolve(overrides.green_coffee_inv ?? { data: null, error: null });
-    }),
-    // Allow direct await on the chain (for list queries with .limit())
-    then: vi.fn().mockImplementation((resolve: (v: unknown) => void) => {
-      if (currentTable === 'green_coffee_inv') {
-        resolve(overrides.green_coffee_inv ?? { data: [], error: null });
-      } else {
-        resolve(overrides.coffee_catalog ?? { data: null, error: null });
-      }
-    }),
-  };
-
-  return {
-    from: vi.fn().mockImplementation((table: string) => {
-      currentTable = table;
-      return chain;
-    }),
-    _chain: chain,
-  };
-}
-
 describe('getTastingNotes', () => {
   it('reads the canonical tasting envelope through the SDK', async () => {
     const data = {

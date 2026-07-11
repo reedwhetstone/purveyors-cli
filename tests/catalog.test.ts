@@ -46,7 +46,7 @@ import {
   findSimilarBeans,
 } from '../src/lib/catalog.js';
 import { outputData } from '../src/lib/output.js';
-import type { CatalogItem, CatalogSimilarityResponse, SimilarBean } from '../src/lib/catalog.js';
+import type { CatalogItem, CatalogSimilarityResponse } from '../src/lib/catalog.js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 beforeEach(() => {
@@ -1116,11 +1116,6 @@ describe('searchCatalog', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
     const from = vi.fn();
-    const getSession = vi.fn().mockResolvedValue({
-      data: { session: { access_token: 'session-token' } },
-    });
-    const supabase = { auth: { getSession }, from } as unknown as SupabaseClient;
-
     const data = await searchCatalog({
       origin: 'Ethiopia',
       processingBaseMethod: 'Natural',
@@ -1152,10 +1147,6 @@ describe('searchCatalog', () => {
   });
 
   it('rejects include-proof searches that would silently drop CLI-only filters', async () => {
-    const supabase = {
-      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
-    } as unknown as SupabaseClient;
-
     await expect(searchCatalog({ flavor: 'berry', includeProof: true })).rejects.toMatchObject({
       code: 'INVALID_ARGUMENT',
       message: expect.stringContaining('--flavor'),
@@ -1178,10 +1169,6 @@ describe('searchCatalog', () => {
   });
 
   it('rejects include-proof offsets that cannot be represented as /v1/catalog pages', async () => {
-    const supabase = {
-      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
-    } as unknown as SupabaseClient;
-
     await expect(searchCatalog({ offset: 5, limit: 10, includeProof: true })).rejects.toMatchObject(
       {
         code: 'INVALID_ARGUMENT',
@@ -1200,8 +1187,6 @@ describe('searchCatalog', () => {
       })
     );
     vi.stubGlobal('fetch', fetchMock);
-    const supabase = { auth: { getSession: vi.fn() } } as unknown as SupabaseClient;
-
     const data = await searchCatalog({
       ids: [11, 12],
       offset: 5,
@@ -1226,8 +1211,6 @@ describe('searchCatalog', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
     const getSession = vi.fn();
-    const supabase = { auth: { getSession } } as unknown as SupabaseClient;
-
     await searchCatalog({ includeProof: true });
 
     expect(getSession).not.toHaveBeenCalled();
@@ -1260,10 +1243,6 @@ describe('searchCatalog', () => {
       })
     );
     vi.stubGlobal('fetch', fetchMock);
-    const supabase = {
-      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
-    } as unknown as SupabaseClient;
-
     const data = await getCatalog(42, { includeProof: true });
 
     const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
@@ -1285,10 +1264,6 @@ describe('searchCatalog', () => {
       )
     );
     vi.stubGlobal('fetch', fetchMock);
-    const supabase = {
-      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
-    } as unknown as SupabaseClient;
-
     await expect(searchCatalog({ includeProof: true })).rejects.toMatchObject({
       code: 'INVALID_ARGUMENT',
       message: expect.stringContaining('Catalog API rejected include=proof'),
@@ -1330,11 +1305,6 @@ describe('getCatalogSimilarity', () => {
       })
     );
     vi.stubGlobal('fetch', fetchMock);
-    const getSession = vi.fn().mockResolvedValue({
-      data: { session: { access_token: 'session-token' } },
-    });
-    const supabase = { auth: { getSession } } as unknown as SupabaseClient;
-
     const result = await getCatalogSimilarity({
       coffee_id: 1182,
       threshold: 0.85,
@@ -1372,8 +1342,6 @@ describe('getCatalogSimilarity', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
     const getSession = vi.fn();
-    const supabase = { auth: { getSession } } as unknown as SupabaseClient;
-
     await getCatalogSimilarity({ coffee_id: 1182 });
 
     expect(getSession).not.toHaveBeenCalled();
@@ -1399,10 +1367,6 @@ describe('getCatalogSimilarity', () => {
       )
     );
     vi.stubGlobal('fetch', fetchMock);
-    const supabase = {
-      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
-    } as unknown as SupabaseClient;
-
     await expect(getCatalogSimilarity({ coffee_id: 1182 })).rejects.toMatchObject({
       code: 'GENERAL_ERROR',
       message: expect.stringContaining('unexpected response shape'),
@@ -1417,10 +1381,6 @@ describe('getCatalogSimilarity', () => {
       })
     );
     vi.stubGlobal('fetch', fetchMock);
-    const supabase = {
-      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
-    } as unknown as SupabaseClient;
-
     await expect(getCatalogSimilarity({ coffee_id: 1182 })).rejects.toMatchObject({
       code: 'AUTH_ERROR',
       message: expect.stringContaining('Catalog API authentication failed'),
@@ -1435,10 +1395,6 @@ describe('getCatalogSimilarity', () => {
       })
     );
     vi.stubGlobal('fetch', fetchMock);
-    const supabase = {
-      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
-    } as unknown as SupabaseClient;
-
     await expect(getCatalogSimilarity({ coffee_id: 1182 })).rejects.toMatchObject({
       code: 'INVALID_ARGUMENT',
       message: expect.stringContaining('/v1/catalog/{id}/similar'),
@@ -1453,10 +1409,6 @@ describe('getCatalogSimilarity', () => {
       })
     );
     vi.stubGlobal('fetch', fetchMock);
-    const supabase = {
-      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
-    } as unknown as SupabaseClient;
-
     await expect(getCatalogSimilarity({ coffee_id: 1182 })).rejects.toMatchObject({
       code: 'NOT_FOUND',
       message: expect.stringContaining('Catalog similarity target not found'),
@@ -1471,10 +1423,6 @@ describe('getCatalogSimilarity', () => {
       })
     );
     vi.stubGlobal('fetch', fetchMock);
-    const supabase = {
-      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
-    } as unknown as SupabaseClient;
-
     await expect(getCatalogSimilarity({ coffee_id: 1182 })).rejects.toMatchObject({
       code: 'CONFIG_ERROR',
       message: expect.stringContaining('Catalog similarity API endpoint not found'),
@@ -1490,10 +1438,6 @@ describe('getCatalogSimilarity', () => {
       })
     );
     vi.stubGlobal('fetch', fetchMock);
-    const supabase = {
-      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
-    } as unknown as SupabaseClient;
-
     await expect(getCatalogSimilarity({ coffee_id: 1182 })).rejects.toMatchObject({
       code: 'CONFIG_ERROR',
       message: expect.stringContaining('Catalog similarity API endpoint not found'),
@@ -1650,11 +1594,3 @@ describe('remaining catalog intelligence SDK surfaces', () => {
     });
   });
 });
-
-// ─── findSimilarBeans (lib function) ─────────────────────────────────────────
-
-function makeSupabaseRpc(response: { data?: unknown; error?: { message: string } | null }) {
-  return {
-    rpc: vi.fn().mockResolvedValue(response),
-  } as unknown as SupabaseClient;
-}
