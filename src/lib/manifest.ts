@@ -180,7 +180,7 @@ const exitCodes: CliExitCodeContract[] = [
   {
     exitCode: EXIT_CODES.DEPENDENCY_CONFLICT,
     code: 'DEPENDENCY_CONFLICT',
-    description: 'dependency conflict, for example delete without --force',
+    description: 'dependency conflict, for example deleting an inventory lot with dependents',
   },
   { exitCode: EXIT_CODES.CONFIG_ERROR, code: 'CONFIG_ERROR', description: 'local config error' },
 ];
@@ -632,15 +632,7 @@ const commandGroups: CliCommandGroupContract[] = [
             idType: 'inventory_id',
           },
         ],
-        options: [
-          { flags: '--yes' },
-          {
-            flags: '--force',
-            notes: [
-              'Cascade delete dependent roast profiles and sales records before deleting the item.',
-            ],
-          },
-        ],
+        options: [{ flags: '--yes' }],
       },
     ],
   },
@@ -1229,7 +1221,7 @@ const errorPatterns: CliErrorPatternContract[] = [
   {
     title: 'Dependency conflict on delete',
     exitCodes: [EXIT_CODES.DEPENDENCY_CONFLICT],
-    guidance: ['Add `--force` to cascade delete dependent roast profiles and sales records.'],
+    guidance: ['Delete dependent roast profiles and sales records explicitly, then retry.'],
   },
   {
     title: 'Mutually exclusive watch flags',

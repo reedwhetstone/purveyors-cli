@@ -64,8 +64,6 @@ Notes:
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase, userId } = await requireAuth('member');
-
         let catalogId: number | undefined;
         if (opts.catalogId !== undefined) {
           catalogId = parseInt(opts.catalogId as string, 10);
@@ -75,7 +73,7 @@ Notes:
         }
 
         const offsetVal = parseInt(opts.offset as string, 10);
-        const data = await listInventory(supabase, userId, {
+        const data = await listInventory({
           stocked_only: opts.stocked ? true : undefined,
           limit: Math.max(1, parseInt(opts.limit as string, 10)),
           offset: isNaN(offsetVal) || offsetVal < 0 ? 0 : offsetVal,
@@ -114,9 +112,7 @@ Notes:
     .action(
       withErrorHandling(async (id: string, _opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase, userId } = await requireAuth('member');
-
-        const data = await getInventory(supabase, userId, parseInt(id, 10));
+        const data = await getInventory(parseInt(id, 10));
         outputData(data, globalOpts);
       })
     );
@@ -150,14 +146,13 @@ Required flags: --catalog-id, --qty
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase, userId } = await requireAuth('member');
-
         // ── Interactive form mode ──────────────────────────────────────────
         // Auto-enter form mode if config form-mode is true and required args are missing
         const formMode =
           opts.form ||
           (!(opts.catalogId && opts.qty) && (await getConfigValue('form-mode')) === 'true');
         if (formMode) {
+          const { supabase } = await requireAuth('member');
           p.intro('Add Bean to Inventory');
 
           const catalogItem = await pickCatalogItem(supabase);
@@ -200,7 +195,7 @@ Required flags: --catalog-id, --qty
 
           const spin = p.spinner();
           spin.start('Adding bean to inventory...');
-          const data = await addInventory(supabase, userId, {
+          const data = await addInventory({
             catalogId: catalogItem.id,
             qty: parseFloat(qtyStr),
             cost,
@@ -251,7 +246,7 @@ Required flags: --catalog-id, --qty
           throw new PrvrsError('INVALID_ARGUMENT', `Invalid --tax-ship: "${opts.taxShip}".`);
         }
 
-        const data = await addInventory(supabase, userId, {
+        const data = await addInventory({
           catalogId,
           qty,
           cost,
@@ -292,8 +287,6 @@ Notes:
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase, userId } = await requireAuth('member');
-
         const itemId = parseInt(id, 10);
         if (isNaN(itemId)) {
           throw new PrvrsError('INVALID_ARGUMENT', `Invalid inventory ID: "${id}".`);
@@ -343,7 +336,7 @@ Notes:
           );
         }
 
-        const data = await updateInventory(supabase, userId, itemId, {
+        const data = await updateInventory(itemId, {
           qty,
           cost,
           taxShip,
@@ -361,22 +354,17 @@ Notes:
     .command('delete <id>')
     .description('Delete an inventory item (must be yours)')
     .option('-y, --yes', 'Skip confirmation prompt')
-    .option('-f, --force', 'Cascade delete dependent roast profiles and sales records')
     .addHelpText(
       'after',
       `
 Examples:
   purvey inventory delete 7             # prompts for confirmation
   purvey inventory delete 7 --yes       # skip confirmation (use in scripts)
-  purvey inventory delete 7 --force     # cascade delete dependents, prompts for confirmation
-  purvey inventory delete 7 --force --yes  # cascade delete, no prompt (agent/script use)
 
 Notes:
   Permanently deletes the inventory row. Cannot be undone.
-  If the item has dependent roast profiles or sales records, the command will
-  fail with a DEPENDENCY_CONFLICT error unless --force is passed.
-  With --force, all dependent sales and roast profiles are deleted first, then
-  the inventory item is removed. A summary of what was deleted is shown.
+  If the item has dependent roast profiles or sales records, the canonical API
+  returns DEPENDENCY_CONFLICT. Delete those records explicitly before retrying.
   Row-level security: only items belonging to you can be deleted.
   Requires authentication (member role).
 `
@@ -384,26 +372,12 @@ Notes:
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase, userId } = await requireAuth('member');
-
         const itemId = parseInt(id, 10);
         if (isNaN(itemId)) {
           throw new PrvrsError('INVALID_ARGUMENT', `Invalid inventory ID: "${id}".`);
         }
 
-        const force = Boolean(opts.force);
-
-        // When --force is requested, show a pre-delete dependency summary if
-        // the user hasn't suppressed prompts via --yes.
-        if (force && !opts.yes) {
-          const ok = await confirm(
-            `Delete inventory item ${itemId} and all its dependent roast profiles and sales records?`
-          );
-          if (!ok) {
-            info('Aborted.');
-            return;
-          }
-        } else if (!opts.yes) {
+        if (!opts.yes) {
           const ok = await confirm(`Delete inventory item ${itemId}?`);
           if (!ok) {
             info('Aborted.');
@@ -411,22 +385,8 @@ Notes:
           }
         }
 
-        const result: DeleteInventoryResult = await deleteInventory(supabase, userId, itemId, {
-          force,
-        });
-
-        if (force && (result.deletedRoasts > 0 || result.deletedSales > 0)) {
-          const parts: string[] = [];
-          if (result.deletedRoasts > 0)
-            parts.push(
-              `${result.deletedRoasts} roast profile${result.deletedRoasts === 1 ? '' : 's'}`
-            );
-          if (result.deletedSales > 0)
-            parts.push(`${result.deletedSales} sale record${result.deletedSales === 1 ? '' : 's'}`);
-          success(`Inventory item ${itemId} deleted (also removed: ${parts.join(', ')}).`);
-        } else {
-          success(`Inventory item ${itemId} deleted.`);
-        }
+        const result: DeleteInventoryResult = await deleteInventory(itemId);
+        success(`Inventory item ${itemId} deleted.`);
 
         if (globalOpts.json || globalOpts.pretty) {
           outputData(result, globalOpts);

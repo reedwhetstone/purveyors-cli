@@ -48,6 +48,15 @@ describe('unwrapParchment', () => {
     }
   });
 
+  it('maps HTTP 409 to DEPENDENCY_CONFLICT', () => {
+    expect(() =>
+      unwrapParchment(
+        result(409, { error: { message: 'Dependent roast profiles exist' } }),
+        'inventory delete'
+      )
+    ).toThrowError(expect.objectContaining({ code: 'DEPENDENCY_CONFLICT' }));
+  });
+
   it('falls back to GENERAL_ERROR for unexpected server failures', () => {
     try {
       unwrapParchment(result(500, {}), 'price-index');

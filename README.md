@@ -564,7 +564,6 @@ Notes:
 
 `inventory delete <id>` options:
 
-- `--force`; cascade dependent roasts and sales
 - `--yes`; skip confirmation prompt
 
 Examples:
@@ -581,7 +580,7 @@ Notes:
 
 - Inventory commands require an authenticated `member` role.
 - Inventory `id` is `green_coffee_inv.id`, not `catalog_id`.
-- `inventory delete` may require `--force` if dependent roasts or sales exist.
+- `inventory delete` refuses to cascade. Delete dependent roasts or sales explicitly first.
 
 ### roast
 
@@ -954,7 +953,9 @@ purvey inventory list --limit 20 --offset 40
 **`inventory delete` fails with dependency conflict**
 
 ```bash
-purvey inventory delete 7 --force --yes
+purvey roast delete <roast-id> --yes
+purvey sales delete <sale-id> --yes
+purvey inventory delete 7 --yes
 ```
 
 **Enable verbose error output**

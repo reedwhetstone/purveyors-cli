@@ -175,6 +175,14 @@ export function unwrapParchment<T>(result: ParchmentResult<T>, context: string):
     throw new PrvrsError('NOT_FOUND', messageFromErrorBody(body, `${context}: not found.`), body);
   }
 
+  if (status === 409) {
+    throw new PrvrsError(
+      'DEPENDENCY_CONFLICT',
+      messageFromErrorBody(body, `${context}: conflicting state prevents this operation.`),
+      body
+    );
+  }
+
   if (status === 429) {
     throw new PrvrsError(
       'GENERAL_ERROR',
