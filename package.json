@@ -57,7 +57,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.1.0",
-    "@purveyors/sdk": "^0.7.0",
+    "@purveyors/sdk": "^0.7.1",
     "@supabase/supabase-js": "^2.49.1",
     "chalk": "^5.4.1",
     "commander": "^13.1.0",

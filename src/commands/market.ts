@@ -219,8 +219,10 @@ Notes:
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
         const query: MetadataIndexQuery = {};
-        if (opts.dimension !== undefined)
-          query.dimension = parseEnum(opts.dimension as string, '--dimension', DIMENSIONS);
+        if (opts.dimension !== undefined) {
+          const dimension = parseEnum(opts.dimension as string, '--dimension', DIMENSIONS);
+          query.dimension = dimension === 'score' ? 'purveyor_score' : dimension;
+        }
         if (opts.origin !== undefined) query.origin = opts.origin as string;
         if (opts.market !== undefined)
           query.market = parseEnum(opts.market as string, '--market', MARKETS);

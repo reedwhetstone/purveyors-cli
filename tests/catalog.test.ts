@@ -4,6 +4,15 @@ vi.mock('../src/lib/auth-guard.js', () => ({
   requireAuth: vi.fn(),
 }));
 
+vi.mock('../src/lib/parchment.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/parchment.js')>();
+  return {
+    ...actual,
+    createParchmentClient: vi.fn(),
+    resolveParchmentToken: vi.fn(),
+  };
+});
+
 vi.mock('../src/lib/output.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/lib/output.js')>();
   return {
@@ -15,6 +24,7 @@ vi.mock('../src/lib/output.js', async (importOriginal) => {
 
 import { buildCatalogCommand } from '../src/commands/catalog.js';
 import { requireAuth } from '../src/lib/auth-guard.js';
+import { createParchmentClient, resolveParchmentToken } from '../src/lib/parchment.js';
 import {
   computeCatalogStats,
   computeCatalogPremiumRanking,
@@ -44,6 +54,38 @@ beforeEach(() => {
   delete process.env.PARCHMENT_API_KEY;
   delete process.env.PURVEYORS_API_KEY;
   delete process.env.PURVEYORS_BASE_URL;
+  vi.mocked(resolveParchmentToken).mockImplementation(async (role = 'viewer') => {
+    const apiKey = process.env.PARCHMENT_API_KEY || process.env.PURVEYORS_API_KEY;
+    if (apiKey) return apiKey;
+    await vi.mocked(requireAuth)(role);
+    return 'session-token';
+  });
+  vi.mocked(createParchmentClient).mockImplementation(async (role = 'viewer') => {
+    await vi.mocked(requireAuth)(role);
+    const ok = (data: unknown) => ({
+      data,
+      response: new Response(null, { status: 200 }),
+    });
+    return {
+      catalog: {
+        list: vi.fn().mockResolvedValue(ok({ data: [], pagination: {}, meta: {} })),
+        facets: vi.fn().mockResolvedValue(ok({ facets: {}, values: {}, meta: { access: {} } })),
+        stats: vi.fn().mockResolvedValue(
+          ok({
+            stats: {
+              total: 0,
+              stocked: 0,
+              byOrigin: {},
+              avgPricePerLb: null,
+              priceRange: { min: null, max: null },
+            },
+            meta: {},
+          })
+        ),
+        rank: vi.fn().mockResolvedValue(ok({ data: [], meta: {} })),
+      },
+    } as never;
+  });
 });
 
 afterEach(() => {
@@ -541,205 +583,51 @@ describe('catalog intelligence helpers', () => {
     expect(response.data).toHaveLength(1);
   });
 
-  it('listCatalogFacets counts sorted values with explicit sample metadata', async () => {
-    const { supabase, query, select } = makeSearchSupabase({
-      data: [
-        makeItem({ id: 1, source: 'Royal Coffee' }),
-        makeItem({ id: 2, source: 'Royal Coffee' }),
-        makeItem({ id: 3, source: 'Cafe Imports' }),
-      ],
-    });
-
-    const response = await listCatalogFacets(supabase, {
-      field: 'supplier',
-      stockedOnly: true,
-      limit: 10,
-      sampleSize: 25,
-    });
-
-    expect(select).toHaveBeenCalledWith('id, source');
-    expect(query.eq).toHaveBeenCalledWith('stocked', true);
-    expect(query.order).toHaveBeenCalledWith('id', { ascending: true });
-    expect(query.range).toHaveBeenCalledWith(0, 25);
-    expect(response).toMatchObject({
-      data: [
-        { value: 'Royal Coffee', count: 2 },
-        { value: 'Cafe Imports', count: 1 },
-      ],
-      meta: {
-        resource: 'catalog-facets',
-        field: 'supplier',
-        source_column: 'source',
-        stocked_only: true,
-        scope: 'stocked_only',
-        sample_size: 25,
-        sample_limited: true,
-        sample_order: 'id_asc',
-        rows_examined: 3,
-        distinct_values: 2,
-        truncated: false,
+  it('reads counted facets through the canonical SDK endpoint', async () => {
+    const facets = vi.fn().mockResolvedValue({
+      data: {
+        facets: { sources: [{ value: 'Royal Coffee', count: 4 }] },
+        values: {},
+        meta: { access: {} },
       },
+      response: new Response(null, { status: 200 }),
     });
+    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { facets } } as never);
+
+    const response = await listCatalogFacets({ field: 'supplier', stockedOnly: true, limit: 10 });
+
+    expect(facets).toHaveBeenCalledWith({ stocked: 'true' });
+    expect(response.data).toEqual([{ value: 'Royal Coffee', count: 4 }]);
+    expect(response.meta).toMatchObject({ sample_limited: false, rows_examined: 4 });
   });
 
-  it('rankCatalog ranks value candidates by Purveyor Score per dollar', async () => {
-    const { supabase, query } = makeSearchSupabase({
-      data: [
-        makeItem({
-          id: 1,
-          name: 'Expensive',
-          purveyor_score: 90,
-          price_per_lb: 18,
-          price_tiers: null,
-        }),
-        makeItem({ id: 2, name: 'Value', purveyor_score: 88, price_per_lb: 8, price_tiers: null }),
-        makeItem({
-          id: 3,
-          name: 'Unpriced',
-          purveyor_score: 99,
-          price_per_lb: null,
-          price_tiers: null,
-          cost_lb: null,
-        }),
-      ],
+  it('forwards deterministic ranking inputs to the canonical SDK endpoint', async () => {
+    const envelope = {
+      data: [{ ...makeItem(), rank: 1, rank_basis: 'highest score' }],
+      meta: { resource: 'catalog-ranking', scoring_source: 'coffee_catalog.purveyor_score' },
+    };
+    const rank = vi.fn().mockResolvedValue({
+      data: envelope,
+      response: new Response(null, { status: 200 }),
     });
+    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { rank } } as never);
 
-    const response = await rankCatalog(supabase, {
+    const response = await rankCatalog({
       objective: 'value',
       country: 'Ethiopia',
-      stockedOnly: true,
-      limit: 2,
-      sampleSize: 25,
-    });
-
-    expect(query.ilike).toHaveBeenCalledWith('country', '%Ethiopia%');
-    expect(query.eq).toHaveBeenCalledWith('stocked', true);
-    expect(query.order).toHaveBeenCalledWith('id', { ascending: true });
-    expect(query.range).toHaveBeenCalledWith(0, 25);
-    expect(response.meta).toMatchObject({
-      resource: 'catalog-ranking',
-      objective: 'value',
-      scoring_source: 'coffee_catalog.purveyor_score',
-      sample_size: 25,
-      sample_limited: true,
-      sample_order: 'id_asc',
-      candidates_considered: 3,
-      returned: 2,
-      filters: {
-        country: 'Ethiopia',
-        stocked_only: true,
-        scope: 'stocked_only',
-        nonWholesaleOnly: false,
-      },
-    });
-    expect(response.data.map((row) => row.id)).toEqual([2, 1]);
-    expect(response.data[0]?.rank_basis).toContain('score points per dollar');
-  });
-
-  it('rankCatalog ignores legacy score_value when canonical Purveyor Score ties or is missing', async () => {
-    const { supabase } = makeSearchSupabase({
-      data: [
-        makeItem({
-          id: 1,
-          name: 'Canonical tie first',
-          purveyor_score: 90,
-          score_value: 10,
-          stocked_date: '2026-05-01',
-        }),
-        makeItem({
-          id: 2,
-          name: 'Legacy score higher',
-          purveyor_score: 90,
-          score_value: 99,
-          stocked_date: '2026-05-01',
-        }),
-        makeItem({
-          id: 3,
-          name: 'Unscored first',
-          purveyor_score: null,
-          score_value: 1,
-          stocked_date: '2026-04-01',
-        }),
-        makeItem({
-          id: 4,
-          name: 'Unscored legacy score higher',
-          purveyor_score: null,
-          score_value: 100,
-          stocked_date: '2026-04-01',
-        }),
-      ],
-    });
-
-    const response = await rankCatalog(supabase, {
-      objective: 'premium',
-      stockedOnly: true,
-      limit: 4,
-      sampleSize: 25,
-    });
-
-    expect(response.meta.scoring_source).toBe('coffee_catalog.purveyor_score');
-    expect(response.data.map((row) => row.id)).toEqual([1, 2, 3, 4]);
-  });
-
-  it('rankCatalog applies non-wholesale-only in the query before sampling', async () => {
-    const { supabase, query } = makeSearchSupabase({
-      data: [
-        makeItem({ id: 1, name: 'Retail', wholesale: false, purveyor_score: 90 }),
-        makeItem({ id: 2, name: 'Unknown wholesale', wholesale: null, purveyor_score: 85 }),
-      ],
-    });
-
-    const response = await rankCatalog(supabase, {
       nonWholesaleOnly: true,
-      sampleSize: 25,
+      limit: 5,
     });
 
-    expect(query.or).toHaveBeenCalledWith('wholesale.is.null,wholesale.eq.false');
-    expect(response.meta.candidates_considered).toBe(2);
-    expect(response.meta.filters.nonWholesaleOnly).toBe(true);
-  });
-
-  it('rankCatalog labels rare-origin scope and truncation explicitly', async () => {
-    const apiPageCap = 1000;
-    const rows = [
-      ...Array.from({ length: apiPageCap }, (_, index) =>
-        makeItem({ id: index + 1, country: 'Ethiopia', purveyor_score: 80 })
-      ),
-      makeItem({ id: apiPageCap + 1, country: 'Panama', purveyor_score: 95 }),
-      makeItem({ id: apiPageCap + 2, country: 'Yemen', purveyor_score: 92 }),
-    ];
-    const query = {
-      data: [] as CatalogItem[],
-      error: null,
-      or: vi.fn(() => query),
-      ilike: vi.fn(() => query),
-      eq: vi.fn(() => query),
-      contains: vi.fn(() => query),
-      gte: vi.fn(() => query),
-      lte: vi.fn(() => query),
-      in: vi.fn(() => query),
-      order: vi.fn(() => query),
-      range: vi.fn((from: number, to: number) => {
-        query.data = rows.slice(from, Math.min(to, from + apiPageCap - 1) + 1);
-        return query;
-      }),
-    };
-    const select = vi.fn(() => query);
-    const from = vi.fn(() => ({ select }));
-    const supabase = { from } as unknown as SupabaseClient;
-
-    const response = await rankCatalog(supabase, {
-      objective: 'rare_origin',
-      sampleSize: apiPageCap + 1,
-      limit: 2,
-    });
-
-    expect(query.range).toHaveBeenCalledWith(0, 999);
-    expect(query.range).toHaveBeenCalledWith(1000, 1001);
-    expect(response.meta.truncated).toBe(true);
-    expect(response.meta.sample_order).toBe('id_asc');
-    expect(response.data[0]?.id).toBe(apiPageCap + 1);
-    expect(response.data[0]?.rank_basis).toContain('1 matching listing');
+    expect(rank).toHaveBeenCalledWith(
+      expect.objectContaining({
+        objective: 'value',
+        country: 'Ethiopia',
+        nonWholesaleOnly: 'true',
+        limit: 5,
+      })
+    );
+    expect(response).toEqual(envelope);
   });
 
   it('pages premium samples within the Supabase API row cap before ranking', async () => {
@@ -1222,32 +1110,6 @@ describe('catalog command auth and structured filter parsing', () => {
     ]);
   });
 
-  it('parses and forwards structured process flags to catalog search filters', async () => {
-    const { supabase, query } = makeSearchSupabase();
-    vi.mocked(requireAuth).mockResolvedValue({ supabase, userId: 'user-1' });
-
-    await runCatalogCommand([
-      'search',
-      '--processing-base-method',
-      'Natural',
-      '--fermentation-type',
-      'Anaerobic',
-      '--process-additive',
-      'hops',
-      '--processing-disclosure-level',
-      'high_detail',
-      '--processing-confidence-min',
-      '0.8',
-    ]);
-
-    expect(requireAuth).toHaveBeenCalledWith('member');
-    expect(query.eq).toHaveBeenCalledWith('processing_base_method', 'Natural');
-    expect(query.eq).toHaveBeenCalledWith('fermentation_type', 'Anaerobic');
-    expect(query.contains).toHaveBeenCalledWith('process_additives', ['hops']);
-    expect(query.eq).toHaveBeenCalledWith('processing_disclosure_level', 'high_detail');
-    expect(query.gte).toHaveBeenCalledWith('processing_confidence', 0.8);
-  });
-
   it('rejects invalid processing confidence before auth', async () => {
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((
       code?: number | string | null
@@ -1380,43 +1242,49 @@ describe('catalog command auth and structured filter parsing', () => {
 });
 
 describe('searchCatalog', () => {
-  it('adds an id tie-break after the requested sort for stable offset pagination', async () => {
-    const { supabase, query } = makeSearchSupabase();
+  it('maps CLI filters and offset pagination to the canonical SDK query', async () => {
+    const list = vi.fn().mockResolvedValue({
+      data: { data: [makeItem()], pagination: {}, meta: {} },
+      response: new Response(null, { status: 200 }),
+    });
+    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { list } } as never);
 
-    await searchCatalog(supabase, { sort: 'name', offset: 500, limit: 500 });
-
-    expect(query.order.mock.calls).toEqual([
-      ['name', { ascending: true, nullsFirst: false }],
-      ['id', { ascending: true }],
-    ]);
-    expect(query.range).toHaveBeenCalledWith(500, 999);
-  });
-
-  it('uses id ordering when paginating without another sort', async () => {
-    const { supabase, query } = makeSearchSupabase();
-
-    await searchCatalog(supabase, { offset: 25, limit: 25 });
-
-    expect(query.order).toHaveBeenCalledWith('id', { ascending: true });
-    expect(query.range).toHaveBeenCalledWith(25, 49);
-  });
-
-  it('maps structured process filters to canonical catalog columns', async () => {
-    const { supabase, query } = makeSearchSupabase();
-
-    await searchCatalog(supabase, {
+    const data = await searchCatalog({
+      origin: 'Ethiopia',
       processingBaseMethod: 'Natural',
       fermentationType: 'Anaerobic',
       processAdditive: 'hops',
-      processingDisclosureLevel: 'high_detail',
-      processingConfidenceMin: 0.8,
+      flavor: 'berry, citrus',
+      supplier: 'Royal Coffee',
+      sort: 'price-desc',
+      offset: 20,
+      limit: 10,
     });
 
-    expect(query.eq).toHaveBeenCalledWith('processing_base_method', 'Natural');
-    expect(query.eq).toHaveBeenCalledWith('fermentation_type', 'Anaerobic');
-    expect(query.contains).toHaveBeenCalledWith('process_additives', ['hops']);
-    expect(query.eq).toHaveBeenCalledWith('processing_disclosure_level', 'high_detail');
-    expect(query.gte).toHaveBeenCalledWith('processing_confidence', 0.8);
+    expect(createParchmentClient).toHaveBeenCalledWith('member');
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({
+        origin: 'Ethiopia',
+        processing_base_method: 'Natural',
+        fermentation_type: 'Anaerobic',
+        process_additive: 'hops',
+        flavorKeywords: ['berry', 'citrus'],
+        supplier: 'Royal Coffee',
+        sort: 'price_per_lb',
+        order: 'desc',
+        page: 3,
+        limit: 10,
+      })
+    );
+    expect(data).toHaveLength(1);
+  });
+
+  it('rejects offsets that cannot be represented by canonical page pagination', async () => {
+    await expect(searchCatalog({ offset: 5, limit: 10 })).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+      message: expect.stringContaining('--offset to be a multiple of --limit'),
+    });
+    expect(createParchmentClient).not.toHaveBeenCalled();
   });
 
   it('uses /v1/catalog include=proof instead of direct Supabase reads when requested', async () => {
@@ -1447,7 +1315,7 @@ describe('searchCatalog', () => {
     });
     const supabase = { auth: { getSession }, from } as unknown as SupabaseClient;
 
-    const data = await searchCatalog(supabase, {
+    const data = await searchCatalog({
       origin: 'Ethiopia',
       processingBaseMethod: 'Natural',
       priceMin: 5,
@@ -1482,30 +1350,22 @@ describe('searchCatalog', () => {
       auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
     } as unknown as SupabaseClient;
 
-    await expect(
-      searchCatalog(supabase, { flavor: 'berry', includeProof: true })
-    ).rejects.toMatchObject({
+    await expect(searchCatalog({ flavor: 'berry', includeProof: true })).rejects.toMatchObject({
       code: 'INVALID_ARGUMENT',
       message: expect.stringContaining('--flavor'),
     });
 
-    await expect(
-      searchCatalog(supabase, { dryingMethod: 'sun', includeProof: true })
-    ).rejects.toMatchObject({
+    await expect(searchCatalog({ dryingMethod: 'sun', includeProof: true })).rejects.toMatchObject({
       code: 'INVALID_ARGUMENT',
       message: expect.stringContaining('--drying-method'),
     });
 
-    await expect(
-      searchCatalog(supabase, { supplier: 'Royal', includeProof: true })
-    ).rejects.toMatchObject({
+    await expect(searchCatalog({ supplier: 'Royal', includeProof: true })).rejects.toMatchObject({
       code: 'INVALID_ARGUMENT',
       message: expect.stringContaining('--supplier'),
     });
 
-    await expect(
-      searchCatalog(supabase, { sort: 'newest', includeProof: true })
-    ).rejects.toMatchObject({
+    await expect(searchCatalog({ sort: 'newest', includeProof: true })).rejects.toMatchObject({
       code: 'INVALID_ARGUMENT',
       message: expect.stringContaining('--sort newest'),
     });
@@ -1516,12 +1376,12 @@ describe('searchCatalog', () => {
       auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
     } as unknown as SupabaseClient;
 
-    await expect(
-      searchCatalog(supabase, { offset: 5, limit: 10, includeProof: true })
-    ).rejects.toMatchObject({
-      code: 'INVALID_ARGUMENT',
-      message: expect.stringContaining('--offset must be a multiple of --limit'),
-    });
+    await expect(searchCatalog({ offset: 5, limit: 10, includeProof: true })).rejects.toMatchObject(
+      {
+        code: 'INVALID_ARGUMENT',
+        message: expect.stringContaining('--offset must be a multiple of --limit'),
+      }
+    );
   });
 
   it('ignores pagination flags for include-proof ID searches', async () => {
@@ -1536,7 +1396,7 @@ describe('searchCatalog', () => {
     vi.stubGlobal('fetch', fetchMock);
     const supabase = { auth: { getSession: vi.fn() } } as unknown as SupabaseClient;
 
-    const data = await searchCatalog(supabase, {
+    const data = await searchCatalog({
       ids: [11, 12],
       offset: 5,
       limit: 2,
@@ -1562,7 +1422,7 @@ describe('searchCatalog', () => {
     const getSession = vi.fn();
     const supabase = { auth: { getSession } } as unknown as SupabaseClient;
 
-    await searchCatalog(supabase, { includeProof: true });
+    await searchCatalog({ includeProof: true });
 
     expect(getSession).not.toHaveBeenCalled();
     expect(fetchMock.mock.calls[0]?.[1]).toEqual(
@@ -1598,7 +1458,7 @@ describe('searchCatalog', () => {
       auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
     } as unknown as SupabaseClient;
 
-    const data = await getCatalog(supabase, 42, { includeProof: true });
+    const data = await getCatalog(42, { includeProof: true });
 
     const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
     expect(requestUrl.searchParams.get('include')).toBe('proof');
@@ -1623,7 +1483,7 @@ describe('searchCatalog', () => {
       auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
     } as unknown as SupabaseClient;
 
-    await expect(searchCatalog(supabase, { includeProof: true })).rejects.toMatchObject({
+    await expect(searchCatalog({ includeProof: true })).rejects.toMatchObject({
       code: 'INVALID_ARGUMENT',
       message: expect.stringContaining('Catalog API rejected include=proof'),
     });
@@ -1669,7 +1529,7 @@ describe('getCatalogSimilarity', () => {
     });
     const supabase = { auth: { getSession } } as unknown as SupabaseClient;
 
-    const result = await getCatalogSimilarity(supabase, {
+    const result = await getCatalogSimilarity({
       coffee_id: 1182,
       threshold: 0.85,
       limit: 5,
@@ -1708,7 +1568,7 @@ describe('getCatalogSimilarity', () => {
     const getSession = vi.fn();
     const supabase = { auth: { getSession } } as unknown as SupabaseClient;
 
-    await getCatalogSimilarity(supabase, { coffee_id: 1182 });
+    await getCatalogSimilarity({ coffee_id: 1182 });
 
     expect(getSession).not.toHaveBeenCalled();
     expect(fetchMock.mock.calls[0]?.[1]).toEqual(
@@ -1737,7 +1597,7 @@ describe('getCatalogSimilarity', () => {
       auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
     } as unknown as SupabaseClient;
 
-    await expect(getCatalogSimilarity(supabase, { coffee_id: 1182 })).rejects.toMatchObject({
+    await expect(getCatalogSimilarity({ coffee_id: 1182 })).rejects.toMatchObject({
       code: 'GENERAL_ERROR',
       message: expect.stringContaining('unexpected response shape'),
     });
@@ -1755,7 +1615,7 @@ describe('getCatalogSimilarity', () => {
       auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
     } as unknown as SupabaseClient;
 
-    await expect(getCatalogSimilarity(supabase, { coffee_id: 1182 })).rejects.toMatchObject({
+    await expect(getCatalogSimilarity({ coffee_id: 1182 })).rejects.toMatchObject({
       code: 'AUTH_ERROR',
       message: expect.stringContaining('Catalog API authentication failed'),
     });
@@ -1773,7 +1633,7 @@ describe('getCatalogSimilarity', () => {
       auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
     } as unknown as SupabaseClient;
 
-    await expect(getCatalogSimilarity(supabase, { coffee_id: 1182 })).rejects.toMatchObject({
+    await expect(getCatalogSimilarity({ coffee_id: 1182 })).rejects.toMatchObject({
       code: 'INVALID_ARGUMENT',
       message: expect.stringContaining('/v1/catalog/{id}/similar'),
     });
@@ -1791,7 +1651,7 @@ describe('getCatalogSimilarity', () => {
       auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
     } as unknown as SupabaseClient;
 
-    await expect(getCatalogSimilarity(supabase, { coffee_id: 1182 })).rejects.toMatchObject({
+    await expect(getCatalogSimilarity({ coffee_id: 1182 })).rejects.toMatchObject({
       code: 'NOT_FOUND',
       message: expect.stringContaining('Catalog similarity target not found'),
     });
@@ -1809,7 +1669,7 @@ describe('getCatalogSimilarity', () => {
       auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
     } as unknown as SupabaseClient;
 
-    await expect(getCatalogSimilarity(supabase, { coffee_id: 1182 })).rejects.toMatchObject({
+    await expect(getCatalogSimilarity({ coffee_id: 1182 })).rejects.toMatchObject({
       code: 'CONFIG_ERROR',
       message: expect.stringContaining('Catalog similarity API endpoint not found'),
     });
@@ -1828,7 +1688,7 @@ describe('getCatalogSimilarity', () => {
       auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 't' } } }) },
     } as unknown as SupabaseClient;
 
-    await expect(getCatalogSimilarity(supabase, { coffee_id: 1182 })).rejects.toMatchObject({
+    await expect(getCatalogSimilarity({ coffee_id: 1182 })).rejects.toMatchObject({
       code: 'CONFIG_ERROR',
       message: expect.stringContaining('Catalog similarity API endpoint not found'),
     });

@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AuthError, PrvrsError } from './errors.js';
+import {
+  createParchmentClient,
+  getParchmentBaseUrl,
+  resolveParchmentToken,
+  unwrapParchment,
+} from './parchment.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -854,29 +860,6 @@ const CATALOG_API_SORT_MAP: Partial<
   newest: { field: 'stocked_date', direction: 'desc' },
 };
 
-function getCatalogApiBaseUrl(): string {
-  return (process.env.PURVEYORS_BASE_URL ?? 'https://www.purveyors.io').replace(/\/+$/, '');
-}
-
-async function getCatalogApiAuthHeader(supabase: SupabaseClient): Promise<string> {
-  const apiKey = process.env.PARCHMENT_API_KEY ?? process.env.PURVEYORS_API_KEY;
-  if (apiKey) {
-    return `Bearer ${apiKey}`;
-  }
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session?.access_token) {
-    throw new AuthError(
-      'Catalog API reads require a Purveyors session or API key. Run `purvey auth login`, or set PARCHMENT_API_KEY/PURVEYORS_API_KEY for API-backed catalog reads.'
-    );
-  }
-
-  return `Bearer ${session.access_token}`;
-}
-
 function appendSearchParam(
   params: URLSearchParams,
   name: string,
@@ -920,7 +903,7 @@ function assertCatalogApiCompatibleSearch(parsed: z.infer<typeof searchCatalogSc
 function buildCatalogApiUrl(parsed: z.infer<typeof searchCatalogSchema>): URL {
   assertCatalogApiCompatibleSearch(parsed);
 
-  const url = new URL('/v1/catalog', getCatalogApiBaseUrl());
+  const url = new URL('/v1/catalog', getParchmentBaseUrl());
   const params = url.searchParams;
 
   params.set('include', 'proof');
@@ -1024,7 +1007,7 @@ async function parseCatalogApiError(
 }
 
 function buildCatalogSimilarityApiUrl(parsed: z.infer<typeof getCatalogSimilaritySchema>): URL {
-  const url = new URL(`/v1/catalog/${parsed.coffee_id}/similar`, getCatalogApiBaseUrl());
+  const url = new URL(`/v1/catalog/${parsed.coffee_id}/similar`, getParchmentBaseUrl());
   const params = url.searchParams;
   params.set('threshold', String(parsed.threshold ?? 0.7));
   params.set('limit', String(parsed.limit ?? 10));
@@ -1055,14 +1038,13 @@ function isCatalogSimilarityResponse(value: unknown): value is CatalogSimilarity
 }
 
 async function fetchCatalogSimilarityApi(
-  supabase: SupabaseClient,
   parsed: z.infer<typeof getCatalogSimilaritySchema>
 ): Promise<CatalogSimilarityResponse> {
   const url = buildCatalogSimilarityApiUrl(parsed);
   const response = await fetch(url, {
     headers: {
       Accept: 'application/json',
-      Authorization: await getCatalogApiAuthHeader(supabase),
+      Authorization: `Bearer ${await resolveParchmentToken('member')}`,
     },
   });
 
@@ -1083,14 +1065,21 @@ async function fetchCatalogSimilarityApi(
 }
 
 async function fetchCatalogApiItems(
-  supabase: SupabaseClient,
   parsed: z.infer<typeof searchCatalogSchema>
 ): Promise<CatalogItem[]> {
   const url = buildCatalogApiUrl(parsed);
   const response = await fetch(url, {
     headers: {
       Accept: 'application/json',
-      Authorization: await getCatalogApiAuthHeader(supabase),
+      Authorization: `Bearer ${await resolveParchmentToken(
+        parsed.processingBaseMethod ||
+          parsed.fermentationType ||
+          parsed.processAdditive ||
+          parsed.processingDisclosureLevel ||
+          parsed.processingConfidenceMin !== undefined
+          ? 'member'
+          : 'viewer'
+      )}`,
     },
   });
 
@@ -1141,158 +1130,71 @@ export function computeCatalogStats(items: CatalogItem[]): CatalogStats {
 /**
  * Search the coffee catalog with optional filters.
  */
-export async function searchCatalog(
-  supabase: SupabaseClient,
-  opts: SearchCatalogInput
-): Promise<CatalogItem[]> {
+export async function searchCatalog(opts: SearchCatalogInput): Promise<CatalogItem[]> {
   const parsed = searchCatalogSchema.parse(opts);
 
   if (parsed.includeProof) {
-    return fetchCatalogApiItems(supabase, parsed);
+    return fetchCatalogApiItems(parsed);
   }
-
-  let query = supabase.from('coffee_catalog').select('*');
-
-  if (parsed.origin) {
-    const o = sanitizeFilterValue(parsed.origin);
-    query = query.or(`country.ilike.%${o}%,continent.ilike.%${o}%,region.ilike.%${o}%`);
-  }
-
-  if (parsed.process) {
-    const p = sanitizeFilterValue(parsed.process);
-    query = query.ilike('processing', `%${p}%`);
-  }
-
-  if (parsed.processingBaseMethod) {
-    query = query.eq('processing_base_method', sanitizeFilterValue(parsed.processingBaseMethod));
-  }
-
-  if (parsed.fermentationType) {
-    query = query.eq('fermentation_type', sanitizeFilterValue(parsed.fermentationType));
-  }
-
-  if (parsed.processAdditive) {
-    query = query.contains('process_additives', [sanitizeFilterValue(parsed.processAdditive)]);
-  }
-
-  if (parsed.processingDisclosureLevel) {
-    query = query.eq(
-      'processing_disclosure_level',
-      sanitizeFilterValue(parsed.processingDisclosureLevel)
+  const offset = parsed.offset ?? 0;
+  if (!hasCatalogIdFilter(parsed) && offset % parsed.limit !== 0) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `Canonical catalog pagination requires --offset to be a multiple of --limit. Received offset=${offset}, limit=${parsed.limit}.`
     );
   }
 
-  if (parsed.processingConfidenceMin !== undefined) {
-    query = query.gte('processing_confidence', parsed.processingConfidenceMin);
-  }
-
-  if (parsed.priceMin !== undefined) {
-    query = query.gte('price_per_lb', parsed.priceMin);
-  }
-
-  if (parsed.priceMax !== undefined) {
-    query = query.lte('price_per_lb', parsed.priceMax);
-  }
-
-  if (parsed.flavor) {
-    const keywords = parsed.flavor
-      .split(',')
-      .map((k) => sanitizeFilterValue(k.trim()))
-      .filter(Boolean);
-    const flavorFilters = keywords
-      .flatMap((kw) => [
-        `description_short.ilike.%${kw}%`,
-        `description_long.ilike.%${kw}%`,
-        `cupping_notes.ilike.%${kw}%`,
-        `farm_notes.ilike.%${kw}%`,
-      ])
-      .join(',');
-    query = query.or(flavorFilters);
-  }
-
-  if (parsed.name) {
-    const n = sanitizeFilterValue(parsed.name);
-    query = query.ilike('name', `%${n}%`);
-  }
-
-  if (parsed.supplier) {
-    const s = sanitizeFilterValue(parsed.supplier);
-    query = query.ilike('source', `%${s}%`);
-  }
-
-  if (parsed.ids && parsed.ids.length > 0) {
-    // coffee_catalog PK is `id`; `catalog_id` is the FK name on other tables
-    query = query.in('id', parsed.ids);
-  }
-
-  if (parsed.variety) {
-    const v = sanitizeFilterValue(parsed.variety);
-    query = query.ilike('cultivar_detail', `%${v}%`);
-  }
-
-  if (parsed.dryingMethod) {
-    const d = sanitizeFilterValue(parsed.dryingMethod);
-    query = query.ilike('drying_method', `%${d}%`);
-  }
-
-  if (parsed.stockedDays) {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - parsed.stockedDays);
-    query = query.gte('stocked_date', cutoff.toISOString().slice(0, 10));
-  }
-
-  if (parsed.stocked) {
-    query = query.eq('stocked', true);
-  }
-
-  // Apply sort order. Always finish with the unique primary key so offset-based
-  // pagination is deterministic when the primary sort contains ties (for
-  // example, multiple suppliers using the same coffee name).
-  if (parsed.sort) {
-    switch (parsed.sort) {
-      case 'price':
-        query = query.order('price_per_lb', { ascending: true, nullsFirst: false });
-        break;
-      case 'price-desc':
-        query = query.order('price_per_lb', { ascending: false, nullsFirst: false });
-        break;
-      case 'name':
-        query = query.order('name', { ascending: true, nullsFirst: false });
-        break;
-      case 'origin':
-        query = query.order('country', { ascending: true, nullsFirst: false });
-        break;
-      case 'newest':
-        query = query.order('last_updated', { ascending: false, nullsFirst: false });
-        break;
-    }
-  }
-  query = query.order('id', { ascending: true });
-
-  // Apply offset/limit for pagination (skip when fetching specific IDs)
-  if (!parsed.ids || parsed.ids.length === 0) {
-    const offset = parsed.offset ?? 0;
-    query = query.range(offset, offset + parsed.limit - 1);
-  }
-
-  const { data, error } = await query;
-  if (error) throw error;
-
-  return (data ?? []) as CatalogItem[];
+  const sort = parsed.sort ? CATALOG_API_SORT_MAP[parsed.sort] : undefined;
+  const client = await createParchmentClient(
+    parsed.processingBaseMethod ||
+      parsed.fermentationType ||
+      parsed.processAdditive ||
+      parsed.processingDisclosureLevel ||
+      parsed.processingConfidenceMin !== undefined
+      ? 'member'
+      : 'viewer'
+  );
+  const result = await client.catalog.list({
+    origin: parsed.origin,
+    processing: parsed.process,
+    processing_base_method: parsed.processingBaseMethod,
+    fermentation_type: parsed.fermentationType,
+    process_additive: parsed.processAdditive,
+    processing_disclosure_level: parsed.processingDisclosureLevel,
+    processing_confidence_min: parsed.processingConfidenceMin,
+    pricePerLbMin: parsed.priceMin,
+    pricePerLbMax: parsed.priceMax,
+    flavorKeywords: parsed.flavor
+      ?.split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+    name: parsed.name,
+    supplier: parsed.supplier,
+    coffeeIds: parsed.ids?.join(','),
+    variety: parsed.variety,
+    dryingMethod: parsed.dryingMethod,
+    stockedDays: parsed.stockedDays,
+    stocked: parsed.stocked ? 'true' : 'all',
+    sort: sort?.field,
+    order: sort?.direction,
+    limit: hasCatalogIdFilter(parsed) ? Math.min(parsed.ids?.length ?? 1, 100) : parsed.limit,
+    page: hasCatalogIdFilter(parsed) ? 1 : Math.floor(offset / parsed.limit) + 1,
+  });
+  const envelope = unwrapParchment(result, 'Catalog search');
+  return envelope.data as CatalogItem[];
 }
 
 /**
  * Fetch a single catalog item by ID.
  */
 export async function getCatalog(
-  supabase: SupabaseClient,
   id: number,
   opts: { includeProof?: boolean } = {}
 ): Promise<CatalogItem> {
   const parsed = getCatalogSchema.parse({ id, includeProof: opts.includeProof });
 
   if (parsed.includeProof) {
-    const rows = await fetchCatalogApiItems(supabase, {
+    const rows = await fetchCatalogApiItems({
       ids: [parsed.id],
       limit: 1,
       includeProof: true,
@@ -1304,23 +1206,21 @@ export async function getCatalog(
     return item;
   }
 
-  const { data, error } = await supabase.from('coffee_catalog').select('*').eq('id', id).single();
-
-  if (error) throw error;
-  return data as CatalogItem;
+  const rows = await searchCatalog({ ids: [parsed.id], limit: 1 });
+  const item = rows[0];
+  if (!item) {
+    throw new PrvrsError('NOT_FOUND', `Coffee ID ${parsed.id} not found in catalog.`);
+  }
+  return item;
 }
 
 /**
  * Fetch aggregate statistics for the coffee catalog.
  */
-export async function getCatalogStats(supabase: SupabaseClient): Promise<CatalogStats> {
-  const { data, error } = await supabase
-    .from('coffee_catalog')
-    .select('id, country, continent, price_per_lb, price_tiers, cost_lb, stocked');
-
-  if (error) throw error;
-
-  return computeCatalogStats((data ?? []) as CatalogItem[]);
+export async function getCatalogStats(): Promise<CatalogStats> {
+  const client = await createParchmentClient('viewer');
+  const envelope = unwrapParchment(await client.catalog.stats({ stocked: 'all' }), 'Catalog stats');
+  return envelope.stats;
 }
 
 function buildCatalogIntelligenceQuery(
@@ -1644,97 +1544,68 @@ function rankCatalogRows(
 }
 
 /** List distinct catalog facet values with counts for agent/client filter discovery. */
-export async function listCatalogFacets(
-  supabase: SupabaseClient,
-  input: CatalogFacetsInput
-): Promise<CatalogFacetsResponse> {
+export async function listCatalogFacets(input: CatalogFacetsInput): Promise<CatalogFacetsResponse> {
   const parsed = catalogFacetsSchema.parse(input);
   const limit = parsed.limit ?? 60;
-  const sampleSize = parsed.sampleSize ?? SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE;
-  const { rows, truncated } = await fetchCatalogFacetRows(supabase, parsed);
   const column = catalogFacetColumns[parsed.field];
-  const counts = new Map<string, number>();
-
-  for (const row of rows) {
-    const raw = row[column];
-    const value =
-      typeof raw === 'boolean' ? String(raw) : typeof raw === 'string' ? raw.trim() : '';
-    if (!value) continue;
-    counts.set(value, (counts.get(value) ?? 0) + 1);
-  }
-
-  const values = [...counts.entries()]
-    .map(([value, count]) => ({ value, count }))
-    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
+  const facetKey = {
+    supplier: 'sources',
+    country: 'countries',
+    processing_base_method: 'processing_base_method',
+    fermentation_type: 'fermentation_type',
+    drying_method: 'drying_method',
+    grade: 'grade',
+    wholesale: 'wholesale',
+  }[parsed.field];
+  const client = await createParchmentClient('viewer');
+  const envelope = unwrapParchment(
+    await client.catalog.facets({ stocked: parsed.stockedOnly === false ? 'all' : 'true' }),
+    'Catalog facets'
+  );
+  const facets = envelope.facets as Record<string, CatalogFacetValue[] | undefined>;
+  const values = (facets[facetKey] ?? []).slice(0, limit);
+  const rowsExamined = (facets[facetKey] ?? []).reduce((total, facet) => total + facet.count, 0);
 
   return {
-    data: values.slice(0, limit),
+    data: values,
     meta: {
       resource: 'catalog-facets',
       field: parsed.field,
       source_column: String(column),
       stocked_only: parsed.stockedOnly ?? true,
       scope: (parsed.stockedOnly ?? true) ? 'stocked_only' : 'all_visible',
-      sample_size: sampleSize,
-      sample_limited: true,
+      sample_size: rowsExamined,
+      sample_limited: false,
       sample_order: 'id_asc',
-      truncated: truncated || values.length > limit,
-      rows_examined: rows.length,
-      distinct_values: values.length,
-      returned: Math.min(values.length, limit),
+      truncated: (facets[facetKey]?.length ?? 0) > limit,
+      rows_examined: rowsExamined,
+      distinct_values: facets[facetKey]?.length ?? 0,
+      returned: values.length,
       caveats: catalogFacetCaveats,
     },
   };
 }
 
 /** Rank catalog candidates by deterministic product-intelligence objectives. */
-export async function rankCatalog(
-  supabase: SupabaseClient,
-  input: CatalogRankInput = {}
-): Promise<CatalogRankingResponse> {
+export async function rankCatalog(input: CatalogRankInput = {}): Promise<CatalogRankingResponse> {
   const parsed = catalogRankSchema.parse(input);
-  const sampleSize = parsed.sampleSize ?? SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE;
-  const objective = parsed.objective ?? 'premium';
-  const limit = parsed.limit ?? 10;
-  const { rows, truncated } = await fetchCatalogRankRows(supabase, parsed);
-  const data = rankCatalogRows(rows, objective, limit);
-  const caveats = [...catalogRankingCaveats];
-  if (objective === 'value') {
-    caveats.push(
-      'Value objective ranks by Purveyor Score per dollar; rows without score or price are excluded.'
-    );
-  }
-  if (objective === 'rare_origin' && parsed.country) {
-    caveats.push(
-      'rare_origin combined with a country filter measures rarity only within that country filter.'
-    );
-  }
-
-  return {
-    data,
-    meta: {
-      resource: 'catalog-ranking',
-      objective,
-      scoring_source: 'coffee_catalog.purveyor_score',
-      sample_size: sampleSize,
-      sample_limited: true,
-      sample_order: 'id_asc',
-      truncated,
-      candidates_considered: rows.length,
-      returned: data.length,
-      filters: {
-        supplier: parsed.supplier,
-        country: parsed.country,
-        process: parsed.process,
-        stocked_only: parsed.stockedOnly ?? true,
-        scope: (parsed.stockedOnly ?? true) ? 'stocked_only' : 'all_visible',
-        priceMax: parsed.priceMax,
-        minScore: parsed.minScore,
-        nonWholesaleOnly: parsed.nonWholesaleOnly ?? false,
-      },
-      caveats,
-    },
-  };
+  const client = await createParchmentClient('viewer');
+  const envelope = unwrapParchment(
+    await client.catalog.rank({
+      objective: parsed.objective,
+      stockedOnly: parsed.stockedOnly === false ? 'false' : 'true',
+      supplier: parsed.supplier,
+      country: parsed.country,
+      process: parsed.process,
+      priceMax: parsed.priceMax,
+      minScore: parsed.minScore,
+      nonWholesaleOnly: parsed.nonWholesaleOnly ? 'true' : 'false',
+      limit: parsed.limit,
+      sampleSize: parsed.sampleSize,
+    }),
+    'Catalog ranking'
+  );
+  return envelope as unknown as CatalogRankingResponse;
 }
 
 /**
@@ -1860,11 +1731,10 @@ export async function supplierRank(
  * Fetch canonical catalog similarity groups from the beta /v1/catalog/{id}/similar API.
  */
 export async function getCatalogSimilarity(
-  supabase: SupabaseClient,
   input: GetCatalogSimilarityInput
 ): Promise<CatalogSimilarityResponse> {
   const parsed = getCatalogSimilaritySchema.parse(input);
-  return fetchCatalogSimilarityApi(supabase, parsed);
+  return fetchCatalogSimilarityApi(parsed);
 }
 
 /**
