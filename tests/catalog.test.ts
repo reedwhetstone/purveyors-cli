@@ -1085,6 +1085,20 @@ describe('searchCatalog', () => {
     expect(data).toHaveLength(1);
   });
 
+  it('preserves newest ordering through the canonical last-updated field', async () => {
+    const list = vi.fn().mockResolvedValue({
+      data: { data: [makeItem()], pagination: {}, meta: {} },
+      response: new Response(null, { status: 200 }),
+    });
+    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { list } } as never);
+
+    await searchCatalog({ sort: 'newest' });
+
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ sort: 'last_updated', order: 'desc' })
+    );
+  });
+
   it('rejects offsets that cannot be represented by canonical page pagination', async () => {
     await expect(searchCatalog({ offset: 5, limit: 10 })).rejects.toMatchObject({
       code: 'INVALID_ARGUMENT',

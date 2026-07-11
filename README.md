@@ -135,7 +135,8 @@ Export discipline:
 
 No pre-existing session is required for `auth`, `config`, `context`, or `manifest`.
 
-All remote data commands require a valid authenticated session:
+Remote data commands require either a valid authenticated session or, for canonical
+Parchment API surfaces, an owner-bound API key with the required scope:
 
 - `catalog` requires the `viewer` role by default
 - `catalog search` structured process filters require the `member` role under the current session-authenticated CLI path
@@ -143,6 +144,11 @@ All remote data commands require a valid authenticated session:
 - `price-index`, `procurement`, `inventory`, `roast`, `sales`, and `tasting` require the `member` role under the session-authenticated CLI path
 
 `purvey` uses Google OAuth through purveyors.io.
+
+Set `PARCHMENT_API_KEY` (or `PURVEYORS_API_KEY`) to authenticate SDK-backed catalog,
+inventory, tasting-read, market, price-index, and procurement operations without using
+the stored session JWT. API-key credentials take precedence. Roast, sales, and
+`tasting rate` still use the session-backed migration path in this release.
 
 Interactive login:
 
@@ -578,7 +584,8 @@ purvey inventory delete 7 --yes
 
 Notes:
 
-- Inventory commands require an authenticated `member` role.
+- Inventory commands require a member session or an owner-bound API key with the
+  corresponding inventory scope.
 - Inventory `id` is `green_coffee_inv.id`, not `catalog_id`.
 - `inventory delete` refuses to cascade. Delete dependent roasts or sales explicitly first.
 
@@ -758,9 +765,10 @@ purvey tasting rate --form
 
 Notes:
 
-- Tasting commands require an authenticated `member` role.
+- Tasting reads accept a member session or an owner-bound `tasting:read` API key.
 - `tasting get` combines supplier notes with your own notes when available.
-- `tasting rate` writes scores back to your inventory row.
+- `tasting rate` writes scores back to your inventory row through the remaining direct
+  Supabase path until the canonical tasting-write endpoint ships.
 
 ### config
 

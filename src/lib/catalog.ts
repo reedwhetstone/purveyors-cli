@@ -855,7 +855,7 @@ const CATALOG_API_SORT_MAP: Partial<
   'price-desc': { field: 'price_per_lb', direction: 'desc' },
   name: { field: 'name', direction: 'asc' },
   origin: { field: 'country', direction: 'asc' },
-  newest: { field: 'stocked_date', direction: 'desc' },
+  newest: { field: 'last_updated', direction: 'desc' },
 };
 
 function appendSearchParam(
