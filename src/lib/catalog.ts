@@ -1223,146 +1223,6 @@ export async function getCatalogStats(): Promise<CatalogStats> {
   return envelope.stats;
 }
 
-function buildCatalogIntelligenceQuery(
-  supabase: SupabaseClient,
-  parsed: {
-    origin?: string;
-    process?: string;
-    supplier?: string;
-    country?: string;
-    stocked?: boolean;
-    nonWholesaleOnly?: boolean;
-    priceMax?: number;
-    minScore?: number;
-    sampleSize?: number;
-    orderByScore?: boolean;
-  },
-  options: { applyRange?: boolean } = {}
-) {
-  let query = supabase.from('coffee_catalog').select('*');
-
-  if (parsed.origin) {
-    const origin = sanitizeFilterValue(parsed.origin);
-    query = query.or(
-      `country.ilike.%${origin}%,continent.ilike.%${origin}%,region.ilike.%${origin}%`
-    );
-  }
-
-  if (parsed.process) {
-    const process = sanitizeFilterValue(parsed.process);
-    query = query.or(`processing.ilike.%${process}%,processing_base_method.ilike.%${process}%`);
-  }
-
-  if (parsed.supplier) {
-    query = query.ilike('source', `%${sanitizeFilterValue(parsed.supplier)}%`);
-  }
-
-  if (parsed.country) {
-    query = query.ilike('country', `%${sanitizeFilterValue(parsed.country)}%`);
-  }
-
-  if (parsed.stocked !== undefined) {
-    query = query.eq('stocked', parsed.stocked);
-  }
-
-  if (parsed.priceMax !== undefined) {
-    query = query.lte('price_per_lb', parsed.priceMax);
-  }
-
-  if (parsed.minScore !== undefined) {
-    query = query.gte('purveyor_score', parsed.minScore);
-  }
-
-  if (parsed.nonWholesaleOnly) {
-    query = query.or('wholesale.is.null,wholesale.eq.false');
-  }
-
-  if (parsed.orderByScore) {
-    query = query.order('purveyor_score', { ascending: false, nullsFirst: false });
-  } else {
-    query = query.order('source', { ascending: true, nullsFirst: false });
-  }
-
-  if (options.applyRange ?? true) {
-    const sampleSize = parsed.sampleSize ?? CATALOG_PREMIUM_DEFAULT_SAMPLE_SIZE;
-    query = query.range(0, sampleSize - 1);
-  }
-
-  return query;
-}
-
-async function fetchSupplierAggregateRows(
-  supabase: SupabaseClient,
-  parsed: Pick<
-    SupplierAggregateInput,
-    'supplier' | 'country' | 'stocked' | 'nonWholesaleOnly' | 'sampleSize'
-  >
-): Promise<CatalogItem[]> {
-  const sampleSize = parsed.sampleSize ?? SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE;
-  const pageSize = Math.min(sampleSize, SUPABASE_DATA_API_MAX_PAGE_SIZE);
-  const rows: CatalogItem[] = [];
-
-  for (let offset = 0; ; offset += pageSize) {
-    const { data, error } = await buildCatalogIntelligenceQuery(
-      supabase,
-      {
-        supplier: parsed.supplier,
-        country: parsed.country,
-        stocked: parsed.stocked,
-        nonWholesaleOnly: parsed.nonWholesaleOnly,
-      },
-      { applyRange: false }
-    )
-      .order('id', { ascending: true })
-      .range(offset, offset + pageSize - 1);
-
-    if (error) throw error;
-
-    const page = (data ?? []) as unknown as CatalogItem[];
-    rows.push(...page);
-
-    if (page.length < pageSize) break;
-  }
-
-  return rows;
-}
-
-async function fetchCatalogPremiumSampleRows(
-  supabase: SupabaseClient,
-  parsed: CatalogRankPremiumInput,
-  sampleSize: number
-): Promise<{ sampledRows: CatalogItem[]; truncated: boolean }> {
-  const targetRows = sampleSize + 1;
-  const pageSize = Math.min(targetRows, SUPABASE_DATA_API_MAX_PAGE_SIZE);
-  const rows: CatalogItem[] = [];
-
-  for (let offset = 0; rows.length < targetRows; offset += pageSize) {
-    const pageEnd = Math.min(offset + pageSize - 1, targetRows - 1);
-    const { data, error } = await buildCatalogIntelligenceQuery(
-      supabase,
-      {
-        ...parsed,
-        orderByScore: true,
-      },
-      { applyRange: false }
-    )
-      .order('id', { ascending: true })
-      .range(offset, pageEnd);
-
-    if (error) throw error;
-
-    const page = (data ?? []) as unknown as CatalogItem[];
-    rows.push(...page);
-
-    if (page.length < pageEnd - offset + 1) break;
-  }
-
-  return {
-    sampledRows: rows.slice(0, sampleSize),
-    truncated: rows.length > sampleSize,
-  };
-}
-
 const catalogIntelligenceCaveats = [
   'Purveyor Score is read from coffee_catalog.purveyor_score with confidence, tier, factor breakdown, version, and update metadata; the CLI does not recompute the upstream score model.',
   'Ranking is catalog-only and does not account for a roaster’s owned inventory, roast history, or target menu fit.',
@@ -1406,66 +1266,6 @@ function scoreBasis(item: CatalogItem): string {
   if (score.value === null) return 'no Purveyor Score yet';
   const tier = score.tier ? `, ${score.tier}` : '';
   return `Purveyor Score ${score.value}${tier}`;
-}
-
-async function fetchCatalogFacetRows(
-  supabase: SupabaseClient,
-  parsed: z.output<typeof catalogFacetsSchema>
-): Promise<{ rows: CatalogItem[]; truncated: boolean }> {
-  const sampleSize = parsed.sampleSize ?? SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE;
-  const targetRows = sampleSize + 1;
-  const pageSize = Math.min(targetRows, SUPABASE_DATA_API_MAX_PAGE_SIZE);
-  const rows: CatalogItem[] = [];
-  const column = catalogFacetColumns[parsed.field];
-
-  for (let offset = 0; rows.length < targetRows; offset += pageSize) {
-    const pageEnd = Math.min(offset + pageSize - 1, targetRows - 1);
-    let query = supabase.from('coffee_catalog').select(`id, ${String(column)}`);
-    if (parsed.stockedOnly ?? true) query = query.eq('stocked', true);
-
-    const { data, error } = await query.order('id', { ascending: true }).range(offset, pageEnd);
-    if (error) throw error;
-
-    const page = (data ?? []) as unknown as CatalogItem[];
-    rows.push(...page);
-    if (page.length < pageEnd - offset + 1) break;
-  }
-
-  return { rows: rows.slice(0, sampleSize), truncated: rows.length > sampleSize };
-}
-
-async function fetchCatalogRankRows(
-  supabase: SupabaseClient,
-  parsed: z.output<typeof catalogRankSchema>
-): Promise<{ rows: CatalogItem[]; truncated: boolean }> {
-  const sampleSize = parsed.sampleSize ?? SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE;
-  const targetRows = sampleSize + 1;
-  const pageSize = Math.min(targetRows, SUPABASE_DATA_API_MAX_PAGE_SIZE);
-  const rows: CatalogItem[] = [];
-
-  for (let offset = 0; rows.length < targetRows; offset += pageSize) {
-    const pageEnd = Math.min(offset + pageSize - 1, targetRows - 1);
-    let query = supabase.from('coffee_catalog').select('*');
-    if (parsed.stockedOnly ?? true) query = query.eq('stocked', true);
-    if (parsed.supplier) query = query.ilike('source', `%${sanitizeFilterValue(parsed.supplier)}%`);
-    if (parsed.country) query = query.ilike('country', `%${sanitizeFilterValue(parsed.country)}%`);
-    if (parsed.process) {
-      const process = sanitizeFilterValue(parsed.process);
-      query = query.or(`processing.ilike.%${process}%,processing_base_method.ilike.%${process}%`);
-    }
-    if (parsed.priceMax !== undefined) query = query.lte('price_per_lb', parsed.priceMax);
-    if (parsed.minScore !== undefined) query = query.gte('purveyor_score', parsed.minScore);
-    if (parsed.nonWholesaleOnly) query = query.or('wholesale.is.null,wholesale.eq.false');
-
-    const { data, error } = await query.order('id', { ascending: true }).range(offset, pageEnd);
-    if (error) throw error;
-
-    const page = (data ?? []) as unknown as CatalogItem[];
-    rows.push(...page);
-    if (page.length < pageEnd - offset + 1) break;
-  }
-
-  return { rows: rows.slice(0, sampleSize), truncated: rows.length > sampleSize };
 }
 
 function rankCatalogRows(
@@ -1612,119 +1412,85 @@ export async function rankCatalog(input: CatalogRankInput = {}): Promise<Catalog
  * Rank premium catalog candidates by Purveyor Score, with pricing and sourcing signals.
  */
 export async function catalogRankPremium(
-  supabase: SupabaseClient,
   input: CatalogRankPremiumInput = {}
 ): Promise<CatalogPremiumRanking> {
   const parsed = catalogRankPremiumSchema.parse(input);
-  const sampleSize = parsed.sampleSize ?? CATALOG_PREMIUM_DEFAULT_SAMPLE_SIZE;
-  const { sampledRows, truncated } = await fetchCatalogPremiumSampleRows(
-    supabase,
-    parsed,
-    sampleSize
+  const client = await createParchmentClient('viewer');
+  const envelope = unwrapParchment(
+    await client.catalog.rankPremium({
+      origin: parsed.origin,
+      process: parsed.process,
+      supplier: parsed.supplier,
+      stocked: parsed.stocked === undefined ? undefined : parsed.stocked ? 'true' : 'false',
+      priceMax: parsed.priceMax,
+      minScore: parsed.minScore,
+      includeUnscored: parsed.includeUnscored ? 'true' : 'false',
+      limit: parsed.limit,
+      sampleSize: parsed.sampleSize,
+    }),
+    'Catalog premium ranking'
   );
-
-  const ranking = computeCatalogPremiumRanking(sampledRows, {
-    limit: parsed.limit ?? 10,
-    includeUnscored: parsed.includeUnscored ?? false,
-    minScore: parsed.minScore,
-  });
-
-  return {
-    data: ranking,
-    meta: {
-      resource: 'catalog-premium-ranking',
-      scoring_source: 'coffee_catalog.purveyor_score',
-      sample_size: sampleSize,
-      sample_limited: true,
-      sample_order: 'purveyor_score_desc_nulls_last',
-      truncated,
-      returned: ranking.length,
-      filters: {
-        origin: parsed.origin,
-        process: parsed.process,
-        supplier: parsed.supplier,
-        stocked: parsed.stocked,
-        priceMax: parsed.priceMax,
-        minScore: parsed.minScore,
-        includeUnscored: parsed.includeUnscored ?? false,
-      },
-      caveats: catalogPremiumRankingCaveats,
-    },
-  };
+  return envelope as unknown as CatalogPremiumRanking;
 }
 
-async function getSupplierAggregates(
-  supabase: SupabaseClient,
-  input: SupplierAggregateInput,
-  resource: SupplierAggregateResponse['meta']['resource']
-): Promise<SupplierAggregateResponse> {
-  const parsed = supplierAggregateSchema.parse(input);
-  const sampleSize = parsed.sampleSize ?? SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE;
-  const rows = await fetchSupplierAggregateRows(supabase, {
+function toSupplierQuery(parsed: z.output<typeof supplierAggregateSchema>) {
+  return {
     supplier: parsed.supplier,
     country: parsed.country,
-    stocked: parsed.stocked,
-    nonWholesaleOnly: parsed.nonWholesaleOnly,
-    sampleSize,
-  });
-
-  const aggregates = computeSupplierAggregates(rows, {
-    topCoffees: parsed.topCoffees ?? 5,
-    minCoffees: parsed.minCoffees ?? 1,
-  }).slice(0, parsed.limit ?? 25);
-
-  return {
-    data: aggregates,
-    meta: {
-      resource,
-      sample_size: sampleSize,
-      sample_limited: false,
-      sample_order: 'source_asc_nulls_last',
-      truncated: false,
-      rows_examined: rows.length,
-      returned: aggregates.length,
-      filters: {
-        supplier: parsed.supplier,
-        country: parsed.country,
-        stocked: parsed.stocked,
-        minCoffees: parsed.minCoffees ?? 1,
-        nonWholesaleOnly: parsed.nonWholesaleOnly ?? false,
-      },
-      caveats: supplierAggregateCaveats,
-    },
+    stocked:
+      parsed.stocked === undefined
+        ? undefined
+        : parsed.stocked
+          ? ('true' as const)
+          : ('false' as const),
+    nonWholesaleOnly: parsed.nonWholesaleOnly ? ('true' as const) : ('false' as const),
+    minCoffees: parsed.minCoffees,
+    topCoffees: parsed.topCoffees,
+    limit: parsed.limit,
+    sampleSize: parsed.sampleSize,
   };
 }
 
 /** List supplier aggregates from catalog rows. */
 export async function supplierList(
-  supabase: SupabaseClient,
   input: SupplierAggregateInput = {}
 ): Promise<SupplierAggregateResponse> {
-  return getSupplierAggregates(supabase, input, 'supplier-list');
+  const parsed = supplierAggregateSchema.parse(input);
+  const client = await createParchmentClient('viewer');
+  return unwrapParchment(
+    await client.catalog.suppliers(toSupplierQuery(parsed)),
+    'Catalog suppliers'
+  ) as unknown as SupplierAggregateResponse;
 }
 
 /** Return aggregate detail for a supplier query. */
 export async function supplierDetail(
-  supabase: SupabaseClient,
   input: SupplierAggregateInput
 ): Promise<SupplierAggregateResponse> {
   const parsed = supplierAggregateSchema.parse(input);
   if (!parsed.supplier?.trim()) {
     throw new PrvrsError('INVALID_ARGUMENT', 'supplierDetail requires a non-empty supplier name.');
   }
-  return getSupplierAggregates(
-    supabase,
-    { ...parsed, limit: parsed.limit ?? 10 },
-    'supplier-detail'
-  );
+  const client = await createParchmentClient('viewer');
+  return unwrapParchment(
+    await client.catalog.supplierDetail({
+      ...toSupplierQuery({ ...parsed, limit: parsed.limit ?? 10 }),
+      supplier: parsed.supplier,
+    }),
+    'Catalog supplier detail'
+  ) as unknown as SupplierAggregateResponse;
 }
 
 /** Rank suppliers by average Purveyor Score, then currently stocked coverage. */
 export async function supplierRank(
-  supabase: SupabaseClient,
   input: SupplierAggregateInput = {}
 ): Promise<SupplierAggregateResponse> {
-  return getSupplierAggregates(supabase, input, 'supplier-rank');
+  const parsed = supplierAggregateSchema.parse(input);
+  const client = await createParchmentClient('viewer');
+  return unwrapParchment(
+    await client.catalog.supplierRank(toSupplierQuery(parsed)),
+    'Catalog supplier ranking'
+  ) as unknown as SupplierAggregateResponse;
 }
 
 /**
@@ -1741,19 +1507,27 @@ export async function getCatalogSimilarity(
  * Find beans similar to a target coffee using pgvector embedding similarity.
  * Calls the `find_similar_beans_aggregated` RPC and returns ranked matches.
  */
-export async function findSimilarBeans(
-  supabase: SupabaseClient,
-  input: FindSimilarBeansInput
-): Promise<SimilarBean[]> {
+export async function findSimilarBeans(input: FindSimilarBeansInput): Promise<SimilarBean[]> {
   const parsed = findSimilarBeansSchema.parse(input);
-
-  const { data, error } = await supabase.rpc('find_similar_beans_aggregated', {
-    target_coffee_id: parsed.coffee_id,
-    match_threshold: parsed.threshold ?? 0.7,
-    match_count: parsed.limit ?? 10,
+  const response = await getCatalogSimilarity({
+    coffee_id: parsed.coffee_id,
+    threshold: Math.max(0.5, parsed.threshold ?? 0.7),
+    limit: Math.min(25, parsed.limit ?? 10),
   });
-
-  if (error) throw new Error(`RPC error: ${error.message}`);
-
-  return (data ?? []) as SimilarBean[];
+  const matches = response.data.matches ?? [
+    ...response.data.groups.canonical_candidates,
+    ...response.data.groups.similar_recommendations,
+  ];
+  return matches.map((match) => ({
+    coffee_id: match.coffee.id,
+    coffee_name: match.coffee.name,
+    source: match.coffee.source ?? '',
+    origin: match.coffee.origin,
+    processing: match.coffee.processing,
+    cost_lb: match.compatibility.cost_lb,
+    price_per_lb: match.pricing.price_per_lb,
+    stocked: match.coffee.stocked ?? false,
+    avg_similarity: match.score.average,
+    chunk_matches: match.score.chunk_matches,
+  }));
 }

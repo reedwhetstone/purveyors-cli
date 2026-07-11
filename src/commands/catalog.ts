@@ -537,9 +537,7 @@ Notes:
           ),
           limit: parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 50),
         };
-        const { supabase } = await requireAuth('viewer');
-
-        const data = await catalogRankPremium(supabase, input);
+        const data = await catalogRankPremium(input);
 
         outputData(data, globalOpts);
       })
@@ -587,8 +585,7 @@ Notes:
           ),
           limit: parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 100),
         };
-        const { supabase } = await requireAuth('viewer');
-        const data = await supplierList(supabase, input);
+        const data = await supplierList(input);
 
         outputData(data, globalOpts);
       })
@@ -639,8 +636,7 @@ Notes:
             5000
           ),
         };
-        const { supabase } = await requireAuth('viewer');
-        const data = await supplierDetail(supabase, input);
+        const data = await supplierDetail(input);
 
         outputData(data, globalOpts);
       })
@@ -690,8 +686,7 @@ Notes:
           ),
           limit: parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 100),
         };
-        const { supabase } = await requireAuth('viewer');
-        const data = await supplierRank(supabase, input);
+        const data = await supplierRank(input);
 
         outputData(data, globalOpts);
       })

@@ -83,6 +83,10 @@ beforeEach(() => {
           })
         ),
         rank: vi.fn().mockResolvedValue(ok({ data: [], meta: {} })),
+        rankPremium: vi.fn().mockResolvedValue(ok({ data: [], meta: {} })),
+        suppliers: vi.fn().mockResolvedValue(ok({ data: [], meta: {} })),
+        supplierDetail: vi.fn().mockResolvedValue(ok({ data: [], meta: {} })),
+        supplierRank: vi.fn().mockResolvedValue(ok({ data: [], meta: {} })),
       },
     } as never;
   });
@@ -552,37 +556,6 @@ describe('catalog intelligence helpers', () => {
     expect(aggregates[0]?.top_coffees[0]?.id).toBe(1);
   });
 
-  it('catalogRankPremium queries catalog rows and returns a scored response envelope', async () => {
-    const { supabase, query } = makeSearchSupabase({
-      data: [makeItem({ id: 1, purveyor_score: 91 }), makeItem({ id: 2, purveyor_score: 88 })],
-    });
-
-    const response = await catalogRankPremium(supabase, {
-      origin: 'Ethiopia',
-      stocked: true,
-      limit: 1,
-      sampleSize: 25,
-    });
-
-    expect(query.or).toHaveBeenCalledWith(
-      'country.ilike.%Ethiopia%,continent.ilike.%Ethiopia%,region.ilike.%Ethiopia%'
-    );
-    expect(query.eq).toHaveBeenCalledWith('stocked', true);
-    expect(query.order).toHaveBeenCalledWith('purveyor_score', {
-      ascending: false,
-      nullsFirst: false,
-    });
-    expect(query.order).toHaveBeenCalledWith('id', { ascending: true });
-    expect(query.range).toHaveBeenCalledWith(0, 25);
-    expect(response.meta).toMatchObject({
-      resource: 'catalog-premium-ranking',
-      sample_limited: true,
-      sample_order: 'purveyor_score_desc_nulls_last',
-      truncated: false,
-    });
-    expect(response.data).toHaveLength(1);
-  });
-
   it('reads counted facets through the canonical SDK endpoint', async () => {
     const facets = vi.fn().mockResolvedValue({
       data: {
@@ -628,176 +601,6 @@ describe('catalog intelligence helpers', () => {
       })
     );
     expect(response).toEqual(envelope);
-  });
-
-  it('pages premium samples within the Supabase API row cap before ranking', async () => {
-    const apiPageCap = 1000;
-    const rows = [
-      ...Array.from({ length: apiPageCap }, (_, index) =>
-        makeItem({ id: index + 1, purveyor_score: 50, price_per_lb: 12, price_tiers: null })
-      ),
-      makeItem({ id: apiPageCap + 1, purveyor_score: 99, price_per_lb: 20, price_tiers: null }),
-      makeItem({ id: apiPageCap + 2, purveyor_score: 40, price_per_lb: 20, price_tiers: null }),
-    ];
-    const query = {
-      data: [] as CatalogItem[],
-      error: null,
-      or: vi.fn(() => query),
-      ilike: vi.fn(() => query),
-      eq: vi.fn(() => query),
-      contains: vi.fn(() => query),
-      gte: vi.fn(() => query),
-      lte: vi.fn(() => query),
-      in: vi.fn(() => query),
-      order: vi.fn(() => query),
-      range: vi.fn((from: number, to: number) => {
-        query.data = rows.slice(from, Math.min(to, from + apiPageCap - 1) + 1);
-        return query;
-      }),
-    };
-    const select = vi.fn(() => query);
-    const from = vi.fn(() => ({ select }));
-    const supabase = { from } as unknown as SupabaseClient;
-
-    const response = await catalogRankPremium(supabase, { sampleSize: apiPageCap + 1, limit: 1 });
-
-    expect(query.order).toHaveBeenCalledWith('purveyor_score', {
-      ascending: false,
-      nullsFirst: false,
-    });
-    expect(query.order).toHaveBeenCalledWith('id', { ascending: true });
-    expect(query.range).toHaveBeenCalledWith(0, 999);
-    expect(query.range).toHaveBeenCalledWith(1000, 1001);
-    expect(response.meta.truncated).toBe(true);
-    expect(response.data[0]?.id).toBe(apiPageCap + 1);
-  });
-
-  it('supplier aggregate functions expose supplier list, detail, and rank envelopes', async () => {
-    const { supabase, query } = makeSearchSupabase({
-      data: [makeItem({ id: 1, source: 'Royal Coffee', purveyor_score: 91 })],
-    });
-
-    await expect(supplierList(supabase, { limit: 5 })).resolves.toMatchObject({
-      meta: {
-        resource: 'supplier-list',
-        sample_limited: false,
-        sample_order: 'source_asc_nulls_last',
-        truncated: false,
-        rows_examined: 1,
-      },
-      data: [{ supplier: 'Royal Coffee' }],
-    });
-    await expect(supplierRank(supabase, { minCoffees: 1 })).resolves.toMatchObject({
-      meta: { resource: 'supplier-rank' },
-    });
-    await expect(supplierDetail(supabase, { supplier: 'Royal' })).resolves.toMatchObject({
-      meta: { resource: 'supplier-detail' },
-    });
-
-    expect(query.ilike).toHaveBeenCalledWith('source', '%Royal%');
-  });
-
-  it('applies supplier aggregate country and non-wholesale filters before aggregation', async () => {
-    const { supabase, query } = makeSearchSupabase({
-      data: [
-        makeItem({ id: 1, source: 'Retail Ethiopia', country: 'Ethiopia', wholesale: false }),
-        makeItem({ id: 2, source: 'Unknown Ethiopia', country: 'Ethiopia', wholesale: null }),
-      ],
-    });
-
-    const response = await supplierList(supabase, {
-      country: 'Ethiopia',
-      nonWholesaleOnly: true,
-      limit: 5,
-    });
-
-    expect(query.ilike).toHaveBeenCalledWith('country', '%Ethiopia%');
-    expect(query.or).toHaveBeenCalledWith('wholesale.is.null,wholesale.eq.false');
-    expect(response.meta.rows_examined).toBe(2);
-    expect(response.meta.filters).toMatchObject({
-      country: 'Ethiopia',
-      nonWholesaleOnly: true,
-    });
-  });
-
-  it('paginates supplier rows with a stable tie-breaker before aggregating so later suppliers are not omitted', async () => {
-    const rows = [
-      makeItem({ id: 1, source: 'Alpha Coffee', purveyor_score: 50 }),
-      makeItem({ id: 2, source: 'Alpha Coffee', purveyor_score: 50 }),
-      makeItem({ id: 3, source: 'Zulu Coffee', purveyor_score: 99 }),
-    ];
-    const query = {
-      data: [] as CatalogItem[],
-      error: null,
-      or: vi.fn(() => query),
-      ilike: vi.fn(() => query),
-      eq: vi.fn(() => query),
-      contains: vi.fn(() => query),
-      gte: vi.fn(() => query),
-      lte: vi.fn(() => query),
-      in: vi.fn(() => query),
-      order: vi.fn(() => query),
-      range: vi.fn((from: number, to: number) => {
-        query.data = rows.slice(from, to + 1);
-        return query;
-      }),
-    };
-    const select = vi.fn(() => query);
-    const from = vi.fn(() => ({ select }));
-    const supabase = { from } as unknown as SupabaseClient;
-
-    const response = await supplierList(supabase, { sampleSize: 2, limit: 10 });
-
-    expect(query.order).toHaveBeenCalledWith('source', { ascending: true, nullsFirst: false });
-    expect(query.order).toHaveBeenCalledWith('id', { ascending: true });
-    const firstIdOrderCallIndex = query.order.mock.calls.findIndex(([column]) => column === 'id');
-    expect(firstIdOrderCallIndex).toBeGreaterThanOrEqual(0);
-    expect(query.order.mock.invocationCallOrder[firstIdOrderCallIndex]).toBeLessThan(
-      query.range.mock.invocationCallOrder[0]
-    );
-    expect(query.range).toHaveBeenCalledWith(0, 1);
-    expect(query.range).toHaveBeenCalledWith(2, 3);
-    expect(response.data.map((supplier) => supplier.supplier)).toContain('Zulu Coffee');
-    expect(response.data.find((supplier) => supplier.supplier === 'Zulu Coffee')).toMatchObject({
-      total: 1,
-      score: { average: 99 },
-    });
-  });
-
-  it('keeps supplier aggregate page width within the Supabase API row cap', async () => {
-    const apiPageCap = 1000;
-    const rows = [
-      ...Array.from({ length: apiPageCap }, (_, index) =>
-        makeItem({ id: index + 1, source: 'Alpha Coffee', purveyor_score: 50 })
-      ),
-      makeItem({ id: apiPageCap + 1, source: 'Zulu Coffee', purveyor_score: 99 }),
-    ];
-    const query = {
-      data: [] as CatalogItem[],
-      error: null,
-      or: vi.fn(() => query),
-      ilike: vi.fn(() => query),
-      eq: vi.fn(() => query),
-      contains: vi.fn(() => query),
-      gte: vi.fn(() => query),
-      lte: vi.fn(() => query),
-      in: vi.fn(() => query),
-      order: vi.fn(() => query),
-      range: vi.fn((from: number, to: number) => {
-        query.data = rows.slice(from, Math.min(to, from + apiPageCap - 1) + 1);
-        return query;
-      }),
-    };
-    const select = vi.fn(() => query);
-    const from = vi.fn(() => ({ select }));
-    const supabase = { from } as unknown as SupabaseClient;
-
-    const response = await supplierList(supabase, { limit: 10 });
-
-    expect(query.range).toHaveBeenCalledWith(0, 999);
-    expect(query.range).toHaveBeenCalledWith(1000, 1999);
-    expect(response.meta.rows_examined).toBe(apiPageCap + 1);
-    expect(response.data.map((supplier) => supplier.supplier)).toContain('Zulu Coffee');
   });
 });
 
@@ -1132,10 +935,13 @@ describe('catalog command auth and structured filter parsing', () => {
   });
 
   it('passes supplier aggregate CLI country and non-wholesale flags to the query layer', async () => {
-    const { supabase, query } = makeSearchSupabase({
-      data: [makeItem({ id: 1, source: 'Royal Coffee', country: 'Ethiopia', wholesale: false })],
+    const supplierRankSdk = vi.fn().mockResolvedValue({
+      data: { data: [], meta: { filters: { country: 'Ethiopia', nonWholesaleOnly: true } } },
+      response: new Response(null, { status: 200 }),
     });
-    vi.mocked(requireAuth).mockResolvedValue({ supabase, userId: 'user-1' });
+    vi.mocked(createParchmentClient).mockResolvedValue({
+      catalog: { supplierRank: supplierRankSdk },
+    } as never);
 
     await runCatalogCommand([
       'supplier-rank',
@@ -1148,9 +954,9 @@ describe('catalog command auth and structured filter parsing', () => {
       '5',
     ]);
 
-    expect(requireAuth).toHaveBeenCalledWith('viewer');
-    expect(query.ilike).toHaveBeenCalledWith('country', '%Ethiopia%');
-    expect(query.or).toHaveBeenCalledWith('wholesale.is.null,wholesale.eq.false');
+    expect(supplierRankSdk).toHaveBeenCalledWith(
+      expect.objectContaining({ country: 'Ethiopia', nonWholesaleOnly: 'true', minCoffees: 1 })
+    );
     expect(outputData).toHaveBeenCalledWith(
       expect.objectContaining({
         meta: expect.objectContaining({
@@ -1774,6 +1580,77 @@ describe('findSimilarBeansSchema', () => {
   });
 });
 
+describe('remaining catalog intelligence SDK surfaces', () => {
+  it('uses the canonical premium ranking endpoint', async () => {
+    const envelope = { data: [], meta: { resource: 'catalog-premium-ranking' } };
+    const rankPremium = vi.fn().mockResolvedValue({
+      data: envelope,
+      response: new Response(null, { status: 200 }),
+    });
+    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { rankPremium } } as never);
+
+    await expect(
+      catalogRankPremium({ origin: 'Ethiopia', stocked: true, includeUnscored: true, limit: 5 })
+    ).resolves.toEqual(envelope);
+    expect(rankPremium).toHaveBeenCalledWith(
+      expect.objectContaining({
+        origin: 'Ethiopia',
+        stocked: 'true',
+        includeUnscored: 'true',
+        limit: 5,
+      })
+    );
+  });
+
+  it('uses the canonical supplier list, detail, and rank endpoints', async () => {
+    const envelope = { data: [], meta: { resource: 'catalog-suppliers' } };
+    const result = { data: envelope, response: new Response(null, { status: 200 }) };
+    const suppliers = vi.fn().mockResolvedValue(result);
+    const supplierDetailSdk = vi.fn().mockResolvedValue(result);
+    const supplierRankSdk = vi.fn().mockResolvedValue(result);
+    vi.mocked(createParchmentClient).mockResolvedValue({
+      catalog: { suppliers, supplierDetail: supplierDetailSdk, supplierRank: supplierRankSdk },
+    } as never);
+
+    await supplierList({ country: 'Colombia', stocked: true });
+    await supplierDetail({ supplier: 'Royal Coffee', topCoffees: 3 });
+    await supplierRank({ minCoffees: 2, nonWholesaleOnly: true });
+
+    expect(suppliers).toHaveBeenCalledWith(
+      expect.objectContaining({ country: 'Colombia', stocked: 'true' })
+    );
+    expect(supplierDetailSdk).toHaveBeenCalledWith(
+      expect.objectContaining({ supplier: 'Royal Coffee', topCoffees: 3 })
+    );
+    expect(supplierRankSdk).toHaveBeenCalledWith(
+      expect.objectContaining({ minCoffees: 2, nonWholesaleOnly: 'true' })
+    );
+  });
+
+  it('maps canonical similarity matches to the legacy flat helper shape', async () => {
+    process.env.PARCHMENT_API_KEY = 'api-key';
+    const canonical = makeCanonicalSimilarityResponse();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(canonical), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+    );
+
+    const result = await findSimilarBeans({ coffee_id: 1182, threshold: 0.7, limit: 10 });
+
+    expect(result[0]).toMatchObject({
+      coffee_id: 1199,
+      coffee_name: 'Sibling Lot',
+      avg_similarity: 0.91,
+      chunk_matches: 3,
+    });
+  });
+});
+
 // ─── findSimilarBeans (lib function) ─────────────────────────────────────────
 
 function makeSupabaseRpc(response: { data?: unknown; error?: { message: string } | null }) {
@@ -1781,87 +1658,3 @@ function makeSupabaseRpc(response: { data?: unknown; error?: { message: string }
     rpc: vi.fn().mockResolvedValue(response),
   } as unknown as SupabaseClient;
 }
-
-const FIXTURE_BEANS: SimilarBean[] = [
-  {
-    coffee_id: 10,
-    coffee_name: 'Ethiopian Yirgacheffe',
-    source: "Sweet Maria's",
-    origin: 'Ethiopia',
-    processing: 'washed',
-    cost_lb: 8.5,
-    price_per_lb: 8.5,
-    stocked: true,
-    avg_similarity: 0.91,
-    chunk_matches: 3,
-  },
-  {
-    coffee_id: 22,
-    coffee_name: 'Kenya Kirinyaga',
-    source: "Sweet Maria's",
-    origin: 'Kenya',
-    processing: 'washed',
-    cost_lb: 9.0,
-    price_per_lb: 9.0,
-    stocked: true,
-    avg_similarity: 0.85,
-    chunk_matches: 2,
-  },
-];
-
-describe('findSimilarBeans', () => {
-  it('returns SimilarBean[] on successful RPC call', async () => {
-    const supabase = makeSupabaseRpc({ data: FIXTURE_BEANS, error: null });
-    const result = await findSimilarBeans(supabase, { coffee_id: 5 });
-    expect(result).toHaveLength(2);
-    expect(result[0].coffee_id).toBe(10);
-    expect(result[1].coffee_name).toBe('Kenya Kirinyaga');
-  });
-
-  it('returns empty array when RPC returns null', async () => {
-    const supabase = makeSupabaseRpc({ data: null, error: null });
-    const result = await findSimilarBeans(supabase, { coffee_id: 5 });
-    expect(result).toEqual([]);
-  });
-
-  it('returns empty array when RPC returns empty array', async () => {
-    const supabase = makeSupabaseRpc({ data: [], error: null });
-    const result = await findSimilarBeans(supabase, { coffee_id: 5 });
-    expect(result).toEqual([]);
-  });
-
-  it('throws Error with "RPC error:" prefix when RPC returns an error', async () => {
-    const supabase = makeSupabaseRpc({ data: null, error: { message: 'function not found' } });
-    await expect(findSimilarBeans(supabase, { coffee_id: 5 })).rejects.toThrow(
-      'RPC error: function not found'
-    );
-  });
-
-  it('passes target_coffee_id, match_threshold, and match_count to RPC', async () => {
-    const supabase = makeSupabaseRpc({ data: [], error: null });
-    await findSimilarBeans(supabase, { coffee_id: 42, threshold: 0.8, limit: 5 });
-    expect(supabase.rpc as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
-      'find_similar_beans_aggregated',
-      { target_coffee_id: 42, match_threshold: 0.8, match_count: 5 }
-    );
-  });
-
-  it('uses schema defaults (0.7 threshold, 10 limit) when not provided', async () => {
-    const supabase = makeSupabaseRpc({ data: [], error: null });
-    await findSimilarBeans(supabase, { coffee_id: 7 });
-    expect(supabase.rpc as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
-      'find_similar_beans_aggregated',
-      { target_coffee_id: 7, match_threshold: 0.7, match_count: 10 }
-    );
-  });
-
-  it('uses provided threshold and limit when specified', async () => {
-    const supabase = makeSupabaseRpc({ data: FIXTURE_BEANS, error: null });
-    const result = await findSimilarBeans(supabase, { coffee_id: 3, threshold: 0.5, limit: 20 });
-    expect(supabase.rpc as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
-      'find_similar_beans_aggregated',
-      { target_coffee_id: 3, match_threshold: 0.5, match_count: 20 }
-    );
-    expect(result).toHaveLength(2);
-  });
-});
