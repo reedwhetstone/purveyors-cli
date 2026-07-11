@@ -139,9 +139,12 @@ export async function getInventory(id: number): Promise<InventoryItem> {
 /**
  * Add a new inventory item for a user.
  */
-export async function addInventory(input: AddInventoryInput): Promise<InventoryItem> {
+export async function addInventory(
+  input: AddInventoryInput,
+  tokenOverride?: string
+): Promise<InventoryItem> {
   const parsed = addInventorySchema.parse(input);
-  const client = await createParchmentClient('member');
+  const client = await createParchmentClient('member', tokenOverride);
   const envelope = unwrapParchment(
     await client.inventory.create(parsed, { idempotencyKey: randomUUID() }),
     'Inventory create'

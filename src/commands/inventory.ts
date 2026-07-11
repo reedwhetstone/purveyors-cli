@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import * as p from '@clack/prompts';
 import { getConfigValue } from '../lib/config.js';
 import { outputData, info, success } from '../lib/output.js';
-import { withErrorHandling, PrvrsError } from '../lib/errors.js';
+import { withErrorHandling, AuthError, PrvrsError } from '../lib/errors.js';
 import { requireAuth } from '../lib/auth-guard.js';
 import { confirm, todayIso } from '../lib/prompts.js';
 import {
@@ -195,13 +195,22 @@ Required flags: --catalog-id, --qty
 
           const spin = p.spinner();
           spin.start('Adding bean to inventory...');
-          const data = await addInventory({
-            catalogId: catalogItem.id,
-            qty: parseFloat(qtyStr),
-            cost,
-            notes,
-            purchaseDate: todayIso(),
-          });
+          const {
+            data: { session: formSession },
+          } = await supabase.auth.getSession();
+          if (!formSession?.access_token) {
+            throw new AuthError('Session expired mid-form. Run `purvey auth login` and retry.');
+          }
+          const data = await addInventory(
+            {
+              catalogId: catalogItem.id,
+              qty: parseFloat(qtyStr),
+              cost,
+              notes,
+              purchaseDate: todayIso(),
+            },
+            formSession.access_token
+          );
           spin.stop('Done');
 
           p.outro(`Bean added! Inventory item #${data.id} created.`);

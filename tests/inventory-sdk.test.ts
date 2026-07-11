@@ -95,6 +95,15 @@ describe('inventory SDK data plane', () => {
     );
   });
 
+  it('pins creates to an explicit session token when provided', async () => {
+    const create = vi.fn().mockResolvedValue(ok({ data: item(7), meta: {} }, 201));
+    vi.mocked(createParchmentClient).mockResolvedValue({ inventory: { create } } as never);
+
+    await addInventory({ catalogId: 42, qty: 5 }, 'form-session-token');
+
+    expect(createParchmentClient).toHaveBeenCalledWith('member', 'form-session-token');
+  });
+
   it('updates through the canonical owner-scoped endpoint', async () => {
     const update = vi.fn().mockResolvedValue(ok({ data: item(7), meta: {} }));
     vi.mocked(createParchmentClient).mockResolvedValue({ inventory: { update } } as never);
