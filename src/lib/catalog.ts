@@ -1245,7 +1245,9 @@ export async function searchCatalog(
     query = query.eq('stocked', true);
   }
 
-  // Apply sort order
+  // Apply sort order. Always finish with the unique primary key so offset-based
+  // pagination is deterministic when the primary sort contains ties (for
+  // example, multiple suppliers using the same coffee name).
   if (parsed.sort) {
     switch (parsed.sort) {
       case 'price':
@@ -1265,6 +1267,7 @@ export async function searchCatalog(
         break;
     }
   }
+  query = query.order('id', { ascending: true });
 
   // Apply offset/limit for pagination (skip when fetching specific IDs)
   if (!parsed.ids || parsed.ids.length === 0) {
