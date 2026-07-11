@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AuthError, PrvrsError } from './errors.js';
 import type { InventoryItem } from './inventory.js';
+import { createParchmentClient, unwrapParchment } from './parchment.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,73 +96,16 @@ export function parseCuppingScore(raw: string, flag: string): number {
  * Combines supplier notes from coffee_catalog with user notes from green_coffee_inv.
  */
 export async function getTastingNotes(
-  supabase: SupabaseClient,
-  userId: string,
   id: number,
   filter: TastingFilter = 'both'
 ): Promise<TastingData> {
   getTastingNotesSchema.parse({ bean_id: id, filter });
-
-  const result: TastingData = {
-    beanId: id,
-    filter,
-    supplier: null,
-    user: null,
-  };
-
-  // ── Supplier notes (from coffee_catalog) ─────────────────────────
-  if (filter === 'supplier' || filter === 'both') {
-    const { data: catalogRow, error: catalogError } = await supabase
-      .from('coffee_catalog')
-      .select(
-        'id, name, processing, region, source, cupping_notes, ai_tasting_notes, ai_description'
-      )
-      .eq('id', id)
-      .single();
-
-    if (catalogError && catalogError.code !== 'PGRST116') {
-      throw catalogError;
-    }
-
-    if (catalogRow) {
-      result.supplier = {
-        source: 'supplier',
-        catalogId: catalogRow.id,
-        name: catalogRow.name ?? null,
-        processing: catalogRow.processing ?? null,
-        region: catalogRow.region ?? null,
-        cupping_notes: catalogRow.cupping_notes ?? null,
-        ai_tasting_notes: catalogRow.ai_tasting_notes ?? null,
-        ai_description: catalogRow.ai_description ?? null,
-      };
-    }
-  }
-
-  // ── User notes (from green_coffee_inv) ───────────────────────────
-  if (filter === 'user' || filter === 'both') {
-    const { data: invRows, error: invError } = await supabase
-      .from('green_coffee_inv')
-      .select('id, catalog_id, cupping_notes, notes')
-      .eq('catalog_id', id)
-      .eq('user', userId)
-      .order('id', { ascending: false })
-      .limit(1);
-
-    if (invError) throw invError;
-
-    if (invRows && invRows.length > 0) {
-      const row = invRows[0];
-      result.user = {
-        source: 'user',
-        inventoryId: row.id,
-        catalogId: row.catalog_id ?? null,
-        cupping_notes: row.cupping_notes ?? null,
-        notes: row.notes ?? null,
-      };
-    }
-  }
-
-  return result;
+  const client = await createParchmentClient('member');
+  const envelope = unwrapParchment(
+    await client.tasting.get(String(id), { filter }),
+    'Tasting notes'
+  );
+  return envelope.data as TastingData;
 }
 
 /**

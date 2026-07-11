@@ -1,6 +1,8 @@
 import { createAuthenticatedClient } from './supabase.js';
 import { AuthError } from './errors.js';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { createParchmentClient } from '@purveyors/sdk';
+import { getParchmentBaseUrl } from './parchment-base.js';
 
 export type RequiredRole = 'viewer' | 'member';
 
@@ -38,13 +40,20 @@ export async function requireAuth(
 
   // For viewer-level access we only need a valid session — no role check required.
   if (role !== 'viewer') {
-    const { data: roleData } = await supabase
-      .from('user_roles')
-      .select('user_role')
-      .eq('id', user.id)
-      .single();
-
-    const userRoles: string[] = (roleData?.user_role as string[]) ?? [];
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      throw new AuthError('Authentication failed. Run `purvey auth login` first.');
+    }
+    const result = await createParchmentClient({
+      baseUrl: getParchmentBaseUrl(),
+      token: session.access_token,
+    }).me();
+    if (!result.response.ok || result.error || !result.data?.authenticated) {
+      throw new AuthError('Authentication failed. Run `purvey auth login` first.');
+    }
+    const userRoles = result.data.appRoles;
     const requiredLevel = ROLE_HIERARCHY[role] ?? 0;
     const hasRole = userRoles.some((r) => (ROLE_HIERARCHY[r] ?? -1) >= requiredLevel);
 
