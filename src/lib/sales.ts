@@ -1,9 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AuthError, PrvrsError } from './errors.js';
 import { createParchmentClient, unwrapParchment } from './parchment.js';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface Sale {
   id: number;
@@ -23,16 +22,14 @@ export interface Sale {
 }
 
 export interface ResolvedSaleTarget {
+  greenCoffeeInvId?: number;
+  batchName?: string;
   roastId: number;
   mode: 'exact' | 'resolved';
 }
 
-// ─── Shared select columns ────────────────────────────────────────────────────
-
 export const SALE_SELECT =
   'id, roast_id, oz_sold, sale_price, buyer, sell_date, user, last_updated';
-
-// ─── Zod schemas ──────────────────────────────────────────────────────────────
 
 export const listSalesSchema = z.object({
   limit: z.number().int().min(1).default(20),
@@ -42,7 +39,6 @@ export const listSalesSchema = z.object({
   dateEnd: z.string().optional(),
   buyer: z.string().optional(),
 });
-
 export type ListSalesInput = z.input<typeof listSalesSchema>;
 
 const saleTargetFields = {
@@ -58,7 +54,6 @@ function validateSaleTargetSelector(
   const hasRoastId = value.roastId !== undefined;
   const hasCoffeeId = value.coffeeId !== undefined;
   const hasBatchName = value.batchName !== undefined;
-
   if (hasRoastId && (hasCoffeeId || hasBatchName)) {
     ctx.addIssue({
       code: 'custom',
@@ -67,7 +62,6 @@ function validateSaleTargetSelector(
     });
     return;
   }
-
   if (!hasRoastId && !hasCoffeeId && !hasBatchName) {
     ctx.addIssue({
       code: 'custom',
@@ -76,7 +70,6 @@ function validateSaleTargetSelector(
     });
     return;
   }
-
   if (!hasRoastId && hasCoffeeId !== hasBatchName) {
     ctx.addIssue({
       code: 'custom',
@@ -89,7 +82,6 @@ function validateSaleTargetSelector(
 export const saleTargetSelectorSchema = z
   .object(saleTargetFields)
   .superRefine(validateSaleTargetSelector);
-
 export type SaleTargetSelectorInput = z.input<typeof saleTargetSelectorSchema>;
 
 export const recordSaleSchema = z
@@ -101,7 +93,6 @@ export const recordSaleSchema = z
     sellDate: z.string().optional(),
   })
   .superRefine(validateSaleTargetSelector);
-
 export type RecordSaleInput = z.input<typeof recordSaleSchema>;
 
 export const updateSaleSchema = z
@@ -111,23 +102,87 @@ export const updateSaleSchema = z
     buyer: z.string().optional(),
     sellDate: z.string().optional(),
   })
-  .refine((v) => Object.keys(v).some((k) => v[k as keyof typeof v] !== undefined), {
+  .refine((v) => Object.values(v).some((value) => value !== undefined), {
     message: 'No update fields provided. Pass at least one of: oz, price, buyer, sellDate.',
   });
-
 export type UpdateSaleInput = z.input<typeof updateSaleSchema>;
 
-export const deleteSaleSchema = z.object({
-  id: z.number().int().positive(),
-});
-
+export const deleteSaleSchema = z.object({ id: z.number().int().positive() });
 export type DeleteSaleInput = z.input<typeof deleteSaleSchema>;
 
-// ─── Pure lib functions ───────────────────────────────────────────────────────
+type SalesParchmentClient = Awaited<ReturnType<typeof createParchmentClient>>;
 
-/**
- * List sales for a user (newest first, with roast profile join).
- */
+async function legacySessionToken(
+  supabase: SupabaseClient,
+  expectedUserId: string
+): Promise<string> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new AuthError('Sales operations require an authenticated Purveyors session.');
+  }
+  if (!session.user?.id || session.user.id !== expectedUserId) {
+    throw new AuthError('The authenticated Purveyors session does not match the requested user.');
+  }
+  return session.access_token;
+}
+
+async function preserveLegacyNotFound<T>(operation: Promise<T>, message: string): Promise<T> {
+  try {
+    return await operation;
+  } catch (error) {
+    if (error instanceof PrvrsError && error.code === 'NOT_FOUND') {
+      throw new AuthError(message);
+    }
+    throw error;
+  }
+}
+
+async function listExactSaleRoastMatches(
+  client: SalesParchmentClient,
+  coffeeId: number,
+  batchName: string | undefined
+) {
+  const exactMatches: Array<{
+    roast_id: number;
+    coffee_id: number | null;
+    batch_name: string | null;
+  }> = [];
+  const pageSize = 100;
+  let offset = 0;
+  const seenRoastIds = new Set<number>();
+  do {
+    const envelope = unwrapParchment(
+      await client.roasts.list({
+        coffee_id: coffeeId,
+        batch_name: batchName,
+        limit: pageSize,
+        offset,
+      }),
+      'Sale roast selector'
+    );
+    const rows = envelope.data;
+    if (rows.length === 0) break;
+    const unseenRows = rows.filter((row) => !seenRoastIds.has(row.roast_id));
+    if (unseenRows.length === 0) {
+      throw new PrvrsError(
+        'GENERAL_ERROR',
+        'Sale roast selector pagination did not advance. Retry the request.'
+      );
+    }
+    for (const row of unseenRows) seenRoastIds.add(row.roast_id);
+    exactMatches.push(
+      ...unseenRows.filter(
+        (row) => row.coffee_id === coffeeId && (row.batch_name ?? undefined) === batchName
+      )
+    );
+    if (exactMatches.length > 1) break;
+    offset += unseenRows.length;
+  } while (true);
+  return exactMatches;
+}
+
 export async function listSales(
   opts: ListSalesInput = {},
   tokenOverride?: string
@@ -148,185 +203,184 @@ export async function listSales(
   return envelope.data as Sale[];
 }
 
-export async function resolveSaleRoast(
+export function resolveSaleRoast(
+  input: SaleTargetSelectorInput,
+  tokenOverride?: string
+): Promise<ResolvedSaleTarget>;
+export function resolveSaleRoast(
   supabase: SupabaseClient,
   userId: string,
   input: SaleTargetSelectorInput
+): Promise<ResolvedSaleTarget>;
+export async function resolveSaleRoast(
+  inputOrSupabase: SaleTargetSelectorInput | SupabaseClient,
+  tokenOverrideOrUserId?: string,
+  legacyInput?: SaleTargetSelectorInput
 ): Promise<ResolvedSaleTarget> {
+  const legacyCall = legacyInput !== undefined;
+  const input = legacyInput ?? (inputOrSupabase as SaleTargetSelectorInput);
+  const tokenOverride = legacyCall
+    ? await legacySessionToken(inputOrSupabase as SupabaseClient, tokenOverrideOrUserId as string)
+    : tokenOverrideOrUserId;
   const parsed = saleTargetSelectorSchema.parse(input);
+  const client = await createParchmentClient('member', tokenOverride);
 
   if (parsed.roastId !== undefined) {
-    const { data: roastExists, error: roastError } = await supabase
-      .from('roast_profiles')
-      .select('roast_id')
-      .eq('roast_id', parsed.roastId)
-      .eq('user', userId)
-      .single();
-
-    if (roastError || !roastExists) {
-      throw new AuthError(`Roast profile ${parsed.roastId} not found or does not belong to you.`);
+    const getRoast = Promise.resolve(client.roasts.get(String(parsed.roastId))).then((result) =>
+      unwrapParchment(result, 'Sale roast selector')
+    );
+    const envelope = legacyCall
+      ? await preserveLegacyNotFound(
+          getRoast,
+          `Roast profile ${parsed.roastId} not found or does not belong to you.`
+        )
+      : await getRoast;
+    const roast = envelope.data;
+    if (roast.coffee_id == null) {
+      throw new PrvrsError(
+        'INVALID_ARGUMENT',
+        `Roast profile ${parsed.roastId} is not linked to a green coffee inventory item.`
+      );
     }
-
-    return { roastId: parsed.roastId, mode: 'exact' };
+    const batchName = roast.batch_name ?? undefined;
+    const exactMatches = await listExactSaleRoastMatches(client, roast.coffee_id, batchName);
+    if (exactMatches.length > 1) {
+      throw new PrvrsError(
+        'INVALID_ARGUMENT',
+        `Roast profile ${parsed.roastId} shares inventory item ${roast.coffee_id} and batch name "${batchName ?? ''}" with roast IDs ${exactMatches.map((row) => row.roast_id).join(', ')}. The canonical sales record cannot retain a roast ID; give each roast a unique batch name before recording this sale.`
+      );
+    }
+    return {
+      greenCoffeeInvId: roast.coffee_id,
+      batchName,
+      roastId: roast.roast_id,
+      mode: 'exact',
+    };
   }
 
-  const { data: matches, error: lookupError } = await supabase
-    .from('roast_profiles')
-    .select('roast_id, batch_name')
-    .eq('user', userId)
-    .eq('coffee_id', parsed.coffeeId!)
-    .eq('batch_name', parsed.batchName!)
-    .limit(2);
+  const exactMatches = await listExactSaleRoastMatches(client, parsed.coffeeId!, parsed.batchName);
 
-  if (lookupError) throw lookupError;
-
-  const resolvedMatches = (matches ?? []) as Array<{ roast_id: number; batch_name: string | null }>;
-
-  if (resolvedMatches.length === 0) {
+  if (exactMatches.length === 0) {
     throw new PrvrsError(
       'NOT_FOUND',
       `No roast profile found for --coffee-id ${parsed.coffeeId} with batch name "${parsed.batchName}". Use 'purvey roast list --coffee-id ${parsed.coffeeId}' to inspect candidates, or pass --roast-id directly.`
     );
   }
-
-  if (resolvedMatches.length > 1) {
-    const matchIds = resolvedMatches.map((row) => row.roast_id).join(', ');
+  if (exactMatches.length > 1) {
     throw new PrvrsError(
       'INVALID_ARGUMENT',
-      `Multiple roast profiles match --coffee-id ${parsed.coffeeId} and batch name "${parsed.batchName}". Matching roast IDs: ${matchIds}. Re-run with --roast-id.`
+      `Multiple roast profiles match --coffee-id ${parsed.coffeeId} and batch name "${parsed.batchName}". Matching roast IDs: ${exactMatches.map((row) => row.roast_id).join(', ')}. The canonical sales record cannot retain a roast ID; give each roast a unique batch name before recording this sale.`
     );
   }
-
-  return { roastId: resolvedMatches[0].roast_id, mode: 'resolved' };
+  return {
+    greenCoffeeInvId: parsed.coffeeId!,
+    batchName: parsed.batchName,
+    roastId: exactMatches[0].roast_id,
+    mode: 'resolved',
+  };
 }
 
-/**
- * Record a new sale (target roast must belong to userId).
- */
-export async function recordSale(
+export function recordSale(input: RecordSaleInput, tokenOverride?: string): Promise<Sale>;
+export function recordSale(
   supabase: SupabaseClient,
   userId: string,
   input: RecordSaleInput
+): Promise<Sale>;
+export async function recordSale(
+  inputOrSupabase: RecordSaleInput | SupabaseClient,
+  tokenOverrideOrUserId?: string,
+  legacyInput?: RecordSaleInput
 ): Promise<Sale> {
+  const input = legacyInput ?? (inputOrSupabase as RecordSaleInput);
+  const tokenOverride = legacyInput
+    ? await legacySessionToken(inputOrSupabase as SupabaseClient, tokenOverrideOrUserId as string)
+    : tokenOverrideOrUserId;
   const parsed = recordSaleSchema.parse(input);
-  const target = await resolveSaleRoast(supabase, userId, parsed);
-
-  const todayIso = () => new Date().toISOString().slice(0, 10);
-
-  const insertPayload: Record<string, unknown> = {
-    user: userId,
-    roast_id: target.roastId,
-    oz_sold: parsed.oz,
-    sale_price: parsed.price,
-    sell_date: parsed.sellDate ?? todayIso(),
+  const resolveTarget = resolveSaleRoast(parsed, tokenOverride);
+  const target =
+    legacyInput && parsed.roastId !== undefined
+      ? await preserveLegacyNotFound(
+          resolveTarget,
+          `Roast profile ${parsed.roastId} not found or does not belong to you.`
+        )
+      : await resolveTarget;
+  const client = await createParchmentClient('member', tokenOverride);
+  const body = {
+    greenCoffeeInvId: target.greenCoffeeInvId!,
+    ozSold: parsed.oz,
+    price: parsed.price,
+    ...(parsed.buyer !== undefined ? { buyer: parsed.buyer } : {}),
+    ...(target.batchName !== undefined ? { batchName: target.batchName } : {}),
+    ...(parsed.sellDate !== undefined ? { sellDate: parsed.sellDate } : {}),
   };
-
-  if (parsed.buyer !== undefined) insertPayload.buyer = parsed.buyer;
-
-  const { data: inserted, error: insertError } = await supabase
-    .from('sales')
-    .insert(insertPayload)
-    .select('id')
-    .single();
-
-  if (insertError) throw insertError;
-
-  // Re-fetch the full row with roast join
-  const { data, error } = await supabase
-    .from('sales')
-    .select(`${SALE_SELECT}, roast_profiles!roast_id (batch_name, coffee_name)`)
-    .eq('id', inserted.id)
-    .single();
-
-  if (error) throw error;
-
-  return data as Sale;
+  const envelope = unwrapParchment(
+    await client.sales.create(body, { idempotencyKey: randomUUID() }),
+    'Sale create'
+  );
+  return envelope.data as Sale;
 }
 
-/**
- * Update an existing sale (must belong to userId).
- */
-export async function updateSale(
+export function updateSale(
+  id: number,
+  input: UpdateSaleInput,
+  tokenOverride?: string
+): Promise<Sale>;
+export function updateSale(
   supabase: SupabaseClient,
   userId: string,
   id: number,
   input: UpdateSaleInput
+): Promise<Sale>;
+export async function updateSale(
+  idOrSupabase: number | SupabaseClient,
+  inputOrUserId: UpdateSaleInput | string,
+  tokenOverrideOrId?: string | number,
+  legacyInput?: UpdateSaleInput
 ): Promise<Sale> {
+  const legacyCall = typeof idOrSupabase !== 'number';
+  const id = legacyCall ? (tokenOverrideOrId as number) : idOrSupabase;
+  const input = legacyCall ? legacyInput! : (inputOrUserId as UpdateSaleInput);
+  const tokenOverride = legacyCall
+    ? await legacySessionToken(idOrSupabase, inputOrUserId as string)
+    : (tokenOverrideOrId as string | undefined);
   deleteSaleSchema.parse({ id });
   const parsed = updateSaleSchema.parse(input);
-
-  // Verify ownership
-  const { data: existing, error: fetchError } = await supabase
-    .from('sales')
-    .select('id')
-    .eq('id', id)
-    .eq('user', userId)
-    .single();
-
-  if (fetchError || !existing) {
-    throw new AuthError(`Sale ${id} not found or does not belong to you.`);
-  }
-
-  const updates: Record<string, unknown> = {};
-  if (parsed.oz !== undefined) updates.oz_sold = parsed.oz;
-  if (parsed.price !== undefined) updates.sale_price = parsed.price;
-  if (parsed.buyer !== undefined) updates.buyer = parsed.buyer;
-  if (parsed.sellDate !== undefined) updates.sell_date = parsed.sellDate;
-
-  if (Object.keys(updates).length === 0) {
-    throw new PrvrsError(
-      'INVALID_ARGUMENT',
-      'No update fields provided. Pass at least one of: oz, price, buyer, sellDate.'
-    );
-  }
-
-  const { error: updateError } = await supabase
-    .from('sales')
-    .update(updates)
-    .eq('id', id)
-    .eq('user', userId);
-
-  if (updateError) throw updateError;
-
-  // Re-fetch the updated row
-  const { data, error } = await supabase
-    .from('sales')
-    .select(`${SALE_SELECT}, roast_profiles!roast_id (batch_name, coffee_name)`)
-    .eq('id', id)
-    .single();
-
-  if (error) throw error;
-
-  return data as Sale;
+  const client = await createParchmentClient('member', tokenOverride);
+  const body = {
+    ...(parsed.oz !== undefined ? { ozSold: parsed.oz } : {}),
+    ...(parsed.price !== undefined ? { price: parsed.price } : {}),
+    ...(parsed.buyer !== undefined ? { buyer: parsed.buyer } : {}),
+    ...(parsed.sellDate !== undefined ? { sellDate: parsed.sellDate } : {}),
+  };
+  const update = Promise.resolve(client.sales.update(id, body)).then((result) =>
+    unwrapParchment(result, 'Sale update')
+  );
+  const envelope = legacyCall
+    ? await preserveLegacyNotFound(update, `Sale ${id} not found or does not belong to you.`)
+    : await update;
+  return envelope.data as Sale;
 }
 
-/**
- * Delete a sale (must belong to userId).
- */
+export function deleteSale(id: number, tokenOverride?: string): Promise<void>;
+export function deleteSale(supabase: SupabaseClient, userId: string, id: number): Promise<void>;
 export async function deleteSale(
-  supabase: SupabaseClient,
-  userId: string,
-  id: number
+  idOrSupabase: number | SupabaseClient,
+  tokenOverrideOrUserId?: string,
+  legacyId?: number
 ): Promise<void> {
+  const legacyCall = typeof idOrSupabase !== 'number';
+  const id = legacyCall ? legacyId! : idOrSupabase;
+  const tokenOverride = legacyCall
+    ? await legacySessionToken(idOrSupabase, tokenOverrideOrUserId as string)
+    : tokenOverrideOrUserId;
   deleteSaleSchema.parse({ id });
-
-  // Verify ownership
-  const { data: existing, error: fetchError } = await supabase
-    .from('sales')
-    .select('id')
-    .eq('id', id)
-    .eq('user', userId)
-    .single();
-
-  if (fetchError || !existing) {
-    throw new AuthError(`Sale ${id} not found or does not belong to you.`);
+  const client = await createParchmentClient('member', tokenOverride);
+  const remove = Promise.resolve(client.sales.delete(id)).then((result) =>
+    unwrapParchment(result, 'Sale delete')
+  );
+  if (legacyCall) {
+    await preserveLegacyNotFound(remove, `Sale ${id} not found or does not belong to you.`);
+  } else {
+    await remove;
   }
-
-  const { error: deleteError } = await supabase
-    .from('sales')
-    .delete()
-    .eq('id', id)
-    .eq('user', userId);
-
-  if (deleteError) throw deleteError;
 }

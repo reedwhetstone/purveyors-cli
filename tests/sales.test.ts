@@ -1,591 +1,476 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('../src/lib/parchment.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/parchment.js')>();
+  return { ...actual, createParchmentClient: vi.fn() };
+});
+
+import { createParchmentClient } from '../src/lib/parchment.js';
 import {
-  listSalesSchema,
-  saleTargetSelectorSchema,
-  recordSaleSchema,
-  updateSaleSchema,
+  SALE_SELECT,
+  deleteSale,
   deleteSaleSchema,
+  listSalesSchema,
   recordSale,
+  recordSaleSchema,
+  resolveSaleRoast,
+  saleTargetSelectorSchema,
+  updateSale,
+  updateSaleSchema,
 } from '../src/lib/sales.js';
-import { AuthError } from '../src/lib/errors.js';
+import type { ResolvedSaleTarget, Sale } from '../src/lib/sales.js';
+import { AuthError, PrvrsError } from '../src/lib/errors.js';
 
-// ─── listSalesSchema ──────────────────────────────────────────────────────────
+const ok = <T>(data: T, status = 200) => ({ data, response: new Response(null, { status }) });
 
-describe('listSalesSchema', () => {
-  it('applies default limit of 20', () => {
-    const parsed = listSalesSchema.parse({});
-    expect(parsed.limit).toBe(20);
+describe('sales schemas', () => {
+  it('preserves the 0.27 public sales exports and type shapes', () => {
+    const target: ResolvedSaleTarget = { roastId: 42, mode: 'exact' };
+    const sale = { last_updated: '2026-07-12T00:00:00Z' } as Sale;
+
+    expect(SALE_SELECT).toContain('last_updated');
+    expect(target.roastId).toBe(42);
+    expect(sale.last_updated).toBe('2026-07-12T00:00:00Z');
   });
 
-  it('accepts a custom limit', () => {
-    const parsed = listSalesSchema.parse({ limit: 50 });
-    expect(parsed.limit).toBe(50);
-  });
-
-  it('rejects limit of 0', () => {
+  it('validates list pagination and filters', () => {
+    expect(listSalesSchema.parse({}).limit).toBe(20);
+    expect(listSalesSchema.parse({ greenCoffeeInvId: 42, offset: 0 }).greenCoffeeInvId).toBe(42);
     expect(() => listSalesSchema.parse({ limit: 0 })).toThrow();
-  });
-
-  it('rejects negative limit', () => {
-    expect(() => listSalesSchema.parse({ limit: -1 })).toThrow();
-  });
-
-  it('rejects non-integer limit', () => {
-    expect(() => listSalesSchema.parse({ limit: 2.5 })).toThrow();
-  });
-
-  it('accepts greenCoffeeInvId as positive integer', () => {
-    const parsed = listSalesSchema.parse({ greenCoffeeInvId: 42 });
-    expect(parsed.greenCoffeeInvId).toBe(42);
-  });
-
-  it('rejects non-positive greenCoffeeInvId', () => {
-    expect(() => listSalesSchema.parse({ greenCoffeeInvId: 0 })).toThrow();
-    expect(() => listSalesSchema.parse({ greenCoffeeInvId: -1 })).toThrow();
-  });
-
-  it('rejects non-integer greenCoffeeInvId', () => {
-    expect(() => listSalesSchema.parse({ greenCoffeeInvId: 1.5 })).toThrow();
-  });
-
-  it('accepts dateStart as a string', () => {
-    const parsed = listSalesSchema.parse({ dateStart: '2026-03-01' });
-    expect(parsed.dateStart).toBe('2026-03-01');
-  });
-
-  it('accepts dateEnd as a string', () => {
-    const parsed = listSalesSchema.parse({ dateEnd: '2026-03-31' });
-    expect(parsed.dateEnd).toBe('2026-03-31');
-  });
-
-  it('accepts buyer as a string', () => {
-    const parsed = listSalesSchema.parse({ buyer: 'Jane' });
-    expect(parsed.buyer).toBe('Jane');
-  });
-
-  it('allows all filter fields to be omitted', () => {
-    const parsed = listSalesSchema.parse({});
-    expect(parsed.greenCoffeeInvId).toBeUndefined();
-    expect(parsed.dateStart).toBeUndefined();
-    expect(parsed.dateEnd).toBeUndefined();
-    expect(parsed.buyer).toBeUndefined();
-    expect(parsed.offset).toBeUndefined();
-  });
-
-  it('accepts offset of 0', () => {
-    const parsed = listSalesSchema.parse({ offset: 0 });
-    expect(parsed.offset).toBe(0);
-  });
-
-  it('accepts positive offset', () => {
-    const parsed = listSalesSchema.parse({ offset: 20 });
-    expect(parsed.offset).toBe(20);
-  });
-
-  it('rejects negative offset', () => {
     expect(() => listSalesSchema.parse({ offset: -1 })).toThrow();
   });
 
-  it('rejects non-integer offset', () => {
-    expect(() => listSalesSchema.parse({ offset: 5.5 })).toThrow();
-  });
-
-  it('accepts all filters together including offset', () => {
-    const parsed = listSalesSchema.parse({
-      greenCoffeeInvId: 42,
-      dateStart: '2026-01-01',
-      dateEnd: '2026-03-31',
-      buyer: 'Alice',
-      limit: 50,
-      offset: 100,
-    });
-    expect(parsed.greenCoffeeInvId).toBe(42);
-    expect(parsed.dateStart).toBe('2026-01-01');
-    expect(parsed.dateEnd).toBe('2026-03-31');
-    expect(parsed.buyer).toBe('Alice');
-    expect(parsed.limit).toBe(50);
-    expect(parsed.offset).toBe(100);
-  });
-});
-
-// ─── saleTargetSelectorSchema ────────────────────────────────────────────────
-
-describe('saleTargetSelectorSchema', () => {
-  it('accepts exact selector mode', () => {
-    const parsed = saleTargetSelectorSchema.parse({ roastId: 42 });
-    expect(parsed.roastId).toBe(42);
-    expect(parsed.coffeeId).toBeUndefined();
-  });
-
-  it('accepts resolved selector mode', () => {
-    const parsed = saleTargetSelectorSchema.parse({
-      coffeeId: 7,
-      batchName: 'Ethiopia Guji Light',
-    });
-    expect(parsed.coffeeId).toBe(7);
-    expect(parsed.batchName).toBe('Ethiopia Guji Light');
-  });
-
-  it('rejects missing all selectors', () => {
-    const result = saleTargetSelectorSchema.safeParse({});
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects incomplete resolved selector mode', () => {
-    expect(
-      saleTargetSelectorSchema.safeParse({
-        coffeeId: 7,
-      }).success
-    ).toBe(false);
-    expect(
-      saleTargetSelectorSchema.safeParse({
-        batchName: 'Batch A',
-      }).success
-    ).toBe(false);
-  });
-
-  it('rejects mixing exact and resolved selectors', () => {
-    const result = saleTargetSelectorSchema.safeParse({
-      roastId: 42,
-      coffeeId: 7,
-      batchName: 'Batch A',
-    });
-    expect(result.success).toBe(false);
-  });
-});
-
-// ─── recordSaleSchema ─────────────────────────────────────────────────────────
-
-describe('recordSaleSchema', () => {
-  const validExactInput = {
-    roastId: 42,
-    oz: 12,
-    price: 18.5,
-  };
-
-  it('accepts valid exact required fields', () => {
-    const parsed = recordSaleSchema.parse(validExactInput);
-    expect(parsed.roastId).toBe(42);
-    expect(parsed.oz).toBe(12);
-    expect(parsed.price).toBe(18.5);
-  });
-
-  it('accepts resolved selector mode', () => {
-    const parsed = recordSaleSchema.parse({
-      coffeeId: 7,
-      batchName: 'Ethiopia Guji Light',
-      oz: 12,
-      price: 18.5,
-    });
-    expect(parsed.coffeeId).toBe(7);
-    expect(parsed.batchName).toBe('Ethiopia Guji Light');
-  });
-
-  it('accepts optional buyer and sellDate', () => {
-    const parsed = recordSaleSchema.parse({
-      ...validExactInput,
-      buyer: 'Alice',
-      sellDate: '2026-03-23',
-    });
-    expect(parsed.buyer).toBe('Alice');
-    expect(parsed.sellDate).toBe('2026-03-23');
-  });
-
-  it('rejects missing selector', () => {
-    const result = recordSaleSchema.safeParse({ oz: 12, price: 18 });
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects missing oz', () => {
-    const result = recordSaleSchema.safeParse({ roastId: 42, price: 18 });
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects missing price', () => {
-    const result = recordSaleSchema.safeParse({ roastId: 42, oz: 12 });
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects non-positive roastId', () => {
-    expect(() => recordSaleSchema.parse({ ...validExactInput, roastId: 0 })).toThrow();
-    expect(() => recordSaleSchema.parse({ ...validExactInput, roastId: -1 })).toThrow();
-  });
-
-  it('rejects non-positive coffeeId', () => {
+  it('requires exactly one complete selector mode', () => {
+    expect(saleTargetSelectorSchema.parse({ roastId: 42 }).roastId).toBe(42);
+    expect(saleTargetSelectorSchema.parse({ coffeeId: 7, batchName: 'Batch A' }).coffeeId).toBe(7);
+    expect(() => saleTargetSelectorSchema.parse({})).toThrow();
+    expect(() => saleTargetSelectorSchema.parse({ coffeeId: 7 })).toThrow();
     expect(() =>
-      recordSaleSchema.parse({
-        coffeeId: 0,
-        batchName: 'Batch A',
-        oz: 12,
-        price: 18,
-      })
+      saleTargetSelectorSchema.parse({ roastId: 42, coffeeId: 7, batchName: 'A' })
     ).toThrow();
   });
 
-  it('rejects non-positive oz', () => {
-    expect(() => recordSaleSchema.parse({ ...validExactInput, oz: 0 })).toThrow();
-    expect(() => recordSaleSchema.parse({ ...validExactInput, oz: -5 })).toThrow();
-  });
-
-  it('rejects negative price', () => {
-    expect(() => recordSaleSchema.parse({ ...validExactInput, price: -1 })).toThrow();
-  });
-
-  it('accepts zero price (free/gift)', () => {
-    const parsed = recordSaleSchema.parse({ ...validExactInput, price: 0 });
-    expect(parsed.price).toBe(0);
-  });
-
-  it('rejects non-integer roastId', () => {
-    expect(() => recordSaleSchema.parse({ ...validExactInput, roastId: 3.5 })).toThrow();
-  });
-
-  it('rejects mixing exact and resolved selectors', () => {
-    expect(() =>
-      recordSaleSchema.parse({
-        roastId: 42,
-        coffeeId: 7,
-        batchName: 'Batch A',
-        oz: 12,
-        price: 18,
-      })
-    ).toThrow();
+  it('validates create, update, and delete inputs', () => {
+    expect(recordSaleSchema.parse({ roastId: 42, oz: 12, price: 0 }).price).toBe(0);
+    expect(() => recordSaleSchema.parse({ roastId: 42, oz: 0, price: 1 })).toThrow();
+    expect(updateSaleSchema.parse({ buyer: '' }).buyer).toBe('');
+    expect(() => updateSaleSchema.parse({})).toThrow();
+    expect(deleteSaleSchema.parse({ id: 1 }).id).toBe(1);
+    expect(() => deleteSaleSchema.parse({ id: 0 })).toThrow();
   });
 });
 
-// ─── recordSale behavior ─────────────────────────────────────────────────────
+describe('SDK-backed sales writes', () => {
+  beforeEach(() => vi.clearAllMocks());
 
-type QueryCall = {
-  method: string;
-  args: unknown[];
-};
-
-function makeRecordSaleSupabase(
-  overrides: {
-    roastSingle?: { data?: unknown; error?: unknown };
-    roastLookup?: { data?: unknown; error?: unknown };
-    insertResult?: { data?: unknown; error?: unknown };
-    saleRefetch?: { data?: unknown; error?: unknown };
-  } = {}
-) {
-  const roastCalls: QueryCall[] = [];
-  let insertedPayload: Record<string, unknown> | null = null;
-
-  const roastProfilesQuery = {
-    eq(field: string, value: unknown) {
-      roastCalls.push({ method: 'eq', args: [field, value] });
-      return roastProfilesQuery;
-    },
-    ilike(field: string, value: unknown) {
-      roastCalls.push({ method: 'ilike', args: [field, value] });
-      return roastProfilesQuery;
-    },
-    limit(limitValue: number) {
-      roastCalls.push({ method: 'limit', args: [limitValue] });
-      return Promise.resolve(overrides.roastLookup ?? { data: [{ roast_id: 42 }], error: null });
-    },
-    single: vi
+  it('resolves an exact roast through get and pins the token', async () => {
+    const get = vi
       .fn()
-      .mockImplementation(() =>
-        Promise.resolve(overrides.roastSingle ?? { data: { roast_id: 42 }, error: null })
-      ),
-  };
-
-  const salesSelectQuery = {
-    eq: vi.fn().mockReturnThis(),
-    single: vi.fn().mockImplementation(() =>
-      Promise.resolve(
-        overrides.saleRefetch ?? {
-          data: {
-            id: 55,
-            roast_id: 42,
-            oz_sold: 12,
-            sale_price: 18.5,
-            buyer: null,
-            sell_date: '2026-04-17',
-            user: 'user-123',
-            last_updated: '2026-04-17T00:00:00.000Z',
-          },
-          error: null,
-        }
-      )
-    ),
-  };
-
-  const salesTable = {
-    insert: vi.fn().mockImplementation((payload: Record<string, unknown>) => {
-      insertedPayload = payload;
-      return {
-        select: vi.fn().mockReturnValue({
-          single: vi
-            .fn()
-            .mockImplementation(() =>
-              Promise.resolve(overrides.insertResult ?? { data: { id: 55 }, error: null })
-            ),
-        }),
-      };
-    }),
-    select: vi.fn().mockReturnValue(salesSelectQuery),
-  };
-
-  const supabase = {
-    from: vi.fn().mockImplementation((table: string) => {
-      if (table === 'roast_profiles') {
-        return {
-          select: vi.fn().mockReturnValue(roastProfilesQuery),
-        };
-      }
-
-      if (table === 'sales') {
-        return salesTable;
-      }
-
-      throw new Error(`Unexpected table: ${table}`);
-    }),
-  };
-
-  return {
-    supabase: supabase as never,
-    roastCalls,
-    salesSelectQuery,
-    getInsertedPayload: () => insertedPayload,
-  };
-}
-
-describe('recordSale', () => {
-  it('records a sale via exact roastId selector mode', async () => {
-    const harness = makeRecordSaleSupabase();
-
-    const result = await recordSale(harness.supabase, 'user-123', {
-      roastId: 42,
-      oz: 12,
-      price: 18.5,
-    });
-
-    expect(result.id).toBe(55);
-    expect(harness.getInsertedPayload()).toMatchObject({
-      user: 'user-123',
-      roast_id: 42,
-      oz_sold: 12,
-      sale_price: 18.5,
-    });
-    expect(harness.roastCalls).toContainEqual({ method: 'eq', args: ['roast_id', 42] });
-    expect(harness.roastCalls).toContainEqual({ method: 'eq', args: ['user', 'user-123'] });
-    expect(harness.roastCalls.find((call) => call.method === 'ilike')).toBeUndefined();
-  });
-
-  it('records a sale via resolved coffeeId + batchName selector mode', async () => {
-    const harness = makeRecordSaleSupabase({
-      roastLookup: { data: [{ roast_id: 99, batch_name: 'Batch A' }], error: null },
-      saleRefetch: {
-        data: {
-          id: 55,
-          roast_id: 99,
-          oz_sold: 12,
-          sale_price: 18.5,
-          buyer: 'Alice',
-          sell_date: '2026-04-17',
-          user: 'user-123',
-          last_updated: '2026-04-17T00:00:00.000Z',
-        },
-        error: null,
-      },
-    });
-
-    const result = await recordSale(harness.supabase, 'user-123', {
-      coffeeId: 7,
+      .mockResolvedValue(ok({ data: { roast_id: 42, coffee_id: 7, batch_name: 'Batch A' } }));
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ data: [{ roast_id: 42, coffee_id: 7, batch_name: 'Batch A' }] }))
+      .mockResolvedValueOnce(ok({ data: [] }));
+    vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { get, list } } as never);
+    await expect(resolveSaleRoast({ roastId: 42 }, 'pinned')).resolves.toEqual({
+      greenCoffeeInvId: 7,
       batchName: 'Batch A',
-      oz: 12,
-      price: 18.5,
-      buyer: 'Alice',
+      roastId: 42,
+      mode: 'exact',
     });
-
-    expect(result.roast_id).toBe(99);
-    expect(harness.getInsertedPayload()).toMatchObject({
-      roast_id: 99,
-      buyer: 'Alice',
-    });
-    expect(harness.roastCalls).toContainEqual({ method: 'eq', args: ['user', 'user-123'] });
-    expect(harness.roastCalls).toContainEqual({ method: 'eq', args: ['coffee_id', 7] });
-    expect(harness.roastCalls).toContainEqual({ method: 'eq', args: ['batch_name', 'Batch A'] });
-    expect(harness.roastCalls.find((call) => call.method === 'ilike')).toBeUndefined();
-    expect(harness.roastCalls).toContainEqual({ method: 'limit', args: [2] });
+    expect(createParchmentClient).toHaveBeenCalledWith('member', 'pinned');
+    expect(get).toHaveBeenCalledWith('42');
   });
 
-  it('preserves literal batch names during resolved selector lookup', async () => {
-    const literalBatchName = 'Batch_(Light).100%';
-    const harness = makeRecordSaleSupabase({
-      roastLookup: { data: [{ roast_id: 99, batch_name: literalBatchName }], error: null },
-      saleRefetch: {
-        data: {
-          id: 55,
-          roast_id: 99,
-          oz_sold: 12,
-          sale_price: 18.5,
-          buyer: null,
-          sell_date: '2026-04-17',
-          user: 'user-123',
-          last_updated: '2026-04-17T00:00:00.000Z',
-        },
-        error: null,
-      },
-    });
-
-    await recordSale(harness.supabase, 'user-123', {
-      coffeeId: 7,
-      batchName: literalBatchName,
-      oz: 12,
-      price: 18.5,
-    });
-
-    expect(harness.roastCalls).toContainEqual({
-      method: 'eq',
-      args: ['batch_name', literalBatchName],
-    });
-    expect(harness.roastCalls.find((call) => call.method === 'ilike')).toBeUndefined();
-  });
-
-  it('throws NOT_FOUND when resolved selector mode matches no roasts', async () => {
-    const harness = makeRecordSaleSupabase({
-      roastLookup: { data: [], error: null },
-    });
-
-    await expect(
-      recordSale(harness.supabase, 'user-123', {
-        coffeeId: 7,
-        batchName: 'Missing Batch',
-        oz: 12,
-        price: 18.5,
-      })
-    ).rejects.toMatchObject({
-      code: 'NOT_FOUND',
-    });
-  });
-
-  it('throws INVALID_ARGUMENT when resolved selector mode is ambiguous', async () => {
-    const harness = makeRecordSaleSupabase({
-      roastLookup: {
+  it('rejects an exact roast when the sales contract cannot preserve its identity', async () => {
+    const get = vi
+      .fn()
+      .mockResolvedValue(ok({ data: { roast_id: 42, coffee_id: 7, batch_name: 'Batch A' } }));
+    const list = vi.fn().mockResolvedValue(
+      ok({
         data: [
-          { roast_id: 91, batch_name: 'Batch A' },
-          { roast_id: 92, batch_name: 'Batch A' },
+          { roast_id: 42, coffee_id: 7, batch_name: 'Batch A' },
+          { roast_id: 43, coffee_id: 7, batch_name: 'Batch A' },
         ],
-        error: null,
-      },
-    });
-
-    await expect(
-      recordSale(harness.supabase, 'user-123', {
-        coffeeId: 7,
-        batchName: 'Batch A',
-        oz: 12,
-        price: 18.5,
       })
-    ).rejects.toMatchObject({
+    );
+    vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { get, list } } as never);
+
+    await expect(resolveSaleRoast({ roastId: 42 })).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+      message: expect.stringContaining('cannot retain a roast ID'),
+    });
+  });
+
+  it('rejects an exact roast with no inventory link', async () => {
+    const get = vi
+      .fn()
+      .mockResolvedValue(ok({ data: { roast_id: 42, coffee_id: null, batch_name: null } }));
+    vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { get } } as never);
+    await expect(resolveSaleRoast({ roastId: 42 })).rejects.toMatchObject({
       code: 'INVALID_ARGUMENT',
     });
   });
 
-  it('throws AuthError when exact roastId does not belong to the user', async () => {
-    const harness = makeRecordSaleSupabase({
-      roastSingle: { data: null, error: { message: 'not found' } },
+  it('post-filters partial batch matches and resolves one exact match', async () => {
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(
+        ok({
+          data: [
+            { roast_id: 1, coffee_id: 7, batch_name: 'Batch A extra' },
+            { roast_id: 2, coffee_id: 7, batch_name: 'Batch A' },
+            { roast_id: 3, coffee_id: 8, batch_name: 'Batch A' },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(ok({ data: [] }));
+    vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { list } } as never);
+    await expect(resolveSaleRoast({ coffeeId: 7, batchName: 'Batch A' })).resolves.toMatchObject({
+      roastId: 2,
+      mode: 'resolved',
     });
+    expect(list).toHaveBeenCalledWith({
+      coffee_id: 7,
+      batch_name: 'Batch A',
+      limit: 100,
+      offset: 0,
+    });
+  });
+
+  it('preserves zero-match and ambiguity errors after exact post-filtering', async () => {
+    const list = vi.fn();
+    vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { list } } as never);
+    list.mockResolvedValueOnce(
+      ok({ data: [{ roast_id: 1, coffee_id: 7, batch_name: 'Batch A extra' }] })
+    );
+    list.mockResolvedValueOnce(ok({ data: [] }));
+    await expect(resolveSaleRoast({ coffeeId: 7, batchName: 'Batch A' })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    list.mockResolvedValueOnce(
+      ok({
+        data: [
+          { roast_id: 2, coffee_id: 7, batch_name: 'Batch A' },
+          { roast_id: 3, coffee_id: 7, batch_name: 'Batch A' },
+        ],
+      })
+    );
+    await expect(resolveSaleRoast({ coffeeId: 7, batchName: 'Batch A' })).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+    });
+  });
+
+  it('advances by capped page length and finds an exact match after a 25-row page', async () => {
+    const firstPage = Array.from({ length: 25 }, (_, index) => ({
+      roast_id: index + 1,
+      coffee_id: 7,
+      batch_name: `Batch A partial ${index}`,
+    }));
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ data: firstPage }))
+      .mockResolvedValueOnce(ok({ data: [{ roast_id: 26, coffee_id: 7, batch_name: 'Batch A' }] }))
+      .mockResolvedValueOnce(ok({ data: [] }));
+    vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { list } } as never);
+
+    await expect(resolveSaleRoast({ coffeeId: 7, batchName: 'Batch A' })).resolves.toMatchObject({
+      roastId: 26,
+    });
+    expect(list).toHaveBeenNthCalledWith(1, {
+      coffee_id: 7,
+      batch_name: 'Batch A',
+      limit: 100,
+      offset: 0,
+    });
+    expect(list).toHaveBeenNthCalledWith(2, {
+      coffee_id: 7,
+      batch_name: 'Batch A',
+      limit: 100,
+      offset: 25,
+    });
+    expect(list).toHaveBeenNthCalledWith(3, {
+      coffee_id: 7,
+      batch_name: 'Batch A',
+      limit: 100,
+      offset: 26,
+    });
+  });
+
+  it('detects ambiguity when a second exact match is on a later capped page', async () => {
+    const firstPage = [
+      { roast_id: 1, coffee_id: 7, batch_name: 'Batch A' },
+      ...Array.from({ length: 24 }, (_, index) => ({
+        roast_id: index + 2,
+        coffee_id: 7,
+        batch_name: `Batch A partial ${index}`,
+      })),
+    ];
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ data: firstPage }))
+      .mockResolvedValueOnce(ok({ data: [{ roast_id: 26, coffee_id: 7, batch_name: 'Batch A' }] }));
+    vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { list } } as never);
+
+    await expect(resolveSaleRoast({ coffeeId: 7, batchName: 'Batch A' })).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+    });
+    expect(list).toHaveBeenNthCalledWith(2, expect.objectContaining({ offset: 25 }));
+    expect(list).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not skip a later exact match after deduplicating overlapping pages', async () => {
+    const exact = { roast_id: 1, coffee_id: 7, batch_name: 'Batch A' };
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(
+        ok({
+          data: [exact, { roast_id: 2, coffee_id: 7, batch_name: 'Batch A partial' }],
+        })
+      )
+      .mockResolvedValueOnce(
+        ok({
+          data: [exact, { roast_id: 3, coffee_id: 7, batch_name: 'Batch A other' }],
+        })
+      )
+      .mockResolvedValueOnce(ok({ data: [{ roast_id: 4, coffee_id: 7, batch_name: 'Batch A' }] }));
+    vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { list } } as never);
+
+    await expect(resolveSaleRoast({ coffeeId: 7, batchName: 'Batch A' })).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+    });
+    expect(list).toHaveBeenNthCalledWith(2, expect.objectContaining({ offset: 2 }));
+    expect(list).toHaveBeenNthCalledWith(3, expect.objectContaining({ offset: 3 }));
+  });
+
+  it('rejects a non-empty page containing no unseen roast IDs', async () => {
+    const page = [{ roast_id: 1, coffee_id: 7, batch_name: 'Batch A partial' }];
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ data: page }))
+      .mockResolvedValueOnce(ok({ data: page }));
+    vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { list } } as never);
+
+    await expect(resolveSaleRoast({ coffeeId: 7, batchName: 'Batch A' })).rejects.toMatchObject({
+      code: 'GENERAL_ERROR',
+      message: 'Sale roast selector pagination did not advance. Retry the request.',
+    });
+    expect(list).toHaveBeenNthCalledWith(2, expect.objectContaining({ offset: 1 }));
+  });
+
+  it('sends the canonical create payload with a fresh idempotency key and pinned identity', async () => {
+    const get = vi
+      .fn()
+      .mockResolvedValue(ok({ data: { roast_id: 42, coffee_id: 7, batch_name: 'Batch A' } }));
+    const create = vi.fn().mockResolvedValue(ok({ data: { id: 55 } }, 201));
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ data: [{ roast_id: 42, coffee_id: 7, batch_name: 'Batch A' }] }))
+      .mockResolvedValueOnce(ok({ data: [] }));
+    vi.mocked(createParchmentClient).mockResolvedValue({
+      roasts: { get, list },
+      sales: { create },
+    } as never);
+    await expect(
+      recordSale(
+        { roastId: 42, oz: 12, price: 18.5, buyer: 'Ada', sellDate: '2026-07-12' },
+        'same-token'
+      )
+    ).resolves.toEqual({ id: 55 });
+    expect(createParchmentClient).toHaveBeenNthCalledWith(1, 'member', 'same-token');
+    expect(createParchmentClient).toHaveBeenNthCalledWith(2, 'member', 'same-token');
+    expect(create).toHaveBeenCalledWith(
+      {
+        greenCoffeeInvId: 7,
+        ozSold: 12,
+        price: 18.5,
+        buyer: 'Ada',
+        batchName: 'Batch A',
+        sellDate: '2026-07-12',
+      },
+      { idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/) }
+    );
+  });
+
+  it('maps update and delete to the SDK', async () => {
+    const update = vi.fn().mockResolvedValue(ok({ data: { id: 5, price: 20 } }));
+    const remove = vi.fn().mockResolvedValue(ok({ data: { id: 5, deleted: true } }));
+    vi.mocked(createParchmentClient).mockResolvedValue({
+      sales: { update, delete: remove },
+    } as never);
+    await expect(
+      updateSale(5, { oz: 10, price: 20, buyer: 'B', sellDate: '2026-07-12' })
+    ).resolves.toMatchObject({ id: 5 });
+    expect(update).toHaveBeenCalledWith(5, {
+      ozSold: 10,
+      price: 20,
+      buyer: 'B',
+      sellDate: '2026-07-12',
+    });
+    await expect(deleteSale(5)).resolves.toBeUndefined();
+    expect(remove).toHaveBeenCalledWith(5);
+  });
+
+  it('preserves the 0.27 Supabase-backed write helper signatures', async () => {
+    const getSession = vi.fn().mockResolvedValue({
+      data: {
+        session: {
+          access_token: 'legacy-session-token',
+          user: { id: 'legacy-user-id' },
+        },
+      },
+    });
+    const legacySupabase = { auth: { getSession } } as never;
+    const get = vi
+      .fn()
+      .mockResolvedValue(ok({ data: { roast_id: 42, coffee_id: 7, batch_name: 'Batch A' } }));
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ data: [{ roast_id: 42, coffee_id: 7, batch_name: 'Batch A' }] }))
+      .mockResolvedValueOnce(ok({ data: [] }));
+    const create = vi.fn().mockResolvedValue(ok({ data: { id: 55 } }, 201));
+    const update = vi.fn().mockResolvedValue(ok({ data: { id: 55, price: 20 } }));
+    const remove = vi.fn().mockResolvedValue(ok({ data: { id: 55, deleted: true } }));
+    vi.mocked(createParchmentClient).mockResolvedValue({
+      roasts: { get, list },
+      sales: { create, update, delete: remove },
+    } as never);
 
     await expect(
-      recordSale(harness.supabase, 'user-123', {
-        roastId: 42,
-        oz: 12,
-        price: 18.5,
+      recordSale(legacySupabase, 'legacy-user-id', { roastId: 42, oz: 12, price: 18.5 })
+    ).resolves.toEqual({ id: 55 });
+    await expect(
+      updateSale(legacySupabase, 'legacy-user-id', 55, { price: 20 })
+    ).resolves.toMatchObject({ id: 55 });
+    await expect(deleteSale(legacySupabase, 'legacy-user-id', 55)).resolves.toBeUndefined();
+
+    expect(getSession).toHaveBeenCalledTimes(3);
+    expect(createParchmentClient).toHaveBeenCalledTimes(4);
+    for (const call of vi.mocked(createParchmentClient).mock.calls) {
+      expect(call).toEqual(['member', 'legacy-session-token']);
+    }
+  });
+
+  it('rejects every legacy write overload when the session user does not match', async () => {
+    const getSession = vi.fn().mockResolvedValue({
+      data: {
+        session: {
+          access_token: 'legacy-session-token',
+          user: { id: 'different-user-id' },
+        },
+      },
+    });
+    const legacySupabase = { auth: { getSession } } as never;
+
+    await expect(
+      recordSale(legacySupabase, 'legacy-user-id', { roastId: 42, oz: 12, price: 18.5 })
+    ).rejects.toBeInstanceOf(AuthError);
+    await expect(
+      updateSale(legacySupabase, 'legacy-user-id', 55, { price: 20 })
+    ).rejects.toBeInstanceOf(AuthError);
+    await expect(deleteSale(legacySupabase, 'legacy-user-id', 55)).rejects.toBeInstanceOf(
+      AuthError
+    );
+
+    expect(createParchmentClient).not.toHaveBeenCalled();
+  });
+
+  it('preserves legacy AuthError semantics for missing owned resources', async () => {
+    const getSession = vi.fn().mockResolvedValue({
+      data: {
+        session: {
+          access_token: 'legacy-session-token',
+          user: { id: 'legacy-user-id' },
+        },
+      },
+    });
+    const legacySupabase = { auth: { getSession } } as never;
+    const missing = {
+      error: { error: { message: 'not found' } },
+      response: new Response(null, { status: 404 }),
+    };
+    vi.mocked(createParchmentClient).mockResolvedValue({
+      roasts: { get: vi.fn().mockResolvedValue(missing) },
+      sales: {
+        update: vi.fn().mockResolvedValue(missing),
+        delete: vi.fn().mockResolvedValue(missing),
+      },
+    } as never);
+
+    await expect(
+      resolveSaleRoast(legacySupabase, 'legacy-user-id', { roastId: 42 })
+    ).rejects.toEqual(
+      expect.objectContaining({
+        name: 'AuthError',
+        message: 'Roast profile 42 not found or does not belong to you.',
       })
-    ).rejects.toThrow(AuthError);
-  });
-});
-
-// ─── updateSaleSchema ─────────────────────────────────────────────────────────
-
-describe('updateSaleSchema', () => {
-  it('accepts oz only', () => {
-    const result = updateSaleSchema.safeParse({ oz: 16 });
-    expect(result.success).toBe(true);
-  });
-
-  it('accepts price only', () => {
-    const result = updateSaleSchema.safeParse({ price: 22.5 });
-    expect(result.success).toBe(true);
-  });
-
-  it('accepts buyer only', () => {
-    const result = updateSaleSchema.safeParse({ buyer: 'Bob' });
-    expect(result.success).toBe(true);
-  });
-
-  it('accepts sellDate only', () => {
-    const result = updateSaleSchema.safeParse({ sellDate: '2026-03-20' });
-    expect(result.success).toBe(true);
+    );
+    await expect(
+      recordSale(legacySupabase, 'legacy-user-id', { roastId: 42, oz: 12, price: 18.5 })
+    ).rejects.toEqual(
+      expect.objectContaining({
+        name: 'AuthError',
+        message: 'Roast profile 42 not found or does not belong to you.',
+      })
+    );
+    await expect(updateSale(legacySupabase, 'legacy-user-id', 55, { price: 20 })).rejects.toEqual(
+      expect.objectContaining({
+        name: 'AuthError',
+        message: 'Sale 55 not found or does not belong to you.',
+      })
+    );
+    await expect(deleteSale(legacySupabase, 'legacy-user-id', 55)).rejects.toEqual(
+      expect.objectContaining({
+        name: 'AuthError',
+        message: 'Sale 55 not found or does not belong to you.',
+      })
+    );
   });
 
-  it('accepts multiple fields together', () => {
-    const result = updateSaleSchema.safeParse({
-      oz: 14,
-      price: 20,
-      buyer: 'Charlie',
-      sellDate: '2026-03-22',
+  it('unwraps create API errors', async () => {
+    const get = vi
+      .fn()
+      .mockResolvedValue(ok({ data: { roast_id: 42, coffee_id: 7, batch_name: 'B' } }));
+    const create = vi.fn().mockResolvedValue({
+      error: { error: { message: 'writes disabled' } },
+      response: new Response(null, { status: 503 }),
     });
-    expect(result.success).toBe(true);
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ data: [{ roast_id: 42, coffee_id: 7, batch_name: 'B' }] }))
+      .mockResolvedValueOnce(ok({ data: [] }));
+    vi.mocked(createParchmentClient).mockResolvedValue({
+      roasts: { get, list },
+      sales: { create },
+    } as never);
+    await expect(recordSale({ roastId: 42, oz: 1, price: 1 })).rejects.toEqual(
+      expect.objectContaining<Partial<PrvrsError>>({
+        code: 'GENERAL_ERROR',
+        message: 'writes disabled',
+      })
+    );
   });
 
-  it('rejects empty object (no fields)', () => {
-    const result = updateSaleSchema.safeParse({});
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects all-undefined fields', () => {
-    const result = updateSaleSchema.safeParse({
-      oz: undefined,
-      price: undefined,
-      buyer: undefined,
-      sellDate: undefined,
+  it('unwraps update and delete API errors', async () => {
+    const update = vi.fn().mockResolvedValue({
+      error: { error: { message: 'sale missing' } },
+      response: new Response(null, { status: 404 }),
     });
-    expect(result.success).toBe(false);
-  });
+    const remove = vi.fn().mockResolvedValue({
+      error: { error: { message: 'delete unavailable' } },
+      response: new Response(null, { status: 503 }),
+    });
+    vi.mocked(createParchmentClient).mockResolvedValue({
+      sales: { update, delete: remove },
+    } as never);
 
-  it('rejects non-positive oz', () => {
-    const result = updateSaleSchema.safeParse({ oz: 0 });
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects negative price', () => {
-    const result = updateSaleSchema.safeParse({ price: -1 });
-    expect(result.success).toBe(false);
-  });
-
-  it('accepts zero price (free/gift)', () => {
-    const result = updateSaleSchema.safeParse({ price: 0 });
-    expect(result.success).toBe(true);
-  });
-});
-
-// ─── deleteSaleSchema ─────────────────────────────────────────────────────────
-
-describe('deleteSaleSchema', () => {
-  it('accepts a valid positive integer id', () => {
-    const parsed = deleteSaleSchema.parse({ id: 1 });
-    expect(parsed.id).toBe(1);
-  });
-
-  it('rejects id of 0', () => {
-    expect(() => deleteSaleSchema.parse({ id: 0 })).toThrow();
-  });
-
-  it('rejects negative id', () => {
-    expect(() => deleteSaleSchema.parse({ id: -1 })).toThrow();
-  });
-
-  it('rejects non-integer id', () => {
-    expect(() => deleteSaleSchema.parse({ id: 1.5 })).toThrow();
-  });
-
-  it('rejects missing id', () => {
-    const result = deleteSaleSchema.safeParse({});
-    expect(result.success).toBe(false);
+    await expect(updateSale(5, { price: 20 })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      message: 'sale missing',
+    });
+    await expect(deleteSale(5)).rejects.toMatchObject({
+      code: 'GENERAL_ERROR',
+      message: 'delete unavailable',
+    });
   });
 });

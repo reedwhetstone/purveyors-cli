@@ -24,6 +24,37 @@ type SalesRecordOptions = {
   form?: boolean;
 };
 
+type SessionSource = {
+  auth: {
+    getSession(): Promise<{ data: { session: { access_token: string } | null } }>;
+  };
+};
+
+/** Keep selection session-scoped, then refresh and pin the identity at the write boundary. */
+export async function recordInteractiveSale(
+  sessionSource: SessionSource,
+  input: Omit<RecordSaleInput, 'roastId' | 'coffeeId' | 'batchName'>,
+  selectRoast: (token: string) => Promise<{ id: number; batchName: string }> = pickRoast,
+  onWriteStart: () => void = () => undefined
+): Promise<Sale> {
+  const {
+    data: { session: selectionSession },
+  } = await sessionSource.auth.getSession();
+  if (!selectionSession?.access_token) {
+    throw new AuthError('Session expired mid-form. Run `purvey auth login` and retry.');
+  }
+  const roast = await selectRoast(selectionSession.access_token);
+
+  const {
+    data: { session: writeSession },
+  } = await sessionSource.auth.getSession();
+  if (!writeSession?.access_token) {
+    throw new AuthError('Session expired mid-form. Run `purvey auth login` and retry.');
+  }
+  onWriteStart();
+  return recordSale({ roastId: roast.id, ...input }, writeSession.access_token);
+}
+
 function parsePositiveIntegerOption(flag: string, value: string): number {
   if (!/^\d+$/.test(value)) {
     throw new PrvrsError(
@@ -201,7 +232,7 @@ Notes:
   sales
     .command('record')
     .description('Record a new sale')
-    .option('--roast-id <id>', 'Exact roast profile ID (roast_data.roast_id)')
+    .option('--roast-id <id>', 'Roast profile used to resolve the sale inventory and batch')
     .option('--coffee-id <id>', 'Inventory item ID used for resolved selector mode')
     .option('--batch-name <name>', 'Batch name used with --coffee-id for resolved selector mode')
     .option('--oz <amount>', '[REQUIRED] Ounces sold')
@@ -220,10 +251,10 @@ Examples:
   purvey sales record --form     # interactive wizard (browse roasts)
 
 Selector modes:
-  Exact:    --roast-id <id>
+  Roast:    --roast-id <id>
   Resolved: --coffee-id <id> --batch-name <name>
   Use exactly one selector mode.
-  If multiple roasts match the same inventory item + batch name, re-run with --roast-id.
+  Sales retain inventory + batch, not roast ID. Duplicate batch names on one inventory item are rejected.
 
 Required flags: selector mode, --oz, --price
   Use 'purvey roast list' to find your --roast-id.
@@ -240,7 +271,7 @@ Required flags: selector mode, --oz, --price
           opts.form ||
           (!hasCompleteRecordSaleFlagInput(opts) && (await getConfigValue('form-mode')) === 'true');
         if (formMode) {
-          const { supabase, userId } = await requireAuth('member');
+          const { supabase } = await requireAuth('member');
           p.intro('Record Sale');
 
           const ozRaw = await p.text({
@@ -279,24 +310,18 @@ Required flags: selector mode, --oz, --price
 
           const buyerStr = String(buyerRaw).trim();
 
-          // Let user pick the specific roast batch to attribute this sale to.
-          const {
-            data: { session: formSession },
-          } = await supabase.auth.getSession();
-          if (!formSession?.access_token) {
-            throw new AuthError('Session expired mid-form. Run `purvey auth login` and retry.');
-          }
-          const roast = await pickRoast(formSession.access_token);
-
           const spin = p.spinner();
-          spin.start('Recording sale...');
-          const data = await recordSale(supabase, userId, {
-            roastId: roast.id,
-            oz: parseFloat(String(ozRaw)),
-            price: parseFloat(String(priceRaw)),
-            buyer: buyerStr !== '' ? buyerStr : undefined,
-            sellDate: todayIso(),
-          });
+          const data = await recordInteractiveSale(
+            supabase,
+            {
+              oz: parseFloat(String(ozRaw)),
+              price: parseFloat(String(priceRaw)),
+              buyer: buyerStr !== '' ? buyerStr : undefined,
+              sellDate: todayIso(),
+            },
+            pickRoast,
+            () => spin.start('Recording sale...')
+          );
           spin.stop('Done');
 
           p.outro(`Sale recorded! Sale #${data.id}.`);
@@ -305,9 +330,7 @@ Required flags: selector mode, --oz, --price
         }
 
         const recordInput = parseRecordSaleFlagInput(opts);
-        const { supabase, userId } = await requireAuth('member');
-
-        const data = await recordSale(supabase, userId, {
+        const data = await recordSale({
           ...recordInput,
           sellDate: recordInput.sellDate ?? todayIso(),
         });
@@ -341,8 +364,6 @@ Notes:
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase, userId } = await requireAuth('member');
-
         const saleId = parseInt(id, 10);
         if (isNaN(saleId)) {
           throw new PrvrsError('INVALID_ARGUMENT', `Invalid sale ID: "${id}".`);
@@ -374,7 +395,7 @@ Notes:
           );
         }
 
-        const data = await updateSale(supabase, userId, saleId, {
+        const data = await updateSale(saleId, {
           oz,
           price,
           buyer: opts.buyer as string | undefined,
@@ -406,8 +427,6 @@ Notes:
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         void cmd;
-        const { supabase, userId } = await requireAuth('member');
-
         const saleId = parseInt(id, 10);
         if (isNaN(saleId)) {
           throw new PrvrsError('INVALID_ARGUMENT', `Invalid sale ID: "${id}".`);
@@ -421,7 +440,7 @@ Notes:
           }
         }
 
-        await deleteSale(supabase, userId, saleId);
+        await deleteSale(saleId);
         success(`Sale ${saleId} deleted.`);
       })
     );
