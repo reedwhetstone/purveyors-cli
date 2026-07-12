@@ -19,6 +19,18 @@ export interface PurveyConfig {
   'form-mode'?: boolean;
 }
 
+function isStoredCredentials(value: unknown): value is StoredCredentials {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.apiKey === 'string' &&
+    typeof record.keyId === 'string' &&
+    typeof record.createdAt === 'string' &&
+    !!record.user &&
+    typeof record.user === 'object'
+  );
+}
+
 /** All valid config keys and their accepted value types. */
 const CONFIG_KEYS = ['form-mode'] as const;
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
@@ -44,13 +56,23 @@ export async function readCredentials(): Promise<StoredCredentials | null> {
   try {
     await access(CREDENTIALS_FILE, constants.R_OK);
     const raw = await readFile(CREDENTIALS_FILE, 'utf-8');
-    return JSON.parse(raw) as StoredCredentials;
+    const parsed = JSON.parse(raw) as unknown;
+    if (isStoredCredentials(parsed)) return parsed;
+    // Purge pre-0.30 renewable access/refresh-token credentials rather than
+    // leaving them indefinitely on disk after the API-key custody cutover.
+    await unlink(CREDENTIALS_FILE).catch(() => {});
+    return null;
   } catch {
     // Not found at new path — check legacy location and migrate if present
     try {
       await access(LEGACY_CREDENTIALS_FILE, constants.R_OK);
       const raw = await readFile(LEGACY_CREDENTIALS_FILE, 'utf-8');
-      const creds = JSON.parse(raw) as StoredCredentials;
+      const parsed = JSON.parse(raw) as unknown;
+      if (!isStoredCredentials(parsed)) {
+        await unlink(LEGACY_CREDENTIALS_FILE).catch(() => {});
+        return null;
+      }
+      const creds = parsed;
       // Migrate to new path
       await writeCredentials(creds);
       // Clean up old file (best-effort)

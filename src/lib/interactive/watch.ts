@@ -10,7 +10,7 @@ import { watch, type FSWatcher } from 'fs';
 import { readFile, access, writeFile, mkdir } from 'fs/promises';
 import { join, extname } from 'path';
 import { constants } from 'fs';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AuthClient } from '../auth-client.js';
 import type { ImportRoastResult } from '../roast.js';
 import type { MilestoneData, ProcessedRoastData } from '../artisan/types.js';
 import { CONFIG_DIR } from '../config.js';
@@ -412,7 +412,7 @@ function printVerificationTableAutoMatch(imports: ImportRecord[]): void {
  * @returns         The final WatchSession (all imports recorded)
  */
 export async function startWatch(
-  supabase: SupabaseClient,
+  supabase: AuthClient,
   userId: string,
   directory: string,
   opts: StartWatchOpts,
@@ -889,7 +889,7 @@ interface AutoMatchResult {
  * Returns skip=true if confidence < 50 or if the AI call fails.
  */
 async function runAutoMatch(
-  supabase: SupabaseClient,
+  supabase: AuthClient,
   userId: string,
   filename: string,
   fileContent: string,

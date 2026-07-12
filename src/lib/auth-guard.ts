@@ -1,6 +1,5 @@
-import { createAuthenticatedClient } from './supabase.js';
+import { createAuthenticatedClient, type AuthClient } from './auth-client.js';
 import { AuthError } from './errors.js';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { createParchmentClient } from '@purveyors/sdk';
 import { getParchmentBaseUrl } from './parchment-base.js';
 
@@ -16,14 +15,14 @@ const ROLE_HIERARCHY: Record<string, number> = {
 
 /**
  * Ensure the user is authenticated and has the required role.
- * Returns the authenticated Supabase client and userId.
+ * Returns the stored-credential auth facade and userId.
  *
  * - 'viewer' = any logged-in user (catalog read commands)
  * - 'member' = member role or higher (all write/personal-data commands)
  */
 export async function requireAuth(
   role: RequiredRole = 'viewer'
-): Promise<{ supabase: SupabaseClient; userId: string }> {
+): Promise<{ supabase: AuthClient; userId: string }> {
   // createAuthenticatedClient already throws AuthError when:
   //   - no credentials on disk
   //   - session is expired/revoked (with appropriate message)

@@ -139,16 +139,15 @@ Remote data commands require either a valid authenticated session or, for canoni
 Parchment API surfaces, an owner-bound API key with the required scope:
 
 - `catalog` requires the `viewer` role by default
-- `catalog search` structured process filters require the `member` role under the current session-authenticated CLI path
+- `catalog search` structured process filters require the `member` role
 - `market` has public teaser slices for `signals --summary`, unfiltered retail `stats`, and process/retail/month `metadata`; all filtered or non-public slices require Parchment Intelligence access enforced server-side
-- `price-index`, `procurement`, `inventory`, `roast`, `sales`, and `tasting` require the `member` role under the session-authenticated CLI path
+- `price-index`, `procurement`, `inventory`, `roast`, `sales`, and `tasting` require the `member` role
 
 `purvey` uses Google OAuth through purveyors.io.
 
 Set `PARCHMENT_API_KEY` (or `PURVEYORS_API_KEY`) to authenticate SDK-backed catalog,
 inventory, roast, sales, tasting-read, market, price-index, and procurement operations
-without using the stored session JWT. API-key credentials take precedence. `tasting rate`
-still uses the session-backed migration path in this release.
+without using the API key created by `purvey auth login`. Environment credentials take precedence.
 
 Interactive login:
 
@@ -408,11 +407,11 @@ purvey catalog get 1182 --include-proof --json
 Notes:
 
 - Catalog commands require an authenticated `viewer` role by default.
-- Structured process filters on `catalog search` require an authenticated `member` role under the current session-authenticated CLI path.
+- Structured process filters on `catalog search` require an authenticated `member` role.
 - Structured process filters use the canonical `/v1/catalog` query contract names while preserving the legacy `--process` label filter.
 - `--include-proof` is an opt-in API-backed catalog read. It consumes the canonical proof summary returned by `/v1/catalog?include=proof`; the CLI does not compute proof fields locally or duplicate web/API proof logic.
 - `--include-proof` rejects CLI-only filters that `/v1/catalog` cannot yet preserve exactly, such as `--flavor`, `--supplier`, `--drying-method`, and `--sort newest`.
-- If you want proof output against an API-key deployment, set `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY` before running the command. Otherwise the CLI uses your logged-in Purveyors session token.
+- If you want proof output against a specific API-key deployment, set `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY`. Otherwise the CLI uses the key created by `purvey auth login`.
 - `catalog get` and `catalog similar` both take `coffee_catalog.catalog_id`.
 - `catalog rank` and `catalog rank-premium` read `coffee_catalog.purveyor_score` as the canonical quality signal; the CLI does not recompute the upstream Purveyor Score model.
 - `catalog facets` and `catalog rank` are generic agent/client intelligence surfaces. Facet counts come from the canonical API across the selected stocked/all-visible scope; ranking responses include sample metadata so callers do not mistake sampled rarity for whole-catalog guarantees.
@@ -764,10 +763,9 @@ purvey tasting rate --form
 
 Notes:
 
-- Tasting reads accept a member session or an owner-bound `tasting:read` API key.
+- Tasting reads accept an owner-bound `tasting:read` API key.
 - `tasting get` combines supplier notes with your own notes when available.
-- `tasting rate` writes scores back to your inventory row through the remaining direct
-  Supabase path until the canonical tasting-write endpoint ships.
+- `tasting rate` writes through the canonical Parchment tasting endpoint.
 
 ### config
 
@@ -886,10 +884,9 @@ Use the right ID for the right command.
 
 ## Environment variables
 
-- `PURVEYORS_SUPABASE_URL`: override the Supabase project URL
-- `PURVEYORS_SUPABASE_ANON_KEY`: override the Supabase anon key
+- `PURVEYORS_SUPABASE_URL`: override the Supabase Auth issuer used only for OAuth bootstrap
 - `PURVEYORS_BASE_URL`: override the Purveyors web base URL
-- `PURVEYORS_API_KEY`: API-key token used by API-backed catalog proof reads, paid-tier similarity reads, and SDK-backed Parchment commands when you want to call canonical API contracts without relying on the local OAuth session
+- `PURVEYORS_API_KEY`: explicit API-key override for canonical Parchment commands
 - `PARCHMENT_API_KEY`: preferred API-key variable for SDK-backed Parchment commands; also accepted for API-backed proof and paid-tier similarity paths
 - `PARCHMENT_API_BASE_URL`: override the SDK-backed Parchment API base URL for `market`, `price-index`, and `procurement` commands
 - `PURVEY_DEBUG`: enable verbose error output
@@ -924,7 +921,7 @@ Agent integration rules of thumb:
 
 - Discover first with `purvey manifest`, then call the narrowest command or package subpath that fits the job.
 - Use `purvey context` when a human-readable operator summary is useful before tool selection.
-- Prefer OAuth session tokens for normal user workflows; use `PURVEYORS_API_KEY` or `PARCHMENT_API_KEY` only when you intentionally need an API-key-backed Parchment path such as catalog proof, paid-tier similarity, market intelligence, price-index, or procurement reads.
+- Use `purvey auth login` for normal user workflows. OAuth is used only to bootstrap a machine-scoped Parchment API key; the CLI does not retain Supabase session or refresh tokens. Environment `PURVEYORS_API_KEY` or `PARCHMENT_API_KEY` values remain available for explicit automation overrides.
 - Treat `--include-proof` as API output, not a local scoring feature. If a filter cannot round-trip through `/v1/catalog?include=proof`, the CLI rejects that invocation instead of returning misleading proof data.
 - Treat `catalog similar` as the canonical `/v1/catalog/{id}/similar` contract. Preserve the distinction between `canonical_candidates` and `similar_recommendations`; do not flatten or re-sort grouped results unless you have a specific downstream reason.
 - Treat `market`, `price-index`, and `procurement` as SDK-backed canonical API reads. Do not add procurement create/write behavior to this command group until the Phase 2 write contract ships.
@@ -941,7 +938,7 @@ purvey auth login --headless
 
 **Catalog commands fail after logging in**
 
-Run `purvey auth status` to confirm you have a `viewer` or `member` role. If the session is stale, run `purvey auth logout` and log in again.
+Run `purvey auth status` to confirm the stored CLI key is active and has a `viewer` or `member` role. If it is stale or revoked, run `purvey auth logout` and log in again.
 
 **Wrong ID type passed to a command**
 
@@ -993,7 +990,7 @@ Key files:
 - `src/index.ts`: executable entrypoint
 - `src/program.ts`: top-level CLI registration and global options
 - `src/commands/`: command definitions and help text
-- `src/lib/`: business logic and Supabase integration
+- `src/lib/`: business logic and Parchment SDK integration
 - `src/commands/context.ts`: dense human-readable agent reference
 - `src/commands/manifest.ts`: machine-readable CLI manifest command
 - `src/lib/manifest.ts`: shared manifest contract, package export list, command metadata, ID guidance, and context renderer

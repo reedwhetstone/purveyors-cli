@@ -14,8 +14,8 @@ export { getParchmentBaseUrl } from './parchment-base.js';
  */
 /**
  * Resolve the bearer token for Parchment requests, mirroring the existing CLI
- * catalog auth pattern: an explicit API key wins, otherwise the stored Supabase
- * session JWT is used. Auth is resolved server-side against the token.
+ * catalog auth pattern: an explicit environment API key wins, otherwise the
+ * scoped API key created by `purvey auth login` is used.
  */
 export async function resolveParchmentToken(
   requiredRole: RequiredRole = 'viewer'
@@ -42,7 +42,7 @@ export async function resolveParchmentToken(
 }
 
 /**
- * Return the stored session token when a valid local session satisfies the
+ * Return the stored CLI API key when valid local credentials satisfy the
  * requested role, without making that session mandatory. Commands that can be
  * API-key-only but should prefer the logged-in user's identity when one exists
  * use this to avoid mixing session-selected resource IDs with another account's
@@ -70,7 +70,7 @@ export async function resolveParchmentSessionTokenIfAvailable(
  *
  * `tokenOverride` pins the request to a specific bearer token instead of the
  * usual API-key-then-session precedence. Interactive flows that already resolved
- * a Supabase session (and selected session-scoped resources like a bean) use it
+ * a stored CLI identity (and selected identity-scoped resources like a bean) use it
  * so an exported API key for another account can't authorize the request under a
  * mismatched identity.
  */

@@ -47,7 +47,7 @@ import {
 } from '../src/lib/catalog.js';
 import { outputData } from '../src/lib/output.js';
 import type { CatalogItem, CatalogSimilarityResponse } from '../src/lib/catalog.js';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AuthClient } from '../src/lib/auth-client.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -773,7 +773,7 @@ function makeSearchSupabase(response: { data?: unknown; error?: unknown | null }
   const select = vi.fn(() => query);
   const from = vi.fn(() => ({ select }));
 
-  return { supabase: { from } as unknown as SupabaseClient, query, select, from };
+  return { supabase: { from } as unknown as AuthClient, query, select, from };
 }
 
 async function runCatalogCommand(args: string[]): Promise<void> {
@@ -874,7 +874,7 @@ describe('catalog command auth and structured filter parsing', () => {
           data: { session: { access_token: 'session-token' } },
         }),
       },
-    } as unknown as SupabaseClient;
+    } as unknown as AuthClient;
     vi.mocked(requireAuth).mockResolvedValue({ supabase, userId: 'user-1' });
 
     await runCatalogCommand(['similar', '1182']);
