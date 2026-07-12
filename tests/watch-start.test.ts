@@ -435,6 +435,62 @@ describe('startWatch', () => {
     await rm(watchDir, { recursive: true, force: true });
   });
 
+  it('records picker failures and allows the same file to be retried', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-picker-error-'));
+    const runtime = createRuntime();
+    runtime.roastImporter.mockResolvedValue(createImportResult(708));
+    pickBeanMock
+      .mockRejectedValueOnce(new Error('Inventory unavailable'))
+      .mockResolvedValueOnce({ id: 10, name: 'Recovered Bean' });
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-9',
+      watchDir,
+      {
+        coffeeId: 7,
+        coffeeName: 'Original Bean',
+        batchPrefix: 'Original Bean',
+        commitMode: 'batch',
+        promptEach: true,
+      },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    await writeFile(join(watchDir, 'retry.alog'), 'retry content');
+    runtime.emitFileEvent('retry.alog');
+    await sleep(10);
+
+    runtime.emitFileEvent('retry.alog');
+    await sleep(10);
+
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(session.imports[0]).toEqual(
+      expect.objectContaining({
+        fileName: 'retry.alog',
+        status: 'needs-review',
+        error: 'Bean selection failed: Inventory unavailable',
+      })
+    );
+    expect(session.imports[1]).toEqual(
+      expect.objectContaining({
+        fileName: 'retry.alog',
+        status: 'success',
+        selectedCoffeeId: 10,
+      })
+    );
+    expect(pickBeanMock).toHaveBeenCalledTimes(2);
+    expect(runtime.roastImporter).toHaveBeenCalledTimes(1);
+    expect(stderrOutput.join('')).toContain(
+      'Needs review: retry.alog — Bean selection failed: Inventory unavailable'
+    );
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
   it('persists watch mode flags in the saved session state', async () => {
     const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-prompt-each-'));
     const runtime = createRuntime();

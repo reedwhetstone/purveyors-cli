@@ -583,7 +583,25 @@ export async function startWatch(
       process.stderr.write(`\nNew file detected: ${filename}\n`);
       // allowCancel keeps the watch session alive on Ctrl+C / Escape so the
       // shutdown path can still print the summary and commit queued imports.
-      const bean = await pickBean(await sessionTokenProvider(), { allowCancel: true });
+      let bean: Awaited<ReturnType<typeof pickBean>>;
+      try {
+        bean = await pickBean(await sessionTokenProvider(), { allowCancel: true });
+      } catch (err) {
+        const reason = `Bean selection failed: ${err instanceof Error ? err.message : String(err)}`;
+        const record: ImportRecord = {
+          fileName: filename,
+          roastId: null,
+          batchName,
+          status: 'needs-review',
+          error: reason,
+          importedAt: new Date().toISOString(),
+        };
+        session.imports.push(record);
+        await saveSession(session);
+        process.stderr.write(`⚠ Needs review: ${filename} — ${reason}\n`);
+        processing.delete(filename);
+        return;
+      }
       if (!bean) {
         const record: ImportRecord = {
           fileName: filename,
