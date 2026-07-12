@@ -141,7 +141,7 @@ const roles: CliRoleContract[] = [
   {
     role: 'member',
     description:
-      'required for inventory, roast, sales, tasting, and catalog search structured process filters under the current session-authenticated CLI path',
+      'required for inventory, roast, sales, tasting, and catalog search structured process filters using the scoped API key created by `purvey auth login` or an explicit environment override',
   },
 ];
 
@@ -296,12 +296,12 @@ const commandGroups: CliCommandGroupContract[] = [
         notes: [
           'All filters are optional. Without flags, returns up to --limit results.',
           'Structured process filters map to canonical /v1/catalog query names.',
-          'Structured process filters require member access under the current session-authenticated CLI path.',
+          'Structured process filters require member access through the scoped API key created by `purvey auth login` or an explicit environment override.',
           '--ids fetches specific catalog items by ID, ignoring --limit and --offset.',
           '--offset + --limit enables pagination through large result sets.',
           '--include-proof uses the canonical /v1/catalog proof summary include and preserves the default output shape when omitted.',
           '--include-proof rejects CLI-only filters that /v1/catalog cannot yet preserve exactly, including --flavor, --supplier, --drying-method, and --sort newest.',
-          'Set PURVEYORS_API_KEY or PARCHMENT_API_KEY when you intentionally want API-key backed proof output instead of the logged-in session path.',
+          'PURVEYORS_API_KEY or PARCHMENT_API_KEY overrides the scoped API key stored by `purvey auth login`.',
         ],
         examples: [
           'purvey catalog search --origin "Ethiopia" --process "natural" --pretty',
@@ -530,7 +530,7 @@ const commandGroups: CliCommandGroupContract[] = [
           'Default JSON output is the grouped canonical response object with data.target, data.groups.canonical_candidates, data.groups.similar_recommendations, optional data.matches, and meta.',
           'canonical_candidates are likely same-lot candidates; similar_recommendations are profile substitutes and expose blocker reasons when identity gates disagree.',
           'Preserves classification_version, query_strategy, proof summaries, pricing metadata, blocker details, and score dimensions supplied by the API.',
-          'Set PURVEYORS_API_KEY or PARCHMENT_API_KEY for paid API-key auth, or use a logged-in Purveyors member session.',
+          'Use the scoped member API key created by `purvey auth login`, or override it with PURVEYORS_API_KEY or PARCHMENT_API_KEY.',
         ],
         examples: [
           'purvey catalog similar 1182 --threshold 0.85 --stocked-only --json',
@@ -1082,8 +1082,8 @@ const commandGroups: CliCommandGroupContract[] = [
       ],
       notes: [
         'Backed by the canonical API GET /v1/price-index via @purveyors/sdk against api.purveyors.io.',
-        'Requires a Purveyors session or API key with price-index (PPI) access; the API enforces the entitlement.',
-        'Set PARCHMENT_API_KEY or PURVEYORS_API_KEY to use an API key instead of the logged-in session.',
+        'Requires a scoped member API key with price-index (PPI) access; the API enforces the entitlement.',
+        'PARCHMENT_API_KEY or PURVEYORS_API_KEY overrides the scoped API key stored by `purvey auth login`.',
         '--from and --to accept ISO dates (YYYY-MM-DD); --wholesale accepts "true" or "false".',
       ],
       examples: [

@@ -11,11 +11,11 @@ Parchment already supports session-authenticated API-key creation and owner-boun
 
 ## Decision
 
-Google OAuth remains the interactive bootstrap. The CLI receives the callback session token, verifies it through Parchment, replaces the active machine-named CLI key, and stores only the new scoped Parchment API key plus non-secret identity metadata.
+Google OAuth remains the interactive bootstrap. The CLI receives the callback session token, verifies it through Parchment, mints a replacement machine-named CLI key, then revokes superseded active keys with the same machine name. It stores only the new scoped Parchment API key plus non-secret identity metadata.
 
 Runtime commands authenticate exclusively through the stored Parchment key or an explicit environment API-key override. Supabase access tokens, refresh tokens, the Supabase JavaScript client, and generated database types are not retained in the CLI runtime.
 
-Each login replaces active CLI keys with the same machine name before minting the new key. This limits repeated logins from accumulating active machine credentials. API-key lifecycle remains server-owned.
+Each login mints the replacement before revoking active CLI keys with the same machine name. This preserves the existing credential if minting fails while limiting repeated logins from accumulating active machine credentials. API-key lifecycle remains server-owned.
 
 ## Consequences
 
@@ -35,4 +35,4 @@ Negative:
 Risks and tradeoffs:
 
 - Key creation must stay synchronized with the full set of CLI data-plane scopes.
-- Revoking an existing machine key before creating its replacement creates a short failure window if minting fails; retrying login recovers it.
+- Revoking superseded keys is a multi-request operation. A partial revocation failure can leave an older key active; the CLI best-effort revokes the newly minted key and preserves the prior local credential rather than committing a partially completed replacement.

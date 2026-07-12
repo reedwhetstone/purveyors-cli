@@ -274,6 +274,14 @@ describe('CLI manifest contract', () => {
     );
   });
 
+  it('describes API-key custody without advertising the removed session runtime', () => {
+    const serialized = JSON.stringify(getCliManifest());
+
+    expect(serialized).not.toMatch(/session-authenticated|logged-in session|Purveyors session/);
+    expect(serialized).toContain('scoped API key');
+    expect(serialized).toContain('purvey auth login');
+  });
+
   it('emits valid JSON from `purvey context --json` with the corrected context shape', () => {
     const result = spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', 'context', '--json'], {
       cwd: repoRoot,
