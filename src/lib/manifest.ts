@@ -210,7 +210,7 @@ const idTypes: CliIdContract[] = [
   {
     name: 'roast_id',
     source: 'roast_data row',
-    usedBy: ['roast get/delete', 'roast list --roast-id', 'sales --roast-id'],
+    usedBy: ['roast get/delete', 'roast list --roast-id', 'sales record --roast-id'],
   },
   {
     name: 'sale_id',
@@ -776,7 +776,7 @@ const commandGroups: CliCommandGroupContract[] = [
         summary: 'List your sales, sorted by sell date',
         auth: 'member',
         options: [
-          { flags: '--roast-id <id>' },
+          { flags: '--coffee-id <id>' },
           { flags: '--date-start <YYYY-MM-DD>' },
           { flags: '--date-end <YYYY-MM-DD>' },
           { flags: '--buyer <name>' },
@@ -784,6 +784,7 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--offset <n>', defaultValue: 0 },
         ],
         notes: [
+          '--coffee-id filters by green_coffee_inv.id through the canonical sales API.',
           '--date-start and --date-end accept YYYY-MM-DD and compose into a range.',
           '--offset + --limit enables pagination through large result sets.',
         ],

@@ -141,6 +141,20 @@ export function createWatchRoastImporter(supabase: SupabaseClient): WatchRoastIm
   };
 }
 
+/** Resolve the current form session at write time and pin it to the roast create request. */
+export async function createInteractiveRoast(
+  supabase: SupabaseClient,
+  input: Parameters<typeof createRoast>[0]
+): Promise<RoastProfile> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new AuthError('Session expired mid-create. Run `purvey auth login` and retry.');
+  }
+  return createRoast(input, session.access_token);
+}
+
 // ─── Command builder ──────────────────────────────────────────────────────────
 
 /**
@@ -196,8 +210,6 @@ Notes:
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase, userId } = await requireAuth('member');
-
         // Parse --date-start and --date-end format
         const dateStart = opts.dateStart as string | undefined;
         const dateEnd = opts.dateEnd as string | undefined;
@@ -238,7 +250,7 @@ Notes:
         }
 
         const offsetVal = parseInt(opts.offset as string, 10);
-        const data = await listRoasts(supabase, userId, {
+        const data = await listRoasts({
           coffee_id:
             opts.coffeeId !== undefined ? parseInt(opts.coffeeId as string, 10) : undefined,
           roast_id: roastId,
@@ -286,9 +298,7 @@ Notes:
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase, userId } = await requireAuth('member');
-
-        const data = await getRoast(supabase, userId, parseInt(id, 10), {
+        const data = await getRoast(parseInt(id, 10), {
           includeTemps: Boolean(opts.includeTemps),
           includeEvents: Boolean(opts.includeEvents),
         });
@@ -327,7 +337,6 @@ Required flags: --coffee-id (green_coffee_inv.id)
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase, userId } = await requireAuth('member');
 
         // ── Interactive form mode ──────────────────────────────────────────
         // Auto-enter form mode if config form-mode is true and required args are missing
@@ -336,6 +345,8 @@ Required flags: --coffee-id (green_coffee_inv.id)
           (!(opts.coffeeId && opts.roastDate) && (await getConfigValue('form-mode')) === 'true');
         if (formMode) {
           p.intro('Create Roast Profile');
+
+          const { supabase, userId } = await requireAuth('member');
 
           const bean = await pickBean(supabase, userId);
 
@@ -391,7 +402,7 @@ Required flags: --coffee-id (green_coffee_inv.id)
 
           const spin = p.spinner();
           spin.start('Creating roast profile...');
-          const data = await createRoast(supabase, userId, {
+          const data = await createInteractiveRoast(supabase, {
             coffeeId: bean.id,
             batchName: String(batchNameRaw).trim() || defaultBatch,
             ozIn,
@@ -432,7 +443,7 @@ Required flags: --coffee-id (green_coffee_inv.id)
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --oz-out: "${opts.ozOut}".`);
         }
 
-        const data = await createRoast(supabase, userId, {
+        const data = await createRoast({
           coffeeId,
           batchName: opts.batchName as string | undefined,
           ozIn,
@@ -474,8 +485,6 @@ Notes:
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase, userId } = await requireAuth('member');
-
         const roastId = parseInt(id, 10);
         if (isNaN(roastId)) {
           throw new PrvrsError('INVALID_ARGUMENT', `Invalid roast ID: "${id}".`);
@@ -500,7 +509,7 @@ Notes:
           );
         }
 
-        const data = await updateRoast(supabase, userId, roastId, {
+        const data = await updateRoast(roastId, {
           notes: opts.notes as string | undefined,
           ozOut,
           batchName: opts.batchName as string | undefined,
@@ -532,8 +541,6 @@ Notes:
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         void cmd;
-        const { supabase, userId } = await requireAuth('member');
-
         const roastId = parseInt(id, 10);
         if (isNaN(roastId)) {
           throw new PrvrsError('INVALID_ARGUMENT', `Invalid roast ID: "${id}".`);
@@ -547,7 +554,7 @@ Notes:
           }
         }
 
-        await deleteRoast(supabase, userId, roastId);
+        await deleteRoast(roastId);
         success(`Roast profile ${roastId} deleted.`);
       })
     );

@@ -1,19 +1,25 @@
 import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AuthError, PrvrsError } from './errors.js';
-import { sanitizeFilterValue } from './catalog.js';
+import { createParchmentClient, unwrapParchment } from './parchment.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface Sale {
   id: number;
-  roast_id: number | null;
+  roast_id?: number | null;
+  green_coffee_inv_id?: number;
+  batch_name?: string | null;
+  coffee_name?: string | null;
   oz_sold: number | null;
-  sale_price: number | null;
+  sale_price?: number | null;
+  price?: number | null;
+  purchase_date?: string | null;
   buyer: string | null;
   sell_date: string | null;
-  user: string;
-  last_updated: string;
+  user: string | null;
+  last_updated?: string;
+  wholesale?: boolean;
 }
 
 export interface ResolvedSaleTarget {
@@ -31,7 +37,7 @@ export const SALE_SELECT =
 export const listSalesSchema = z.object({
   limit: z.number().int().min(1).default(20),
   offset: z.number().int().min(0).optional(),
-  roastId: z.number().int().positive().optional(),
+  greenCoffeeInvId: z.number().int().positive().optional(),
   dateStart: z.string().optional(),
   dateEnd: z.string().optional(),
   buyer: z.string().optional(),
@@ -123,42 +129,23 @@ export type DeleteSaleInput = z.input<typeof deleteSaleSchema>;
  * List sales for a user (newest first, with roast profile join).
  */
 export async function listSales(
-  supabase: SupabaseClient,
-  userId: string,
-  opts: ListSalesInput = {}
+  opts: ListSalesInput = {},
+  tokenOverride?: string
 ): Promise<Sale[]> {
   const parsed = listSalesSchema.parse(opts);
-
-  let query = supabase
-    .from('sales')
-    .select(`${SALE_SELECT}, roast_profiles!roast_id (batch_name, coffee_name)`)
-    .eq('user', userId);
-
-  if (parsed.roastId !== undefined) {
-    query = query.eq('roast_id', parsed.roastId);
-  }
-
-  if (parsed.dateStart !== undefined) {
-    query = query.gte('sell_date', parsed.dateStart);
-  }
-
-  if (parsed.dateEnd !== undefined) {
-    query = query.lte('sell_date', parsed.dateEnd);
-  }
-
-  if (parsed.buyer !== undefined) {
-    const safe = sanitizeFilterValue(parsed.buyer);
-    query = query.ilike('buyer', `%${safe}%`);
-  }
-
-  const offset = parsed.offset ?? 0;
-  const { data, error } = await query
-    .order('sell_date', { ascending: false })
-    .range(offset, offset + parsed.limit - 1);
-
-  if (error) throw error;
-
-  return (data ?? []) as Sale[];
+  const client = await createParchmentClient('member', tokenOverride);
+  const envelope = unwrapParchment(
+    await client.sales.list({
+      green_coffee_inv_id: parsed.greenCoffeeInvId,
+      date_start: parsed.dateStart,
+      date_end: parsed.dateEnd,
+      buyer: parsed.buyer,
+      limit: parsed.limit,
+      offset: parsed.offset,
+    }),
+    'Sales list'
+  );
+  return envelope.data as Sale[];
 }
 
 export async function resolveSaleRoast(

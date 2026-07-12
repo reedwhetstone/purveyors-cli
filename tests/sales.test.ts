@@ -34,18 +34,18 @@ describe('listSalesSchema', () => {
     expect(() => listSalesSchema.parse({ limit: 2.5 })).toThrow();
   });
 
-  it('accepts roastId as positive integer', () => {
-    const parsed = listSalesSchema.parse({ roastId: 42 });
-    expect(parsed.roastId).toBe(42);
+  it('accepts greenCoffeeInvId as positive integer', () => {
+    const parsed = listSalesSchema.parse({ greenCoffeeInvId: 42 });
+    expect(parsed.greenCoffeeInvId).toBe(42);
   });
 
-  it('rejects non-positive roastId', () => {
-    expect(() => listSalesSchema.parse({ roastId: 0 })).toThrow();
-    expect(() => listSalesSchema.parse({ roastId: -1 })).toThrow();
+  it('rejects non-positive greenCoffeeInvId', () => {
+    expect(() => listSalesSchema.parse({ greenCoffeeInvId: 0 })).toThrow();
+    expect(() => listSalesSchema.parse({ greenCoffeeInvId: -1 })).toThrow();
   });
 
-  it('rejects non-integer roastId', () => {
-    expect(() => listSalesSchema.parse({ roastId: 1.5 })).toThrow();
+  it('rejects non-integer greenCoffeeInvId', () => {
+    expect(() => listSalesSchema.parse({ greenCoffeeInvId: 1.5 })).toThrow();
   });
 
   it('accepts dateStart as a string', () => {
@@ -65,7 +65,7 @@ describe('listSalesSchema', () => {
 
   it('allows all filter fields to be omitted', () => {
     const parsed = listSalesSchema.parse({});
-    expect(parsed.roastId).toBeUndefined();
+    expect(parsed.greenCoffeeInvId).toBeUndefined();
     expect(parsed.dateStart).toBeUndefined();
     expect(parsed.dateEnd).toBeUndefined();
     expect(parsed.buyer).toBeUndefined();
@@ -92,14 +92,14 @@ describe('listSalesSchema', () => {
 
   it('accepts all filters together including offset', () => {
     const parsed = listSalesSchema.parse({
-      roastId: 42,
+      greenCoffeeInvId: 42,
       dateStart: '2026-01-01',
       dateEnd: '2026-03-31',
       buyer: 'Alice',
       limit: 50,
       offset: 100,
     });
-    expect(parsed.roastId).toBe(42);
+    expect(parsed.greenCoffeeInvId).toBe(42);
     expect(parsed.dateStart).toBe('2026-01-01');
     expect(parsed.dateEnd).toBe('2026-03-31');
     expect(parsed.buyer).toBe('Alice');

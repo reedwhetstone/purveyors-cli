@@ -6,6 +6,7 @@
 
 import * as p from '@clack/prompts';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { listRoasts } from '../roast.js';
 
 // ─── Cancel guard ─────────────────────────────────────────────────────────────
 
@@ -98,23 +99,9 @@ export async function pickBean(
  * Returns the selected roast's ID and batch name.
  */
 export async function pickRoast(
-  supabase: SupabaseClient,
-  userId: string
+  tokenOverride?: string
 ): Promise<{ id: number; batchName: string }> {
-  const { data, error } = await supabase
-    .from('roast_profiles')
-    .select('roast_id, batch_name, roast_date')
-    .eq('user', userId)
-    .order('roast_date', { ascending: false })
-    .limit(50);
-
-  if (error) throw error;
-
-  const rows = (data ?? []) as Array<{
-    roast_id: number;
-    batch_name: string | null;
-    roast_date: string | null;
-  }>;
+  const rows = await listRoasts({ limit: 50 }, tokenOverride);
 
   if (rows.length === 0) {
     p.cancel('No roast profiles found. Create one first.');

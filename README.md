@@ -682,7 +682,7 @@ Notes:
 
 `sales list` filters:
 
-- `--roast-id <id>`
+- `--coffee-id <id>`; green coffee inventory ID
 - `--date-start <YYYY-MM-DD>`
 - `--date-end <YYYY-MM-DD>`
 - `--buyer <name>`
@@ -880,7 +880,7 @@ Use the right ID for the right command.
 
 - `catalog_id`: `coffee_catalog` rows; used by `catalog get`, `catalog similar`, `inventory add --catalog-id`, `tasting get`, `roast list --catalog-id`
 - `inventory id`: `green_coffee_inv` rows; used by `inventory get/update/delete`, `roast --coffee-id`, `tasting rate`, `roast list --coffee-id`
-- `roast_id`: `roast_data` rows; used by `roast get/delete`, `sales --roast-id`, `roast list --roast-id`
+- `roast_id`: `roast_data` rows; used by `roast get/delete`, `sales record --roast-id`, `roast list --roast-id`
 - `sales record` also supports resolving a roast from `inventory id` plus `--batch-name`; if that selector is ambiguous, use exact `roast_id`
 - `sale id`: `coffee_sales` rows; used by `sales update/delete`
 
