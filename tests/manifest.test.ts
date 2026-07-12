@@ -206,12 +206,12 @@ describe('CLI manifest contract', () => {
     expect(text).toContain('PURVEY CLI - Agent Reference');
     expect(text).toContain('Module import:    @purveyors/cli/manifest');
     expect(text).toContain(
-      'No pre-existing session required for: auth, config, context, manifest.'
+      'No pre-existing credentials required for: auth, config, context, manifest.'
     );
     expect(text).toContain('Local-only commands: config, context, manifest.');
     expect(text).toContain('Mixed public and entitled access: market.');
     expect(text).toContain(
-      'Mixed-access public teaser slices can run without a session; filtered or non-public slices require server-side entitlements.'
+      'Mixed-access public teaser slices can run without credentials; filtered or non-public slices require a valid scoped key and server-side entitlements.'
     );
     expect(text).not.toContain('ALL commands require authentication.');
     expect(text).toContain('Machine-mode error envelope: stderr');
@@ -343,7 +343,7 @@ describe('CLI manifest contract', () => {
     expect(output).toContain('PURVEY CLI - Agent Reference');
     expect(output).toContain('WORKFLOWS');
     expect(output).toContain(
-      'No pre-existing session required for: auth, config, context, manifest.'
+      'No pre-existing credentials required for: auth, config, context, manifest.'
     );
     expect(output).toContain('Local-only commands: config, context, manifest.');
     expect(output).toContain('Mixed public and entitled access: market.');

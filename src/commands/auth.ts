@@ -18,6 +18,9 @@ const CALLBACK_PATH = '/auth/callback';
 const SUPABASE_AUTH_URL =
   process.env.PURVEYORS_SUPABASE_URL || 'https://bjblfzfdtfvuitqdbodn.supabase.co';
 const CLI_API_KEY_SCOPES = [
+  // The canonical API uses catalog:read for catalog, Market Index,
+  // Price Index, and procurement reads; those data planes do not define
+  // separate key scopes.
   'catalog:read',
   'inventory:read',
   'inventory:write',

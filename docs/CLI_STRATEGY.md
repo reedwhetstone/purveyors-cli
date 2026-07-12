@@ -54,7 +54,7 @@ The shipped CLI should be judged by these rules:
 The March 2026 draft captured several useful product instincts, but some proposals do not match the shipped CLI:
 
 - The binary is `purvey`, not `pvrs`.
-- Authentication is Google OAuth through purveyors.io, not CLI API-key auth.
+- Authentication uses Google OAuth through purveyors.io to bootstrap a scoped CLI API key.
 - There are no `workspace` commands in the shipped CLI.
 - The CLI surface is not discovery-driven or auto-generated from an API schema.
 - This repo does not ship a shared-types-package plan as part of the CLI contract.
@@ -86,10 +86,10 @@ When documentation or help text needs verification, use these files first:
 
 The shipped auth model is role- and scope-based:
 
-- No pre-existing session required: `auth`, `config`, `context`, `manifest`
+- No pre-existing credentials required: `auth`, `config`, `context`, `manifest`
 - Authenticated `viewer` role required: `catalog`
 - Mixed public and entitled access: `market` public teaser slices are unauthenticated; filtered market slices require Parchment Intelligence access enforced server-side
-- Authenticated `member` role required under session-token use: structured process filters on `catalog search`, plus `price-index`, `procurement`, `inventory`, `roast`, `sales`, `tasting`
+- Authenticated `member` role required through the stored scoped key: structured process filters on `catalog search`, plus `price-index`, `procurement`, `inventory`, `roast`, `sales`, `tasting`
 
 Google OAuth is available in two supported flows:
 
@@ -103,10 +103,9 @@ treated as product regressions.
 Credentials are stored locally in `~/.config/purvey/credentials.json`.
 
 Canonical Parchment API surfaces also accept `PARCHMENT_API_KEY` (or the legacy
-`PURVEYORS_API_KEY` alias). The API key takes precedence over the stored session JWT and
-must carry the endpoint's owner-bound read or write scope. The `auth` commands still
-provision and refresh Google OAuth sessions; API-key provisioning is not yet a CLI auth
-command.
+`PURVEYORS_API_KEY` alias). The environment key takes precedence over the scoped API key
+created by `purvey auth login` and must carry the endpoint's owner-bound read or write
+scope. OAuth is transient bootstrap only; the CLI stores no session or refresh token.
 
 ### Artisan path and watch behavior
 
@@ -132,9 +131,8 @@ Catalog intelligence boundaries:
 - The proof path should reject CLI-only filters that `/v1/catalog` cannot preserve exactly, rather than implying the proof payload was generated from a different query contract.
 - `catalog similar <id>` consumes the beta canonical `/v1/catalog/{id}/similar` contract, not the legacy direct RPC path, and requires member access or a paid API tier.
 - Similarity output must keep `canonical_candidates` separate from `similar_recommendations` and preserve blocker, proof, pricing, score-dimension, `classification_version`, and `query_strategy` metadata for agents.
-- Structured process filters map to canonical `/v1/catalog` query names and require member access under the current session-authenticated CLI path.
-- Catalog reads and intelligence helpers, inventory CRUD, roast CRUD, sales CRUD, tasting reads, role resolution, `market`, `price-index`, and `procurement` are SDK-backed canonical API operations. They default to `api.purveyors.io`, accept `PARCHMENT_API_BASE_URL` for alternate deployments, use `PARCHMENT_API_KEY`/`PURVEYORS_API_KEY` when provided, and otherwise send the stored session JWT. Owner data requires the matching owner-bound API-key scope. Market public teaser slices are unauthenticated; filtered and non-public market slices require Parchment Intelligence access enforced server-side.
-- `tasting rate` remains a direct Supabase inventory update until the canonical tasting-write endpoint exists. This is an explicit migration boundary, not the target architecture.
+- Structured process filters map to canonical `/v1/catalog` query names and require member access through a valid scoped key.
+- Catalog reads and intelligence helpers, inventory CRUD, roast CRUD, sales CRUD, tasting reads and writes, role resolution, `market`, `price-index`, and `procurement` are SDK-backed canonical API operations. They default to `api.purveyors.io`, accept `PARCHMENT_API_BASE_URL` for alternate deployments, use `PARCHMENT_API_KEY`/`PURVEYORS_API_KEY` when provided, and otherwise send the scoped API key created by `purvey auth login`. Owner data requires the matching owner-bound API-key scope. `catalog:read` is the canonical scope for catalog, Market Index, Price Index, and procurement reads. Market public teaser slices are unauthenticated; filtered and non-public market slices require Parchment Intelligence access enforced server-side.
 - Procurement brief creation is intentionally absent from the CLI read surface until the Phase 2 write contract ships.
 
 Reference surfaces:

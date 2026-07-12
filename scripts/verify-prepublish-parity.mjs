@@ -76,7 +76,7 @@ export const REQUIRED_README_SNIPPETS = [
   'purvey manifest',
   'purvey context --json',
   '@purveyors/cli/manifest',
-  'No pre-existing session is required for `auth`, `config`, `context`, or `manifest`.',
+  'No pre-existing credentials are required for `auth`, `config`, `context`, or `manifest`.',
 ];
 
 export const REQUIRED_HELP_SNIPPETS = [

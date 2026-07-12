@@ -136,7 +136,7 @@ const roles: CliRoleContract[] = [
   {
     role: 'viewer',
     description:
-      'valid authenticated session; required for catalog commands except structured process filters',
+      'valid scoped API key; required for catalog commands except structured process filters',
   },
   {
     role: 'member',
@@ -174,7 +174,7 @@ const exitCodes: CliExitCodeContract[] = [
   {
     exitCode: EXIT_CODES.AUTH_ERROR,
     code: 'AUTH_ERROR',
-    description: 'auth error, not logged in, expired session, or wrong role',
+    description: 'auth error, missing/revoked key, or wrong role',
   },
   { exitCode: EXIT_CODES.NOT_FOUND, code: 'NOT_FOUND', description: 'resource not found' },
   {
@@ -1328,10 +1328,10 @@ function renderRoles(
   return [
     'ROLES',
     '-----',
-    `No pre-existing session required for: ${unauthenticatedCommands.join(', ')}.`,
+    `No pre-existing credentials required for: ${unauthenticatedCommands.join(', ')}.`,
     `Local-only commands: ${localOnlyCommands.join(', ')}.`,
     `Mixed public and entitled access: ${mixedAccessCommands.join(', ')}.`,
-    'Mixed-access public teaser slices can run without a session; filtered or non-public slices require server-side entitlements.',
+    'Mixed-access public teaser slices can run without credentials; filtered or non-public slices require a valid scoped key and server-side entitlements.',
     'Commands that talk to purveyors.io generally require authentication unless listed above as public, local-only, or mixed-access teaser slices.',
     ...roleContracts.map((role) => `${role.role.padEnd(7, ' ')} ${role.description}`),
     '',

@@ -70,16 +70,20 @@ describe('API-key bootstrap', () => {
     const credentials = await exchangeOAuthSessionForApiKey(`header.${payload}.sig`, client);
 
     expect(revoke).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111');
-    expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        scopes: expect.arrayContaining([
-          'inventory:write',
-          'roast:write',
-          'sales:write',
-          'tasting:write',
-        ]),
-      })
-    );
+    expect(create).toHaveBeenCalledWith({
+      name: `purvey-cli-${hostname()}`,
+      scopes: [
+        'catalog:read',
+        'inventory:read',
+        'inventory:write',
+        'roast:read',
+        'roast:write',
+        'sales:read',
+        'sales:write',
+        'tasting:read',
+        'tasting:write',
+      ],
+    });
     expect(credentials).toEqual({
       apiKey: 'pk_live_new-secret',
       keyId: '22222222-2222-4222-8222-222222222222',

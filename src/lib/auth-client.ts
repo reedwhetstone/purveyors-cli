@@ -25,9 +25,26 @@ export async function createAuthenticatedClient(): Promise<AuthClient> {
     throw new AuthError('Not logged in. Run `purvey auth login` first.');
   }
 
+  let identity: Awaited<ReturnType<ReturnType<typeof createParchmentClient>['me']>>;
+  try {
+    identity = await createParchmentClient({
+      baseUrl: getParchmentBaseUrl(),
+      token: credentials.apiKey,
+    }).me();
+  } catch (error) {
+    throw new AuthError('Authentication failed. Run `purvey auth login` first.', error);
+  }
+  if (!identity.response.ok || identity.error || !identity.data?.authenticated) {
+    throw new AuthError('Authentication failed. Run `purvey auth login` first.', identity.error);
+  }
+
   const session: AuthSession = {
     access_token: credentials.apiKey,
-    user: credentials.user,
+    user: {
+      ...credentials.user,
+      id: identity.data.userId ?? credentials.user.id,
+      role: identity.data.primaryAppRole ?? credentials.user.role,
+    },
   };
   return {
     auth: {

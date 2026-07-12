@@ -11,7 +11,7 @@ Use `purvey --help` for quick command discovery, `purvey context` for the dense 
 - Official binary: `purvey`
 - Package: `@purveyors/cli`
 - Runtime: Node.js 20+
-- No pre-existing session required: `auth`, `config`, `context`, `manifest`
+- No pre-existing credentials required: `auth`, `config`, `context`, `manifest`
 - Viewer role required: `catalog` (excluding structured process filters on `catalog search`)
 - Member role required: `price-index`, `procurement`, `inventory`, `roast`, `sales`, `tasting`
 - Mixed public and entitled access: `market` public teaser slices are unauthenticated; filtered slices require Parchment Intelligence access
@@ -71,7 +71,7 @@ purvey auth login
 
 # If automatic browser callback handling fails or you paste a bad URL, paste the full callback URL back into the terminal. The CLI keeps waiting until a valid callback is received.
 
-# 2. Confirm the session and role
+# 2. Confirm the stored API key and role
 purvey auth status
 
 # 3. Search the catalog (viewer role for basic filters, member role for structured process filters)
@@ -133,10 +133,9 @@ Export discipline:
 
 ## Authentication and access model
 
-No pre-existing session is required for `auth`, `config`, `context`, or `manifest`.
+No pre-existing credentials are required for `auth`, `config`, `context`, or `manifest`.
 
-Remote data commands require either a valid authenticated session or, for canonical
-Parchment API surfaces, an owner-bound API key with the required scope:
+Remote data commands require a valid owner-bound API key with the required scope:
 
 - `catalog` requires the `viewer` role by default
 - `catalog search` structured process filters require the `member` role
@@ -184,16 +183,16 @@ Credentials are stored at `~/.config/purvey/credentials.json`.
 
 ### Auth roles
 
-| Role     | Access                                                                                                                                                                                                       |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `viewer` | `catalog search`, `catalog get`, `catalog stats`, excluding structured process filters                                                                                                                       |
-| `member` | All viewer commands, `catalog similar`, structured process filters on `catalog search`, plus `price-index`, `procurement`, `inventory`, `roast`, `sales`, `tasting` under the session-authenticated CLI path |
+| Role     | Access                                                                                                                                                                                                                        |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `viewer` | `catalog search`, `catalog get`, `catalog stats`, excluding structured process filters                                                                                                                                        |
+| `member` | All viewer commands, `catalog similar`, structured process filters on `catalog search`, plus `price-index`, `procurement`, `inventory`, `roast`, `sales`, and `tasting` through the scoped key created by `purvey auth login` |
 
-Market Index teaser slices are public. Filtered `market signals`, origin/process/wholesale `market stats`, and non-public `market metadata` slices require Parchment Intelligence access; API-key and session-token denial is enforced by the canonical API.
+Market Index teaser slices are public. Filtered `market signals`, origin/process/wholesale `market stats`, and non-public `market metadata` slices require Parchment Intelligence access; API-key denial is enforced by the canonical API. The stored login key carries `catalog:read`, which is also the canonical read scope for Market Index, Price Index, and procurement.
 
-`auth`, `config`, `context`, and `manifest` remain available without a pre-existing session.
+`auth`, `config`, `context`, and `manifest` remain available without pre-existing credentials.
 
-Commands that require a higher role exit with code `3` on auth failure. That includes not being signed in, an expired session, or an insufficient role.
+Commands that require a higher role exit with code `3` on auth failure. That includes missing, revoked, or invalid credentials and an insufficient role.
 
 ## Output contract and scripting
 
@@ -251,15 +250,15 @@ The JSON error envelope includes:
 
 All `purvey` commands exit with a numeric code your scripts can check with `$?`.
 
-| Code | Meaning                                                          |
-| ---- | ---------------------------------------------------------------- |
-| `0`  | Success                                                          |
-| `1`  | Unexpected or unclassified error                                 |
-| `2`  | Invalid argument or bad input                                    |
-| `3`  | Auth error: not logged in, expired session, or insufficient role |
-| `4`  | Not found                                                        |
-| `5`  | Dependency conflict                                              |
-| `6`  | Local config error                                               |
+| Code | Meaning                                                            |
+| ---- | ------------------------------------------------------------------ |
+| `0`  | Success                                                            |
+| `1`  | Unexpected or unclassified error                                   |
+| `2`  | Invalid argument or bad input                                      |
+| `3`  | Auth error: missing, revoked, or invalid key; or insufficient role |
+| `4`  | Not found                                                          |
+| `5`  | Dependency conflict                                                |
+| `6`  | Local config error                                                 |
 
 Scripting pattern:
 
@@ -501,7 +500,7 @@ Notes:
 
 - `market` commands are backed by canonical Parchment API endpoints through `@purveyors/sdk`; the CLI does not compute Market Index intelligence locally.
 - Public teaser slices: `signals --summary`, `stats` with no origin/process and `market=retail`, and `metadata` at dimension=process/no-origin/market=retail/grain=month.
-- Any filtered or non-public market slice requires Parchment Intelligence access, enforced server-side for both API-key and session-token calls.
+- Any filtered or non-public market slice requires Parchment Intelligence access, enforced server-side for API-key calls.
 - `--json` returns the API response verbatim.
 
 ### procurement
@@ -582,8 +581,7 @@ purvey inventory delete 7 --yes
 
 Notes:
 
-- Inventory commands require a member session or an owner-bound API key with the
-  corresponding inventory scope.
+- Inventory commands require an owner-bound member API key with the corresponding inventory scope.
 - Inventory `id` is `green_coffee_inv.id`, not `catalog_id`.
 - `inventory delete` refuses to cascade. Delete dependent roasts or sales explicitly first.
 
