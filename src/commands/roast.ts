@@ -141,6 +141,20 @@ export function createWatchRoastImporter(supabase: SupabaseClient): WatchRoastIm
   };
 }
 
+/** Resolve the current form session at write time and pin it to the roast create request. */
+export async function createInteractiveRoast(
+  supabase: SupabaseClient,
+  input: Parameters<typeof createRoast>[0]
+): Promise<RoastProfile> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new AuthError('Session expired mid-create. Run `purvey auth login` and retry.');
+  }
+  return createRoast(input, session.access_token);
+}
+
 // ─── Command builder ──────────────────────────────────────────────────────────
 
 /**
@@ -333,12 +347,6 @@ Required flags: --coffee-id (green_coffee_inv.id)
           p.intro('Create Roast Profile');
 
           const { supabase, userId } = await requireAuth('member');
-          const {
-            data: { session: createSession },
-          } = await supabase.auth.getSession();
-          if (!createSession?.access_token) {
-            throw new AuthError('Session expired mid-create. Run `purvey auth login` and retry.');
-          }
 
           const bean = await pickBean(supabase, userId);
 
@@ -394,16 +402,13 @@ Required flags: --coffee-id (green_coffee_inv.id)
 
           const spin = p.spinner();
           spin.start('Creating roast profile...');
-          const data = await createRoast(
-            {
-              coffeeId: bean.id,
-              batchName: String(batchNameRaw).trim() || defaultBatch,
-              ozIn,
-              roastDate: today,
-              notes: combinedNotes,
-            },
-            createSession.access_token
-          );
+          const data = await createInteractiveRoast(supabase, {
+            coffeeId: bean.id,
+            batchName: String(batchNameRaw).trim() || defaultBatch,
+            ozIn,
+            roastDate: today,
+            notes: combinedNotes,
+          });
           spin.stop('Done');
 
           p.outro(`Roast profile created! Roast #${data.roast_id}.`);

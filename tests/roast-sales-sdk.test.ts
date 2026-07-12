@@ -16,7 +16,7 @@ import {
   updateRoast,
 } from '../src/lib/roast.js';
 import { listSales } from '../src/lib/sales.js';
-import { createWatchRoastImporter } from '../src/commands/roast.js';
+import { createInteractiveRoast, createWatchRoastImporter } from '../src/commands/roast.js';
 
 const ok = <T>(data: T) => ({ data, response: new Response(null, { status: 200 }) });
 
@@ -121,6 +121,27 @@ describe('SDK-backed roast and sales data planes', () => {
     expect(createParchmentClient).toHaveBeenNthCalledWith(1, 'member', 'fresh-1');
     expect(createParchmentClient).toHaveBeenNthCalledWith(2, 'member', 'fresh-2');
     expect(sdkImport).toHaveBeenCalledTimes(2);
+  });
+
+  it('resolves the freshest session token at each interactive create write', async () => {
+    const create = vi.fn().mockResolvedValue(ok({ data: { roast_id: 11 } }));
+    vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { create } } as never);
+    const getSession = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { session: { access_token: 'form-token-before-rotation' } } })
+      .mockResolvedValueOnce({ data: { session: { access_token: 'form-token-after-rotation' } } });
+    const supabase = { auth: { getSession } } as never;
+
+    await createInteractiveRoast(supabase, { coffeeId: 7, batchName: 'First' });
+    await createInteractiveRoast(supabase, { coffeeId: 7, batchName: 'Second' });
+
+    expect(createParchmentClient).toHaveBeenNthCalledWith(
+      1,
+      'member',
+      'form-token-before-rotation'
+    );
+    expect(createParchmentClient).toHaveBeenNthCalledWith(2, 'member', 'form-token-after-rotation');
+    expect(getSession).toHaveBeenCalledTimes(2);
   });
 
   it('maps only sales reads to the SDK sales list contract', async () => {
