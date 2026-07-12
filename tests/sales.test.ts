@@ -300,6 +300,41 @@ describe('SDK-backed sales writes', () => {
     expect(remove).toHaveBeenCalledWith(5);
   });
 
+  it('preserves the 0.27 Supabase-backed write helper signatures', async () => {
+    const getSession = vi.fn().mockResolvedValue({
+      data: { session: { access_token: 'legacy-session-token' } },
+    });
+    const legacySupabase = { auth: { getSession } } as never;
+    const get = vi
+      .fn()
+      .mockResolvedValue(ok({ data: { roast_id: 42, coffee_id: 7, batch_name: 'Batch A' } }));
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ data: [{ roast_id: 42, coffee_id: 7, batch_name: 'Batch A' }] }))
+      .mockResolvedValueOnce(ok({ data: [] }));
+    const create = vi.fn().mockResolvedValue(ok({ data: { id: 55 } }, 201));
+    const update = vi.fn().mockResolvedValue(ok({ data: { id: 55, price: 20 } }));
+    const remove = vi.fn().mockResolvedValue(ok({ data: { id: 55, deleted: true } }));
+    vi.mocked(createParchmentClient).mockResolvedValue({
+      roasts: { get, list },
+      sales: { create, update, delete: remove },
+    } as never);
+
+    await expect(
+      recordSale(legacySupabase, 'legacy-user-id', { roastId: 42, oz: 12, price: 18.5 })
+    ).resolves.toEqual({ id: 55 });
+    await expect(
+      updateSale(legacySupabase, 'legacy-user-id', 55, { price: 20 })
+    ).resolves.toMatchObject({ id: 55 });
+    await expect(deleteSale(legacySupabase, 'legacy-user-id', 55)).resolves.toBeUndefined();
+
+    expect(getSession).toHaveBeenCalledTimes(3);
+    expect(createParchmentClient).toHaveBeenCalledTimes(4);
+    for (const call of vi.mocked(createParchmentClient).mock.calls) {
+      expect(call).toEqual(['member', 'legacy-session-token']);
+    }
+  });
+
   it('unwraps create API errors', async () => {
     const get = vi
       .fn()
