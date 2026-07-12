@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import * as p from '@clack/prompts';
 import { outputData, info, success } from '../lib/output.js';
-import { withErrorHandling, PrvrsError } from '../lib/errors.js';
+import { withErrorHandling, PrvrsError, AuthError } from '../lib/errors.js';
 import { requireAuth } from '../lib/auth-guard.js';
 import { confirm, todayIso } from '../lib/prompts.js';
 import { listSales, recordSale, updateSale, deleteSale } from '../lib/sales.js';
@@ -142,7 +142,7 @@ export function buildSalesCommand(): Command {
   sales
     .command('list')
     .description('List your sales, sorted by sell date (newest first)')
-    .option('--roast-id <id>', 'Filter by roast profile ID')
+    .option('--coffee-id <id>', 'Filter by green coffee inventory ID')
     .option('--date-start <YYYY-MM-DD>', 'Only show sales on or after this date')
     .option('--date-end <YYYY-MM-DD>', 'Only show sales on or before this date')
     .option('--buyer <name>', 'Filter by buyer name (partial match, case-insensitive)')
@@ -153,7 +153,7 @@ export function buildSalesCommand(): Command {
       `
 Examples:
   purvey sales list --pretty
-  purvey sales list --roast-id 42 --pretty
+  purvey sales list --coffee-id 42 --pretty
   purvey sales list --date-start 2026-03-01 --date-end 2026-03-31 --pretty
   purvey sales list --buyer "Jane" --pretty
   purvey sales list --date-start 2026-01-01 --limit 100 --csv > sales-ytd.csv
@@ -161,7 +161,8 @@ Examples:
   purvey sales list --limit 20 --offset 20   # page 2
 
 Notes:
-  Returns sale records with roast_id, oz, price, buyer, and sell_date.
+  Returns canonical sale records with green_coffee_inv_id, batch_name, oz_sold, price, buyer, and sell_date.
+  --coffee-id filters by green_coffee_inv.id (inventory ID).
   --date-start and --date-end accept YYYY-MM-DD; use together for a date range.
   --buyer accepts partial matches (case-insensitive).
   --offset + --limit enables pagination through large result sets.
@@ -172,18 +173,16 @@ Notes:
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase, userId } = await requireAuth('member');
-
-        let roastId: number | undefined;
-        if (opts.roastId !== undefined) {
-          roastId = parsePositiveIntegerOption('--roast-id', opts.roastId as string);
+        let greenCoffeeInvId: number | undefined;
+        if (opts.coffeeId !== undefined) {
+          greenCoffeeInvId = parsePositiveIntegerOption('--coffee-id', opts.coffeeId as string);
         }
 
         const offsetVal = parseInt(opts.offset as string, 10);
-        const data = await listSales(supabase, userId, {
+        const data = await listSales({
           limit: Math.max(1, parseInt(opts.limit as string, 10)),
           offset: isNaN(offsetVal) || offsetVal < 0 ? 0 : offsetVal,
-          roastId,
+          greenCoffeeInvId,
           dateStart: opts.dateStart as string | undefined,
           dateEnd: opts.dateEnd as string | undefined,
           buyer: opts.buyer as string | undefined,
@@ -281,7 +280,13 @@ Required flags: selector mode, --oz, --price
           const buyerStr = String(buyerRaw).trim();
 
           // Let user pick the specific roast batch to attribute this sale to.
-          const roast = await pickRoast(supabase, userId);
+          const {
+            data: { session: formSession },
+          } = await supabase.auth.getSession();
+          if (!formSession?.access_token) {
+            throw new AuthError('Session expired mid-form. Run `purvey auth login` and retry.');
+          }
+          const roast = await pickRoast(formSession.access_token);
 
           const spin = p.spinner();
           spin.start('Recording sale...');

@@ -1,7 +1,6 @@
 import { z } from 'zod';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import { AuthError, PrvrsError } from './errors.js';
-import { sanitizeFilterValue } from './catalog.js';
+import { randomUUID } from 'node:crypto';
+import { createParchmentClient, unwrapParchment } from './parchment.js';
 import type { MilestoneData, ProcessedRoastData } from './artisan/types.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -61,15 +60,6 @@ export interface RoastEventEntry {
   event_type: number | null;
   event_value: string | null;
 }
-
-// ─── Shared select columns ────────────────────────────────────────────────────
-
-const MILESTONE_FIELDS =
-  'fc_start_time, fc_start_temp, fc_end_time, fc_end_temp, drop_time, drop_temp, charge_temp, charge_time, tp_time, tp_temp, total_ror, dry_percent, maillard_percent, auc, dry_phase_ror, mid_phase_ror, finish_phase_ror, dry_phase_delta_temp';
-
-const ROAST_LIST_SELECT = `roast_id, batch_name, coffee_id, coffee_name, roast_date, oz_in, oz_out, weight_loss_percent, roast_notes, roast_targets, roaster_type, roaster_size, temperature_unit, total_roast_time, development_percent, data_source, last_updated, roast_uuid, ${MILESTONE_FIELDS}`;
-
-const ROAST_DETAIL_SELECT = `roast_id, batch_name, coffee_id, coffee_name, roast_date, oz_in, oz_out, weight_loss_percent, roast_notes, roast_targets, roaster_type, roaster_size, temperature_unit, total_roast_time, development_percent, data_source, last_updated, roast_uuid, ${MILESTONE_FIELDS}`;
 
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
@@ -149,302 +139,83 @@ export type UpdateRoastInput = z.input<typeof updateRoastSchema>;
 
 // ─── Pure lib functions ───────────────────────────────────────────────────────
 
-/**
- * List roast profiles for a user.
- */
 export async function listRoasts(
-  supabase: SupabaseClient,
-  userId: string,
-  opts: ListRoastsInput
+  opts: ListRoastsInput,
+  tokenOverride?: string
 ): Promise<RoastProfile[]> {
   const parsed = listRoastsSchema.parse(opts);
-
-  let query = supabase.from('roast_profiles').select(ROAST_LIST_SELECT).eq('user', userId);
-
-  if (parsed.coffee_id !== undefined) {
-    query = query.eq('coffee_id', parsed.coffee_id);
-  }
-
-  if (parsed.roast_id !== undefined) {
-    query = query.eq('roast_id', parsed.roast_id);
-  }
-
-  if (parsed.batch_name) {
-    const safe = sanitizeFilterValue(parsed.batch_name);
-    query = query.ilike('batch_name', `%${safe}%`);
-  }
-
-  if (parsed.coffee_name) {
-    const safe = sanitizeFilterValue(parsed.coffee_name);
-    query = query.ilike('coffee_name', `%${safe}%`);
-  }
-
-  if (parsed.date_start) {
-    query = query.gte('roast_date', parsed.date_start);
-  }
-
-  if (parsed.date_end) {
-    query = query.lte('roast_date', parsed.date_end);
-  }
-
-  // stocked_only and catalog_id require filtering through the green_coffee_inv FK.
-  // Use Supabase's inner-join filter: select from roast_profiles with
-  // green_coffee_inv!coffee_id!inner(...) to restrict to matching inventory rows.
-  if (parsed.stocked_only === true || parsed.catalog_id !== undefined) {
-    // Build a joined select to filter on green_coffee_inv columns.
-    // We fetch inventory IDs matching the criteria, then filter roast_profiles.
-    let invQuery = supabase.from('green_coffee_inv').select('id').eq('user', userId);
-
-    if (parsed.stocked_only === true) {
-      invQuery = invQuery.eq('stocked', true);
-    }
-
-    if (parsed.catalog_id !== undefined) {
-      invQuery = invQuery.eq('catalog_id', parsed.catalog_id);
-    }
-
-    const { data: invRows, error: invError } = await invQuery;
-    if (invError) throw invError;
-
-    const invIds = (invRows ?? []).map((r) => (r as { id: number }).id);
-
-    if (invIds.length === 0) {
-      // No matching inventory items; return empty
-      return [];
-    }
-
-    query = query.in('coffee_id', invIds);
-  }
-
-  const offset = parsed.offset ?? 0;
-  const { data, error } = await query
-    .order('roast_date', { ascending: false })
-    .range(offset, offset + parsed.limit - 1);
-
-  if (error) throw error;
-
-  return (data ?? []) as RoastProfile[];
+  const client = await createParchmentClient('member', tokenOverride);
+  const envelope = unwrapParchment(await client.roasts.list(parsed), 'Roast list');
+  return envelope.data as RoastProfile[];
 }
 
-/**
- * Fetch a single roast profile by ID (must belong to userId).
- * Optionally includes temperature curve and roast events.
- */
 export async function getRoast(
-  supabase: SupabaseClient,
-  userId: string,
   id: number,
-  opts: { includeTemps?: boolean; includeEvents?: boolean } = {}
+  opts: { includeTemps?: boolean; includeEvents?: boolean } = {},
+  tokenOverride?: string
 ): Promise<RoastProfile> {
   getRoastSchema.parse({ id, ...opts });
-
-  const { data: profile, error: profileError } = await supabase
-    .from('roast_profiles')
-    .select('*')
-    .eq('roast_id', id)
-    .eq('user', userId)
-    .single();
-
-  if (profileError) {
-    if (profileError.code === 'PGRST116') {
-      throw new AuthError(`Roast profile ${id} not found or does not belong to you.`);
-    }
-    throw profileError;
-  }
-
-  const result: RoastProfile = { ...profile };
-
-  if (opts.includeTemps) {
-    const { data: temps, error: tempError } = await supabase
-      .from('roast_temperatures')
-      .select('roast_id, time_seconds, bean_temp, environmental_temp')
-      .eq('roast_id', id)
-      .order('time_seconds', { ascending: true });
-
-    if (tempError) throw tempError;
-    result.temperatures = (temps ?? []) as TemperatureEntry[];
-  }
-
-  if (opts.includeEvents) {
-    const { data: events, error: eventsError } = await supabase
-      .from('roast_events')
-      .select('roast_id, time_seconds, event_type, event_value')
-      .eq('roast_id', id)
-      .order('time_seconds', { ascending: true });
-
-    if (eventsError) throw eventsError;
-    result.events = (events ?? []) as RoastEventEntry[];
-  }
-
-  return result;
+  const client = await createParchmentClient('member', tokenOverride);
+  const envelope = unwrapParchment(await client.roasts.get(String(id), opts), `Roast ${id}`);
+  return envelope.data as RoastProfile;
 }
 
-/**
- * Create a new roast profile (coffeeId must be an inventory item belonging to userId).
- */
 export async function createRoast(
-  supabase: SupabaseClient,
-  userId: string,
-  input: CreateRoastInput
+  input: CreateRoastInput,
+  tokenOverride?: string
 ): Promise<RoastProfile> {
   const parsed = createRoastSchema.parse(input);
-
-  const todayIso = () => new Date().toISOString().slice(0, 10);
-
-  // Verify ownership of the inventory item and get coffee name for default batch name
-  const { data: invItem, error: invError } = await supabase
-    .from('green_coffee_inv')
-    .select('id, coffee_catalog!catalog_id (name)')
-    .eq('id', parsed.coffeeId)
-    .eq('user', userId)
-    .single();
-
-  if (invError || !invItem) {
-    throw new AuthError(`Inventory item ${parsed.coffeeId} not found or does not belong to you.`);
-  }
-
-  const roastDate = parsed.roastDate ?? todayIso();
-
-  let batchName = parsed.batchName;
-  if (!batchName) {
-    const catalogRaw = invItem.coffee_catalog as
-      | { name: string | null }
-      | { name: string | null }[]
-      | null;
-    const catalog = Array.isArray(catalogRaw) ? (catalogRaw[0] ?? null) : catalogRaw;
-    const coffeeName = catalog?.name ?? `Coffee #${parsed.coffeeId}`;
-    batchName = `${coffeeName} — ${roastDate}`;
-  }
-
-  const insertPayload: Record<string, unknown> = {
-    user: userId,
-    coffee_id: parsed.coffeeId,
-    batch_name: batchName,
-    roast_date: roastDate,
-  };
-
-  if (parsed.ozIn !== undefined) insertPayload.oz_in = parsed.ozIn;
-  if (parsed.ozOut !== undefined) insertPayload.oz_out = parsed.ozOut;
-  if (parsed.notes !== undefined) insertPayload.roast_notes = parsed.notes;
-
-  const { data: inserted, error: insertError } = await supabase
-    .from('roast_profiles')
-    .insert(insertPayload)
-    .select('roast_id')
-    .single();
-
-  if (insertError) throw insertError;
-
-  // Re-fetch the full row
-  const { data, error } = await supabase
-    .from('roast_profiles')
-    .select(ROAST_DETAIL_SELECT)
-    .eq('roast_id', inserted.roast_id)
-    .single();
-
-  if (error) throw error;
-
-  return data as RoastProfile;
+  const client = await createParchmentClient('member', tokenOverride);
+  const envelope = unwrapParchment(
+    await client.roasts.create(parsed, { idempotencyKey: randomUUID() }),
+    'Roast create'
+  );
+  return envelope.data as RoastProfile;
 }
 
-/**
- * Delete a roast profile (must belong to userId).
- */
-export async function deleteRoast(
-  supabase: SupabaseClient,
-  userId: string,
-  id: number
-): Promise<void> {
+export async function deleteRoast(id: number, tokenOverride?: string): Promise<void> {
   deleteRoastSchema.parse({ id });
-
-  if (isNaN(id)) {
-    throw new PrvrsError('INVALID_ARGUMENT', `Invalid roast ID: "${id}".`);
-  }
-
-  // Verify ownership
-  const { data: existing, error: fetchError } = await supabase
-    .from('roast_profiles')
-    .select('roast_id')
-    .eq('roast_id', id)
-    .eq('user', userId)
-    .single();
-
-  if (fetchError || !existing) {
-    throw new AuthError(`Roast profile ${id} not found or does not belong to you.`);
-  }
-
-  const { error: deleteError } = await supabase
-    .from('roast_profiles')
-    .delete()
-    .eq('roast_id', id)
-    .eq('user', userId);
-
-  if (deleteError) throw deleteError;
+  const client = await createParchmentClient('member', tokenOverride);
+  unwrapParchment(await client.roasts.delete(id), `Roast ${id} delete`);
 }
 
-/**
- * Update an existing roast profile (must belong to userId).
- * If ozOut is provided and the roast has oz_in, weight_loss_percent is recalculated.
- */
 export async function updateRoast(
-  supabase: SupabaseClient,
-  userId: string,
   id: number,
-  input: UpdateRoastInput
+  input: UpdateRoastInput,
+  tokenOverride?: string
 ): Promise<RoastProfile> {
   deleteRoastSchema.parse({ id });
   const parsed = updateRoastSchema.parse(input);
+  const client = await createParchmentClient('member', tokenOverride);
+  const envelope = unwrapParchment(await client.roasts.update(id, parsed), `Roast ${id} update`);
+  return envelope.data as RoastProfile;
+}
 
-  // Verify ownership and get current profile (need oz_in for weight loss calc)
-  const { data: existing, error: fetchError } = await supabase
-    .from('roast_profiles')
-    .select('roast_id, oz_in')
-    .eq('roast_id', id)
-    .eq('user', userId)
-    .single();
+export async function replaceRoastArtisanImport(
+  id: number,
+  input: { fileName: string; fileContent: string; fileSize?: number },
+  tokenOverride?: string
+): Promise<RoastProfile> {
+  deleteRoastSchema.parse({ id });
+  const client = await createParchmentClient('member', tokenOverride);
+  const envelope = unwrapParchment(
+    await client.roasts.replaceArtisanImport(id, input),
+    `Roast ${id} Artisan import replace`
+  );
+  return envelope.data.roast as RoastProfile;
+}
 
-  if (fetchError || !existing) {
-    throw new AuthError(`Roast profile ${id} not found or does not belong to you.`);
-  }
-
-  const updates: Record<string, unknown> = {};
-  if (parsed.notes !== undefined) updates.roast_notes = parsed.notes;
-  if (parsed.batchName !== undefined) updates.batch_name = parsed.batchName;
-  if (parsed.targets !== undefined) updates.roast_targets = parsed.targets;
-  if (parsed.ozOut !== undefined) {
-    updates.oz_out = parsed.ozOut;
-    // Recalculate weight_loss_percent if oz_in exists
-    const ozIn = existing.oz_in as number | null;
-    if (ozIn != null && ozIn > 0) {
-      updates.weight_loss_percent = Math.round(((ozIn - parsed.ozOut) / ozIn) * 10000) / 100;
-    }
-  }
-
-  if (Object.keys(updates).length === 0) {
-    throw new PrvrsError(
-      'INVALID_ARGUMENT',
-      'No update fields provided. Pass at least one of: --notes, --oz-out, --batch-name, --targets.'
-    );
-  }
-
-  const { error: updateError } = await supabase
-    .from('roast_profiles')
-    .update(updates)
-    .eq('roast_id', id)
-    .eq('user', userId);
-
-  if (updateError) throw updateError;
-
-  // Re-fetch the updated row
-  const { data, error } = await supabase
-    .from('roast_profiles')
-    .select(ROAST_DETAIL_SELECT)
-    .eq('roast_id', id)
-    .single();
-
-  if (error) throw error;
-
-  return data as RoastProfile;
+export async function clearRoastArtisanImport(
+  id: number,
+  tokenOverride?: string
+): Promise<{ id: number; deletedCounts: Record<string, number>; batchName: string | null }> {
+  deleteRoastSchema.parse({ id });
+  const client = await createParchmentClient('member', tokenOverride);
+  const envelope = unwrapParchment(
+    await client.roasts.clearArtisanImport(id),
+    `Roast ${id} Artisan import clear`
+  );
+  return envelope.data;
 }
 
 // ─── Roast import from .alog file ─────────────────────────────────────────────

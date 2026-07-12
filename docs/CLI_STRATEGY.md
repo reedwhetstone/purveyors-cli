@@ -161,7 +161,7 @@ Important command boundaries:
 - `tasting get <bean-id>` expects a `catalog_id`
 - `tasting rate [bean-id]` expects an inventory ID
 - `roast --coffee-id` expects an inventory ID
-- `sales --roast-id` expects a roast ID
+- `sales list --coffee-id` expects an inventory ID; `sales record --roast-id` expects a roast ID
 
 Maintained docs should call out these distinctions explicitly because they are a common source of operator and agent mistakes.
 

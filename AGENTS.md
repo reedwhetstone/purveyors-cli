@@ -35,7 +35,7 @@ Current command groups:
 - `market`: `signals`, `stats`, `metadata` — Market Index decision surface via the canonical API and `@purveyors/sdk` (thin read wrappers; no client-side computation). Mixed auth: each command has a public teaser slice that works unauthenticated (`signals --summary`, `stats` with no origin/process at `market=retail`, `metadata` at dimension=process/no-origin/market=retail/grain=month); all other filters require Parchment Intelligence access, enforced server-side (403 on denial). `--json` returns the API response verbatim.
 - `inventory`: `list` (filters: stocked, catalog-id, purchase-date-start, purchase-date-end, origin, limit, offset), `get <id>`, `add`, `update <id>`, `delete <id>` (`--yes` skips confirmation; dependent roasts or sales must be deleted explicitly before retrying a dependency conflict)
 - `roast`: `list` (filters: coffee-id, roast-id, batch-name, coffee-name, date-start, date-end, stocked, catalog-id, limit, offset), `get <id>`, `create`, `update <id>`, `delete <id>`, `import [file]`, `watch [directory]`
-- `sales`: `list` (filters: roast-id, date-start, date-end, buyer, limit, offset), `record`, `update <id>`, `delete <id>`
+- `sales`: `list` (filters: coffee-id, date-start, date-end, buyer, limit, offset), `record`, `update <id>`, `delete <id>`
 - `tasting`: `get <bean-id>`, `rate [bean-id]`
 - `config`: `list`, `get <key>`, `set <key> <value>`, `reset`
 - `context`: dense human-readable agent reference for the CLI, or manifest-compat JSON with `--json`/`--pretty`
@@ -185,7 +185,7 @@ The published package and binary run from `dist/`, not `src/`. Any command-surfa
 - `tasting get <bean-id>` uses a `catalog_id` (coffee_catalog row). It is NOT an inventory ID.
 - `tasting rate [bean-id]` uses an `inventory id` (green_coffee_inv.id). It is NOT a catalog ID.
 - `roast --coffee-id` expects an inventory ID, not a catalog ID.
-- `sales --roast-id` expects a roast ID, not an inventory ID or catalog ID.
+- `sales list --coffee-id` expects an inventory ID; `sales record --roast-id` expects a roast ID.
 - `context.ts` and `manifest.ts` are easy to forget when command flags or output behavior change.
 - `inventory list`, `roast list`, and `sales list` all support `--offset` for pagination. Keep docs in sync when adding new list flags.
 - `roast import` and `roast watch` normalize file and directory path input by trimming whitespace, removing one layer of matching quotes, and unescaping common shell-escaped characters. Preserve this when changing Artisan workflows.
