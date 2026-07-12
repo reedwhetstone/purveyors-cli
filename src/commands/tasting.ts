@@ -94,9 +94,7 @@ Notes:
           throw new PrvrsError('INVALID_ARGUMENT', `Invalid bean ID: "${beanId}".`);
         }
 
-        const { supabase, userId } = await requireAuth('member');
-
-        const result = await getTastingNotes(supabase, userId, catalogId, filter);
+        const result = await getTastingNotes(catalogId, filter);
 
         if (result.supplier === null && result.user === null) {
           info(`No tasting notes found for bean ID ${catalogId} (filter: ${filter}).`);

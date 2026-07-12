@@ -180,7 +180,7 @@ const exitCodes: CliExitCodeContract[] = [
   {
     exitCode: EXIT_CODES.DEPENDENCY_CONFLICT,
     code: 'DEPENDENCY_CONFLICT',
-    description: 'dependency conflict, for example delete without --force',
+    description: 'dependency conflict, for example deleting an inventory lot with dependents',
   },
   { exitCode: EXIT_CODES.CONFIG_ERROR, code: 'CONFIG_ERROR', description: 'local config error' },
 ];
@@ -363,13 +363,12 @@ const commandGroups: CliCommandGroupContract[] = [
             flags: '--all',
             description: 'Use all visible catalog rows instead of the default stocked-only scope.',
           },
-          { flags: '--sample-size <n>', defaultValue: 5000 },
           { flags: '--limit <n>', defaultValue: 60 },
         ],
         notes: [
           'Counts values from catalog rows visible to the current client.',
           'Defaults to currently stocked catalog rows; use --all for all visible rows.',
-          'Output metadata reports stocked_only/scope, rows_examined, sample scope, and truncation for deterministic agent use.',
+          'Output metadata reports stocked_only/scope, rows_examined, and truncation for deterministic agent use.',
         ],
         examples: [
           'purvey catalog facets supplier --pretty',
@@ -632,15 +631,7 @@ const commandGroups: CliCommandGroupContract[] = [
             idType: 'inventory_id',
           },
         ],
-        options: [
-          { flags: '--yes' },
-          {
-            flags: '--force',
-            notes: [
-              'Cascade delete dependent roast profiles and sales records before deleting the item.',
-            ],
-          },
-        ],
+        options: [{ flags: '--yes' }],
       },
     ],
   },
@@ -1229,7 +1220,7 @@ const errorPatterns: CliErrorPatternContract[] = [
   {
     title: 'Dependency conflict on delete',
     exitCodes: [EXIT_CODES.DEPENDENCY_CONFLICT],
-    guidance: ['Add `--force` to cascade delete dependent roast profiles and sales records.'],
+    guidance: ['Delete dependent roast profiles and sales records explicitly, then retry.'],
   },
   {
     title: 'Mutually exclusive watch flags',

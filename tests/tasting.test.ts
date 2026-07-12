@@ -1,4 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('../src/lib/parchment.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/parchment.js')>();
+  return { ...actual, createParchmentClient: vi.fn() };
+});
 import type { TastingFilter } from '../src/lib/tasting.js';
 import {
   getTastingNotesSchema,
@@ -9,6 +14,7 @@ import {
   rateCoffee,
 } from '../src/lib/tasting.js';
 import { PrvrsError, AuthError } from '../src/lib/errors.js';
+import { createParchmentClient } from '../src/lib/parchment.js';
 
 // ─── Filter validation (original tests preserved) ─────────────────────────────
 
@@ -216,122 +222,32 @@ describe('parseCuppingScore', () => {
   });
 });
 
-// ─── getTastingNotes query-builder tests ──────────────────────────────────────
-
-/**
- * Build a minimal Supabase mock for tasting operations.
- * Supports coffee_catalog and green_coffee_inv table paths.
- */
-function makeTastingSupabase(overrides: {
-  coffee_catalog?: { data?: unknown; error?: unknown };
-  green_coffee_inv?: { data?: unknown; error?: unknown };
-}) {
-  let currentTable = '';
-
-  const chain = {
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    order: vi.fn().mockReturnThis(),
-    limit: vi.fn().mockReturnThis(),
-    single: vi.fn().mockImplementation(() => {
-      if (currentTable === 'coffee_catalog') {
-        return Promise.resolve(overrides.coffee_catalog ?? { data: null, error: null });
-      }
-      return Promise.resolve(overrides.green_coffee_inv ?? { data: null, error: null });
-    }),
-    // Allow direct await on the chain (for list queries with .limit())
-    then: vi.fn().mockImplementation((resolve: (v: unknown) => void) => {
-      if (currentTable === 'green_coffee_inv') {
-        resolve(overrides.green_coffee_inv ?? { data: [], error: null });
-      } else {
-        resolve(overrides.coffee_catalog ?? { data: null, error: null });
-      }
-    }),
-  };
-
-  return {
-    from: vi.fn().mockImplementation((table: string) => {
-      currentTable = table;
-      return chain;
-    }),
-    _chain: chain,
-  };
-}
-
 describe('getTastingNotes', () => {
-  it('fetches supplier notes from coffee_catalog when filter is "supplier"', async () => {
-    const catalogData = {
-      id: 128,
-      name: 'Ethiopian Guji',
-      processing: 'natural',
-      region: 'Guji',
-      source: 'Royal Coffee',
-      cupping_notes: 'blueberry, jasmine',
-      ai_tasting_notes: null,
-      ai_description: 'Fruity and floral',
+  it('reads the canonical tasting envelope through the SDK', async () => {
+    const data = {
+      beanId: 128,
+      filter: 'both' as const,
+      supplier: {
+        source: 'supplier' as const,
+        catalogId: 128,
+        name: 'Ethiopian Guji',
+        processing: 'natural',
+        region: 'Guji',
+        cupping_notes: 'blueberry, jasmine',
+        ai_tasting_notes: null,
+        ai_description: 'Fruity and floral',
+      },
+      user: null,
     };
-    const supabase = makeTastingSupabase({
-      coffee_catalog: { data: catalogData, error: null },
+    const get = vi.fn().mockResolvedValue({
+      data: { data, meta: {} },
+      response: new Response(null, { status: 200 }),
     });
+    vi.mocked(createParchmentClient).mockResolvedValue({ tasting: { get } } as never);
 
-    const result = await getTastingNotes(supabase as never, 'user-abc', 128, 'supplier');
-
-    expect(result.supplier).not.toBeNull();
-    expect(result.supplier?.name).toBe('Ethiopian Guji');
-    expect(result.supplier?.cupping_notes).toBe('blueberry, jasmine');
-    expect(result.user).toBeNull(); // not fetched for supplier-only
-  });
-
-  it('sets supplier to null when catalog row not found (PGRST116)', async () => {
-    const supabase = makeTastingSupabase({
-      coffee_catalog: { data: null, error: { code: 'PGRST116', message: 'not found' } },
-    });
-
-    const result = await getTastingNotes(supabase as never, 'user-abc', 999, 'supplier');
-
-    expect(result.supplier).toBeNull();
-    expect(result.user).toBeNull();
-  });
-
-  it('fetches user notes from green_coffee_inv when filter is "user"', async () => {
-    const invRow = {
-      id: 7,
-      catalog_id: 128,
-      cupping_notes: { aroma: 4, body: 3, acidity: 5, sweetness: 4, aftertaste: 4 },
-      notes: 'Great batch',
-    };
-    const supabase = makeTastingSupabase({
-      green_coffee_inv: { data: [invRow], error: null },
-    });
-
-    const result = await getTastingNotes(supabase as never, 'user-abc', 128, 'user');
-
-    expect(result.user).not.toBeNull();
-    expect(result.user?.inventoryId).toBe(7);
-    expect(result.user?.cupping_notes).toEqual(invRow.cupping_notes);
-    expect(result.supplier).toBeNull(); // not fetched for user-only
-  });
-
-  it('sets user to null when no matching inventory row exists', async () => {
-    const supabase = makeTastingSupabase({
-      green_coffee_inv: { data: [], error: null },
-    });
-
-    const result = await getTastingNotes(supabase as never, 'user-abc', 128, 'user');
-
-    expect(result.user).toBeNull();
-  });
-
-  it('sets beanId and filter on the returned TastingData', async () => {
-    const supabase = makeTastingSupabase({
-      coffee_catalog: { data: null, error: { code: 'PGRST116', message: 'not found' } },
-      green_coffee_inv: { data: [], error: null },
-    });
-
-    const result = await getTastingNotes(supabase as never, 'user-abc', 42, 'both');
-
-    expect(result.beanId).toBe(42);
-    expect(result.filter).toBe('both');
+    await expect(getTastingNotes(128, 'both')).resolves.toEqual(data);
+    expect(createParchmentClient).toHaveBeenCalledWith('member');
+    expect(get).toHaveBeenCalledWith('128', { filter: 'both' });
   });
 });
 

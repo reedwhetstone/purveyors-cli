@@ -1,7 +1,6 @@
 import { Command } from 'commander';
 import { outputData, info } from '../lib/output.js';
 import { withErrorHandling, PrvrsError } from '../lib/errors.js';
-import { requireAuth } from '../lib/auth-guard.js';
 import {
   searchCatalog,
   getCatalog,
@@ -22,35 +21,10 @@ import {
 } from '../lib/catalog.js';
 import type { CatalogItem, CatalogStats, CatalogSortField } from '../lib/catalog.js';
 import type { OutputOptions } from '../types/index.js';
-import type { SupabaseClient } from '@supabase/supabase-js';
 
 // Re-export types and helpers for backwards compatibility
 export type { CatalogItem, CatalogStats };
 export { sanitizeFilterValue, computeCatalogStats };
-
-function hasCatalogApiKeyEnv(): boolean {
-  return Boolean(process.env.PARCHMENT_API_KEY || process.env.PURVEYORS_API_KEY);
-}
-
-function createApiKeyOnlyCatalogClient(): SupabaseClient {
-  return {
-    auth: {
-      getSession: async () => ({ data: { session: null }, error: null }),
-    },
-  } as unknown as SupabaseClient;
-}
-
-async function resolveCatalogReadClient(
-  requiredRole: 'viewer' | 'member',
-  useApiKeyWithoutSession: boolean
-): Promise<SupabaseClient> {
-  if (useApiKeyWithoutSession && hasCatalogApiKeyEnv()) {
-    return createApiKeyOnlyCatalogClient();
-  }
-
-  const { supabase } = await requireAuth(requiredRole);
-  return supabase;
-}
 
 function parseFiniteNumberArg(rawValue: string, message: string): number {
   const trimmed = rawValue.trim();
@@ -274,17 +248,8 @@ Notes:
           `Invalid --limit: "${opts.limit}". Must be a positive integer.`
         );
 
-        const hasStructuredProcessFilters =
-          opts.processingBaseMethod !== undefined ||
-          opts.fermentationType !== undefined ||
-          opts.processAdditive !== undefined ||
-          opts.processingDisclosureLevel !== undefined ||
-          opts.processingConfidenceMin !== undefined;
-        const requiredRole = hasStructuredProcessFilters ? 'member' : 'viewer';
         const includeProof = opts.includeProof ? true : undefined;
-        const supabase = await resolveCatalogReadClient(requiredRole, Boolean(includeProof));
-
-        const data = await searchCatalog(supabase, {
+        const data = await searchCatalog({
           origin: opts.origin as string | undefined,
           process: opts.process as string | undefined,
           priceMin,
@@ -348,8 +313,7 @@ Notes:
         );
 
         const includeProof = opts.includeProof ? true : undefined;
-        const supabase = await resolveCatalogReadClient('viewer', Boolean(includeProof));
-        const data = await getCatalog(supabase, catalogId, {
+        const data = await getCatalog(catalogId, {
           includeProof,
         });
         outputData(data, globalOpts);
@@ -377,9 +341,7 @@ Notes:
     .action(
       withErrorHandling(async (_opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const { supabase } = await requireAuth('viewer');
-
-        const stats = await getCatalogStats(supabase);
+        const stats = await getCatalogStats();
         outputData(stats, globalOpts);
       })
     );
@@ -389,7 +351,6 @@ Notes:
     .command('facets <field>')
     .description('List distinct catalog facet values with counts')
     .option('--all', 'Use all visible catalog rows instead of default stocked-only scope')
-    .option('--sample-size <n>', 'Catalog rows to sample before counting (1-5000)', '5000')
     .option('--limit <n>', 'Maximum facet values to return (1-100)', '60')
     .addHelpText(
       'after',
@@ -405,7 +366,7 @@ Fields:
 Notes:
   Facet counts are computed from catalog rows visible to the current client.
   By default only currently stocked catalog rows are included; use --all for all visible rows.
-  meta.stocked_only/scope, meta.rows_examined, and meta.truncated describe sample semantics.
+  meta.stocked_only/scope, meta.rows_examined, and meta.truncated describe the canonical counted scope.
   Requires an authenticated viewer session.
 `
     )
@@ -421,16 +382,9 @@ Notes:
         const input = {
           field: field as (typeof catalogFacetFields)[number],
           stockedOnly: opts.all ? false : true,
-          sampleSize: parseBoundedPositiveIntegerArg(
-            opts.sampleSize as string,
-            '--sample-size',
-            1,
-            5000
-          ),
           limit: parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 100),
         };
-        const { supabase } = await requireAuth('viewer');
-        const data = await listCatalogFacets(supabase, input);
+        const data = await listCatalogFacets(input);
 
         outputData(data, globalOpts);
       })
@@ -510,8 +464,7 @@ Notes:
           ),
           limit: parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 50),
         };
-        const { supabase } = await requireAuth('viewer');
-        const data = await rankCatalog(supabase, input);
+        const data = await rankCatalog(input);
 
         outputData(data, globalOpts);
       })
@@ -576,9 +529,7 @@ Notes:
           ),
           limit: parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 50),
         };
-        const { supabase } = await requireAuth('viewer');
-
-        const data = await catalogRankPremium(supabase, input);
+        const data = await catalogRankPremium(input);
 
         outputData(data, globalOpts);
       })
@@ -626,8 +577,7 @@ Notes:
           ),
           limit: parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 100),
         };
-        const { supabase } = await requireAuth('viewer');
-        const data = await supplierList(supabase, input);
+        const data = await supplierList(input);
 
         outputData(data, globalOpts);
       })
@@ -678,8 +628,7 @@ Notes:
             5000
           ),
         };
-        const { supabase } = await requireAuth('viewer');
-        const data = await supplierDetail(supabase, input);
+        const data = await supplierDetail(input);
 
         outputData(data, globalOpts);
       })
@@ -729,8 +678,7 @@ Notes:
           ),
           limit: parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 100),
         };
-        const { supabase } = await requireAuth('viewer');
-        const data = await supplierRank(supabase, input);
+        const data = await supplierRank(input);
 
         outputData(data, globalOpts);
       })
@@ -807,9 +755,7 @@ Notes:
           );
         }
         const stockedOnly = Boolean(opts.stockedOnly);
-        const supabase = await resolveCatalogReadClient('member', true);
-
-        const response = await getCatalogSimilarity(supabase, {
+        const response = await getCatalogSimilarity({
           coffee_id: coffeeId,
           threshold,
           limit,

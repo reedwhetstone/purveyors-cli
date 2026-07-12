@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import { AuthError, PrvrsError } from './errors.js';
-import { sanitizeFilterValue } from './catalog.js';
+import { randomUUID } from 'node:crypto';
+import { PrvrsError } from './errors.js';
+import { createParchmentClient, unwrapParchment } from './parchment.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,40 +32,6 @@ export interface InventoryItem {
     stocked: boolean | null;
   } | null;
 }
-
-// ─── Shared select columns ────────────────────────────────────────────────────
-
-export const INVENTORY_LIST_SELECT = [
-  'id',
-  'rank',
-  'notes',
-  'cupping_notes',
-  'purchase_date',
-  'purchased_qty_lbs',
-  'bean_cost',
-  'tax_ship_cost',
-  'last_updated',
-  'user',
-  'catalog_id',
-  'stocked',
-  'coffee_catalog!catalog_id (id, name, source, country, region, processing, cost_lb, price_per_lb, price_tiers, description_short, stocked)',
-].join(', ');
-
-export const INVENTORY_DETAIL_SELECT = [
-  'id',
-  'rank',
-  'notes',
-  'cupping_notes',
-  'purchase_date',
-  'purchased_qty_lbs',
-  'bean_cost',
-  'tax_ship_cost',
-  'last_updated',
-  'user',
-  'catalog_id',
-  'stocked',
-  'coffee_catalog!catalog_id (id, name, source, country, region, processing, cost_lb, price_per_lb, price_tiers, description_short, description_long, farm_notes, cupping_notes, stocked)',
-].join(', ');
 
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
@@ -133,278 +99,96 @@ export interface DeleteInventoryOptions {
 /**
  * List green coffee inventory for a user.
  */
-export async function listInventory(
-  supabase: SupabaseClient,
-  userId: string,
-  opts: ListInventoryInput
-): Promise<InventoryItem[]> {
+export async function listInventory(opts: ListInventoryInput): Promise<InventoryItem[]> {
   const parsed = listInventorySchema.parse(opts);
-
-  let query = supabase.from('green_coffee_inv').select(INVENTORY_LIST_SELECT).eq('user', userId);
-
-  if (parsed.stocked_only) {
-    query = query.eq('stocked', true);
-  }
-  if (parsed.catalogId !== undefined) {
-    query = query.eq('catalog_id', parsed.catalogId);
-  }
-  if (parsed.purchaseDateStart) {
-    query = query.gte('purchase_date', parsed.purchaseDateStart);
-  }
-  if (parsed.purchaseDateEnd) {
-    query = query.lte('purchase_date', parsed.purchaseDateEnd);
-  }
-
-  // origin filter: look up matching catalog IDs first, then restrict inventory
-  if (parsed.origin) {
-    const safe = sanitizeFilterValue(parsed.origin);
-    const { data: catalogRows, error: catError } = await supabase
-      .from('coffee_catalog')
-      .select('id')
-      .ilike('country', `%${safe}%`);
-    if (catError) throw catError;
-    const catalogIds = (catalogRows ?? []).map((r: { id: number }) => r.id);
-    if (catalogIds.length === 0) {
-      return [];
-    }
-    query = query.in('catalog_id', catalogIds);
-  }
-
-  const offset = parsed.offset ?? 0;
-  const { data, error } = await query
-    .order('last_updated', { ascending: false })
-    .range(offset, offset + parsed.limit - 1);
-
-  if (error) throw error;
-
-  return (data ?? []) as unknown as InventoryItem[];
+  const client = await createParchmentClient('member');
+  const envelope = unwrapParchment(
+    await client.inventory.list({
+      stocked_only: parsed.stocked_only,
+      catalogId: parsed.catalogId,
+      purchaseDateStart: parsed.purchaseDateStart,
+      purchaseDateEnd: parsed.purchaseDateEnd,
+      origin: parsed.origin,
+      limit: parsed.limit,
+      offset: parsed.offset,
+    }),
+    'Inventory list'
+  );
+  return envelope.data as InventoryItem[];
 }
 
 /**
  * Fetch a single inventory item by ID (must belong to userId).
  */
-export async function getInventory(
-  supabase: SupabaseClient,
-  userId: string,
-  id: number
-): Promise<InventoryItem> {
+export async function getInventory(id: number): Promise<InventoryItem> {
   getInventorySchema.parse({ id });
-
-  const { data, error } = await supabase
-    .from('green_coffee_inv')
-    .select(INVENTORY_DETAIL_SELECT)
-    .eq('id', id)
-    .eq('user', userId)
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') {
-      throw new AuthError(`Inventory item ${id} not found or does not belong to you.`);
-    }
-    throw error;
+  const client = await createParchmentClient('member');
+  const pageSize = 100;
+  for (let offset = 0; ; offset += pageSize) {
+    const envelope = unwrapParchment(
+      await client.inventory.list({ limit: pageSize, offset }),
+      'Inventory get'
+    );
+    const item = (envelope.data as InventoryItem[]).find((row) => row.id === id);
+    if (item) return item;
+    if (envelope.data.length < pageSize) break;
   }
-
-  return data as unknown as InventoryItem;
+  throw new PrvrsError('NOT_FOUND', `Inventory item ${id} not found or does not belong to you.`);
 }
 
 /**
  * Add a new inventory item for a user.
  */
 export async function addInventory(
-  supabase: SupabaseClient,
-  userId: string,
-  input: AddInventoryInput
+  input: AddInventoryInput,
+  tokenOverride?: string
 ): Promise<InventoryItem> {
   const parsed = addInventorySchema.parse(input);
-
-  const todayIso = () => new Date().toISOString().slice(0, 10);
-
-  const insertPayload: Record<string, unknown> = {
-    user: userId,
-    catalog_id: parsed.catalogId,
-    purchased_qty_lbs: parsed.qty,
-    purchase_date: parsed.purchaseDate ?? todayIso(),
-  };
-
-  if (parsed.cost !== undefined) insertPayload.bean_cost = parsed.cost;
-  if (parsed.taxShip !== undefined) insertPayload.tax_ship_cost = parsed.taxShip;
-  if (parsed.notes !== undefined) insertPayload.notes = parsed.notes;
-
-  const { data: inserted, error: insertError } = await supabase
-    .from('green_coffee_inv')
-    .insert(insertPayload)
-    .select('id')
-    .single();
-
-  if (insertError) throw insertError;
-
-  // Re-fetch with catalog join
-  const { data, error } = await supabase
-    .from('green_coffee_inv')
-    .select(INVENTORY_LIST_SELECT)
-    .eq('id', inserted.id)
-    .single();
-
-  if (error) throw error;
-
-  return data as unknown as InventoryItem;
+  const client = await createParchmentClient('member', tokenOverride);
+  const envelope = unwrapParchment(
+    await client.inventory.create(parsed, { idempotencyKey: randomUUID() }),
+    'Inventory create'
+  );
+  return envelope.data as InventoryItem;
 }
 
 /**
  * Update an existing inventory item (must belong to userId).
  */
 export async function updateInventory(
-  supabase: SupabaseClient,
-  userId: string,
   id: number,
   input: UpdateInventoryInput
 ): Promise<InventoryItem> {
   getInventorySchema.parse({ id });
   const parsed = updateInventorySchema.parse(input);
-
-  // Verify ownership
-  const { data: existing, error: fetchError } = await supabase
-    .from('green_coffee_inv')
-    .select('id')
-    .eq('id', id)
-    .eq('user', userId)
-    .single();
-
-  if (fetchError || !existing) {
-    throw new AuthError(`Inventory item ${id} not found or does not belong to you.`);
-  }
-
-  const updates: Record<string, unknown> = {};
-  if (parsed.qty !== undefined) updates.purchased_qty_lbs = parsed.qty;
-  if (parsed.cost !== undefined) updates.bean_cost = parsed.cost;
-  if (parsed.taxShip !== undefined) updates.tax_ship_cost = parsed.taxShip;
-  if (parsed.notes !== undefined) updates.notes = parsed.notes;
-  if (parsed.stocked !== undefined) updates.stocked = parsed.stocked;
-
-  if (Object.keys(updates).length === 0) {
-    throw new PrvrsError(
-      'INVALID_ARGUMENT',
-      'No update fields provided. Pass at least one of: qty, cost, taxShip, notes, stocked.'
-    );
-  }
-
-  const { error: updateError } = await supabase
-    .from('green_coffee_inv')
-    .update(updates)
-    .eq('id', id)
-    .eq('user', userId);
-
-  if (updateError) throw updateError;
-
-  // Re-fetch the updated row
-  const { data, error } = await supabase
-    .from('green_coffee_inv')
-    .select(INVENTORY_LIST_SELECT)
-    .eq('id', id)
-    .single();
-
-  if (error) throw error;
-
-  return data as unknown as InventoryItem;
+  const client = await createParchmentClient('member');
+  const envelope = unwrapParchment(await client.inventory.update(id, parsed), 'Inventory update');
+  return envelope.data as InventoryItem;
 }
 
 /**
  * Delete an inventory item (must belong to userId).
  *
- * By default, throws DEPENDENCY_CONFLICT if the item has dependent roast
- * profiles or sales records, listing the counts and instructing the user
- * to delete them first or re-run with `force: true`.
- *
- * When `opts.force` is true, all dependent sales and roast profiles are
- * deleted first (user-scoped), then the inventory item is removed.
- *
- * Returns counts of what was removed so the caller can surface a summary.
+ * The canonical API refuses deletion when dependent roast or sales rows exist.
+ * Client-side force cascading is intentionally unsupported because it would
+ * bypass the API's per-resource authorization, idempotency, and audit controls.
  */
 export async function deleteInventory(
-  supabase: SupabaseClient,
-  userId: string,
   id: number,
   opts?: DeleteInventoryOptions
 ): Promise<DeleteInventoryResult> {
   deleteInventorySchema.parse({ id });
-
-  // Verify ownership
-  const { data: existing, error: fetchError } = await supabase
-    .from('green_coffee_inv')
-    .select('id')
-    .eq('id', id)
-    .eq('user', userId)
-    .single();
-
-  if (fetchError || !existing) {
-    throw new AuthError(`Inventory item ${id} not found or does not belong to you.`);
+  if (opts?.force) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      '--force is no longer supported. Delete dependent roast profiles and sales explicitly before deleting the inventory item.'
+    );
   }
-
-  // Pre-flight dependency check
-  const { count: roastCount, error: roastCountErr } = await supabase
-    .from('roast_profiles')
-    .select('roast_id', { count: 'exact', head: true })
-    .eq('coffee_id', id)
-    .eq('user', userId);
-
-  if (roastCountErr) throw roastCountErr;
-
-  const { count: salesCount, error: salesCountErr } = await supabase
-    .from('sales')
-    .select('id', { count: 'exact', head: true })
-    .eq('green_coffee_inv_id', id)
-    .eq('user', userId);
-
-  if (salesCountErr) throw salesCountErr;
-
-  const dependentRoasts = roastCount ?? 0;
-  const dependentSales = salesCount ?? 0;
-
-  if (dependentRoasts > 0 || dependentSales > 0) {
-    if (!opts?.force) {
-      const parts: string[] = [];
-      if (dependentRoasts > 0)
-        parts.push(`${dependentRoasts} roast profile${dependentRoasts === 1 ? '' : 's'}`);
-      if (dependentSales > 0)
-        parts.push(`${dependentSales} sale record${dependentSales === 1 ? '' : 's'}`);
-      throw new PrvrsError(
-        'DEPENDENCY_CONFLICT',
-        `Cannot delete inventory item ${id} — it has ${parts.join(' and ')}. ` +
-          `Delete them first, or use --force to cascade delete all dependent records.`
-      );
-    }
-
-    // Force path: delete dependents first (sales, then roast profiles), then inventory
-    if (dependentSales > 0) {
-      const { error: delSalesErr } = await supabase
-        .from('sales')
-        .delete()
-        .eq('green_coffee_inv_id', id)
-        .eq('user', userId);
-      if (delSalesErr) throw delSalesErr;
-    }
-
-    if (dependentRoasts > 0) {
-      const { error: delRoastsErr } = await supabase
-        .from('roast_profiles')
-        .delete()
-        .eq('coffee_id', id)
-        .eq('user', userId);
-      if (delRoastsErr) throw delRoastsErr;
-    }
-  }
-
-  const { error: deleteError } = await supabase
-    .from('green_coffee_inv')
-    .delete()
-    .eq('id', id)
-    .eq('user', userId);
-
-  if (deleteError) throw deleteError;
-
+  const client = await createParchmentClient('member');
+  unwrapParchment(await client.inventory.delete(id), 'Inventory delete');
   return {
     deletedInventoryId: id,
-    deletedRoasts: dependentRoasts,
-    deletedSales: dependentSales,
+    deletedRoasts: 0,
+    deletedSales: 0,
   };
 }

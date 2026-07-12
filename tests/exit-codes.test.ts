@@ -27,6 +27,8 @@ function runCli(args: string[], env: NodeJS.ProcessEnv = {}) {
     maxBuffer: 10 * 1024 * 1024,
     env: {
       ...process.env,
+      COREPACK_HOME:
+        process.env.COREPACK_HOME ?? resolve(process.env.HOME ?? repoRoot, '.cache/node/corepack'),
       ...env,
     },
   });

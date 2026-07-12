@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const repoRoot = resolve(__dirname, '..');
+const tsxBin = resolve(repoRoot, 'node_modules', '.bin', 'tsx');
 
 function stripAnsi(text: string): string {
   return text.replace(/\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '').replace(/\r/g, '');
@@ -18,7 +19,7 @@ function parseJson(text: string) {
 }
 
 function runCliWithHome(args: string[], home: string) {
-  return spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', ...args], {
+  return spawnSync(tsxBin, ['src/index.ts', ...args], {
     cwd: repoRoot,
     encoding: 'utf8',
     env: { ...process.env, HOME: home },
@@ -38,7 +39,7 @@ function writeConfigFixture(home: string, raw: string) {
 
 describe('CLI output modes', () => {
   it('emits JSON for auth status --json in non-interactive mode', () => {
-    const result = spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', 'auth', 'status', '--json'], {
+    const result = spawnSync(tsxBin, ['src/index.ts', 'auth', 'status', '--json'], {
       cwd: repoRoot,
       encoding: 'utf8',
       maxBuffer: 10 * 1024 * 1024,
@@ -53,16 +54,12 @@ describe('CLI output modes', () => {
     const tempHome = mkdtempSync(join(tmpdir(), 'purvey-config-output-'));
 
     try {
-      const result = spawnSync(
-        'pnpm',
-        ['exec', 'tsx', 'src/index.ts', 'config', 'list', '--json'],
-        {
-          cwd: repoRoot,
-          encoding: 'utf8',
-          env: { ...process.env, HOME: tempHome },
-          maxBuffer: 10 * 1024 * 1024,
-        }
-      );
+      const result = spawnSync(tsxBin, ['src/index.ts', 'config', 'list', '--json'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        env: { ...process.env, HOME: tempHome },
+        maxBuffer: 10 * 1024 * 1024,
+      });
 
       expect(result.status).toBe(0);
       expect(stripAnsi(result.stdout).trim()).toBe('{}');
@@ -76,16 +73,12 @@ describe('CLI output modes', () => {
     const tempHome = mkdtempSync(join(tmpdir(), 'purvey-config-unset-'));
 
     try {
-      const result = spawnSync(
-        'pnpm',
-        ['exec', 'tsx', 'src/index.ts', 'config', 'get', 'form-mode', '--json'],
-        {
-          cwd: repoRoot,
-          encoding: 'utf8',
-          env: { ...process.env, HOME: tempHome },
-          maxBuffer: 10 * 1024 * 1024,
-        }
-      );
+      const result = spawnSync(tsxBin, ['src/index.ts', 'config', 'get', 'form-mode', '--json'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        env: { ...process.env, HOME: tempHome },
+        maxBuffer: 10 * 1024 * 1024,
+      });
 
       expect(result.status).toBe(0);
       expect(stripAnsi(result.stdout).trim()).toBe('{"form-mode":null}');
@@ -99,35 +92,27 @@ describe('CLI output modes', () => {
     const tempHome = mkdtempSync(join(tmpdir(), 'purvey-config-noninteractive-'));
 
     try {
-      const setResult = spawnSync(
-        'pnpm',
-        ['exec', 'tsx', 'src/index.ts', 'config', 'set', 'form-mode', 'true'],
-        {
-          cwd: repoRoot,
-          encoding: 'utf8',
-          env: { ...process.env, HOME: tempHome },
-          maxBuffer: 10 * 1024 * 1024,
-        }
-      );
+      const setResult = spawnSync(tsxBin, ['src/index.ts', 'config', 'set', 'form-mode', 'true'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        env: { ...process.env, HOME: tempHome },
+        maxBuffer: 10 * 1024 * 1024,
+      });
       expect(setResult.status).toBe(0);
       expect(stripAnsi(setResult.stdout).trim()).toBe('{"form-mode":true}');
       expect(stripAnsi(setResult.stderr).trim()).toBe('');
 
-      const getResult = spawnSync(
-        'pnpm',
-        ['exec', 'tsx', 'src/index.ts', 'config', 'get', 'form-mode'],
-        {
-          cwd: repoRoot,
-          encoding: 'utf8',
-          env: { ...process.env, HOME: tempHome },
-          maxBuffer: 10 * 1024 * 1024,
-        }
-      );
+      const getResult = spawnSync(tsxBin, ['src/index.ts', 'config', 'get', 'form-mode'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        env: { ...process.env, HOME: tempHome },
+        maxBuffer: 10 * 1024 * 1024,
+      });
       expect(getResult.status).toBe(0);
       expect(stripAnsi(getResult.stdout).trim()).toBe('{"form-mode":true}');
       expect(stripAnsi(getResult.stderr).trim()).toBe('');
 
-      const resetResult = spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', 'config', 'reset'], {
+      const resetResult = spawnSync(tsxBin, ['src/index.ts', 'config', 'reset'], {
         cwd: repoRoot,
         encoding: 'utf8',
         env: { ...process.env, HOME: tempHome },
@@ -146,8 +131,8 @@ describe('CLI output modes', () => {
 
     try {
       const setResult = spawnSync(
-        'pnpm',
-        ['exec', 'tsx', 'src/index.ts', 'config', 'set', 'form-mode', 'true', '--json'],
+        tsxBin,
+        ['src/index.ts', 'config', 'set', 'form-mode', 'true', '--json'],
         {
           cwd: repoRoot,
           encoding: 'utf8',
@@ -160,8 +145,8 @@ describe('CLI output modes', () => {
       expect(stripAnsi(setResult.stderr).trim()).toBe('');
 
       const getResult = spawnSync(
-        'pnpm',
-        ['exec', 'tsx', 'src/index.ts', 'config', 'get', 'form-mode', '--json'],
+        tsxBin,
+        ['src/index.ts', 'config', 'get', 'form-mode', '--json'],
         {
           cwd: repoRoot,
           encoding: 'utf8',
@@ -173,16 +158,12 @@ describe('CLI output modes', () => {
       expect(stripAnsi(getResult.stdout).trim()).toBe('{"form-mode":true}');
       expect(stripAnsi(getResult.stderr).trim()).toBe('');
 
-      const resetResult = spawnSync(
-        'pnpm',
-        ['exec', 'tsx', 'src/index.ts', 'config', 'reset', '--json'],
-        {
-          cwd: repoRoot,
-          encoding: 'utf8',
-          env: { ...process.env, HOME: tempHome },
-          maxBuffer: 10 * 1024 * 1024,
-        }
-      );
+      const resetResult = spawnSync(tsxBin, ['src/index.ts', 'config', 'reset', '--json'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        env: { ...process.env, HOME: tempHome },
+        maxBuffer: 10 * 1024 * 1024,
+      });
       expect(resetResult.status).toBe(0);
       expect(stripAnsi(resetResult.stdout).trim()).toBe('{}');
       expect(stripAnsi(resetResult.stderr).trim()).toBe('');
@@ -196,13 +177,14 @@ describe('CLI output modes', () => {
 
     try {
       const shellHome = tempHome.replace(/'/g, "'\\''");
+      const shellTsx = tsxBin.replace(/'/g, "'\\''");
       const result = spawnSync(
         'script',
         [
           '-e',
           '-q',
           '-c',
-          `bash -lc 'HOME='\''${shellHome}'\'' CI=1 pnpm exec tsx src/index.ts config set form-mode true >/dev/null 2>/dev/null && HOME='\''${shellHome}'\'' CI=1 pnpm exec tsx src/index.ts config list'`,
+          `bash -lc 'HOME='\''${shellHome}'\'' CI=1 '\''${shellTsx}'\'' src/index.ts config set form-mode true >/dev/null 2>/dev/null && HOME='\''${shellHome}'\'' CI=1 '\''${shellTsx}'\'' src/index.ts config list'`,
           '/dev/null',
         ],
         {
@@ -226,7 +208,7 @@ describe('CLI output modes', () => {
     const tempHome = mkdtempSync(join(tmpdir(), 'purvey-config-csv-'));
 
     try {
-      const result = spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', 'config', 'list', '--csv'], {
+      const result = spawnSync(tsxBin, ['src/index.ts', 'config', 'list', '--csv'], {
         cwd: repoRoot,
         encoding: 'utf8',
         env: { ...process.env, HOME: tempHome },
@@ -355,7 +337,7 @@ describe('CLI output modes', () => {
         message: 'The manifest command does not support --csv. Use --json or --pretty.',
       },
     ]) {
-      const result = spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', ...args], {
+      const result = spawnSync(tsxBin, ['src/index.ts', ...args], {
         cwd: repoRoot,
         encoding: 'utf8',
         maxBuffer: 10 * 1024 * 1024,
@@ -375,8 +357,8 @@ describe('CLI output modes', () => {
 
   it('emits JSON error envelopes for invalid sort with --json', () => {
     const result = spawnSync(
-      'pnpm',
-      ['exec', 'tsx', 'src/index.ts', 'catalog', 'search', '--sort', 'bogus', '--json'],
+      tsxBin,
+      ['src/index.ts', 'catalog', 'search', '--sort', 'bogus', '--json'],
       {
         cwd: repoRoot,
         encoding: 'utf8',
@@ -398,8 +380,8 @@ describe('CLI output modes', () => {
 
   it('emits pretty JSON error envelopes for invalid sort with --pretty', () => {
     const result = spawnSync(
-      'pnpm',
-      ['exec', 'tsx', 'src/index.ts', 'catalog', 'search', '--sort', 'bogus', '--pretty'],
+      tsxBin,
+      ['src/index.ts', 'catalog', 'search', '--sort', 'bogus', '--pretty'],
       {
         cwd: repoRoot,
         encoding: 'utf8',

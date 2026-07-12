@@ -1,6 +1,8 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { readCredentials, writeCredentials, deleteCredentials } from './config.js';
 import { AuthError } from './errors.js';
+import { createParchmentClient } from '@purveyors/sdk';
+import { getParchmentBaseUrl } from './parchment-base.js';
 
 /**
  * Public Supabase values — identical to what ships in every purveyors.io client bundle.
@@ -95,19 +97,24 @@ export async function validateSession(): Promise<{
 
     if (error || !user) return null;
 
-    // Fetch app-level role from user_roles table
+    // Resolve app-level roles through the canonical API rather than reading the
+    // authorization table directly from the CLI.
     let appRoles: string[] = [];
     try {
-      const { data: roleData } = await client
-        .from('user_roles')
-        .select('user_role')
-        .eq('id', user.id)
-        .single();
-      if (roleData?.user_role && Array.isArray(roleData.user_role)) {
-        appRoles = roleData.user_role as string[];
+      const {
+        data: { session },
+      } = await client.auth.getSession();
+      if (session?.access_token) {
+        const result = await createParchmentClient({
+          baseUrl: getParchmentBaseUrl(),
+          token: session.access_token,
+        }).me();
+        if (result.response.ok && !result.error && result.data?.authenticated) {
+          appRoles = result.data.appRoles;
+        }
       }
     } catch {
-      // user_roles query failed — fall back to auth role
+      // API entitlement lookup failed — fall back to the Supabase auth role.
     }
 
     // Re-read credentials (may have been refreshed by createAuthenticatedClient)

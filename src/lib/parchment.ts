@@ -1,8 +1,8 @@
 import { createParchmentClient as createSdkClient, type ParchmentClient } from '@purveyors/sdk';
 import { requireAuth, type RequiredRole } from './auth-guard.js';
 import { AuthError, PrvrsError } from './errors.js';
-
-const DEFAULT_PARCHMENT_BASE_URL = 'https://api.purveyors.io';
+import { getParchmentBaseUrl } from './parchment-base.js';
+export { getParchmentBaseUrl } from './parchment-base.js';
 
 /**
  * Resolve the canonical Parchment API base URL.
@@ -12,14 +12,6 @@ const DEFAULT_PARCHMENT_BASE_URL = 'https://api.purveyors.io';
  * canonical API directly. `PARCHMENT_API_BASE_URL` takes precedence, then the
  * shared `PURVEYORS_BASE_URL` override, then the canonical default.
  */
-export function getParchmentBaseUrl(): string {
-  const raw =
-    process.env.PARCHMENT_API_BASE_URL ??
-    process.env.PURVEYORS_BASE_URL ??
-    DEFAULT_PARCHMENT_BASE_URL;
-  return raw.replace(/\/+$/, '');
-}
-
 /**
  * Resolve the bearer token for Parchment requests, mirroring the existing CLI
  * catalog auth pattern: an explicit API key wins, otherwise the stored Supabase
@@ -173,6 +165,14 @@ export function unwrapParchment<T>(result: ParchmentResult<T>, context: string):
 
   if (status === 404) {
     throw new PrvrsError('NOT_FOUND', messageFromErrorBody(body, `${context}: not found.`), body);
+  }
+
+  if (status === 409) {
+    throw new PrvrsError(
+      'DEPENDENCY_CONFLICT',
+      messageFromErrorBody(body, `${context}: conflicting state prevents this operation.`),
+      body
+    );
   }
 
   if (status === 429) {
