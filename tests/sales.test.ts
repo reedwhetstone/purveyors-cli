@@ -7,6 +7,7 @@ vi.mock('../src/lib/parchment.js', async (importOriginal) => {
 
 import { createParchmentClient } from '../src/lib/parchment.js';
 import {
+  SALE_SELECT,
   deleteSale,
   deleteSaleSchema,
   listSalesSchema,
@@ -17,11 +18,21 @@ import {
   updateSale,
   updateSaleSchema,
 } from '../src/lib/sales.js';
-import { PrvrsError } from '../src/lib/errors.js';
+import type { ResolvedSaleTarget, Sale } from '../src/lib/sales.js';
+import { AuthError, PrvrsError } from '../src/lib/errors.js';
 
 const ok = <T>(data: T, status = 200) => ({ data, response: new Response(null, { status }) });
 
 describe('sales schemas', () => {
+  it('preserves the 0.27 public sales exports and type shapes', () => {
+    const target: ResolvedSaleTarget = { roastId: 42, mode: 'exact' };
+    const sale = { last_updated: '2026-07-12T00:00:00Z' } as Sale;
+
+    expect(SALE_SELECT).toContain('last_updated');
+    expect(target.roastId).toBe(42);
+    expect(sale.last_updated).toBe('2026-07-12T00:00:00Z');
+  });
+
   it('validates list pagination and filters', () => {
     expect(listSalesSchema.parse({}).limit).toBe(20);
     expect(listSalesSchema.parse({ greenCoffeeInvId: 42, offset: 0 }).greenCoffeeInvId).toBe(42);
@@ -302,7 +313,12 @@ describe('SDK-backed sales writes', () => {
 
   it('preserves the 0.27 Supabase-backed write helper signatures', async () => {
     const getSession = vi.fn().mockResolvedValue({
-      data: { session: { access_token: 'legacy-session-token' } },
+      data: {
+        session: {
+          access_token: 'legacy-session-token',
+          user: { id: 'legacy-user-id' },
+        },
+      },
     });
     const legacySupabase = { auth: { getSession } } as never;
     const get = vi
@@ -333,6 +349,82 @@ describe('SDK-backed sales writes', () => {
     for (const call of vi.mocked(createParchmentClient).mock.calls) {
       expect(call).toEqual(['member', 'legacy-session-token']);
     }
+  });
+
+  it('rejects every legacy write overload when the session user does not match', async () => {
+    const getSession = vi.fn().mockResolvedValue({
+      data: {
+        session: {
+          access_token: 'legacy-session-token',
+          user: { id: 'different-user-id' },
+        },
+      },
+    });
+    const legacySupabase = { auth: { getSession } } as never;
+
+    await expect(
+      recordSale(legacySupabase, 'legacy-user-id', { roastId: 42, oz: 12, price: 18.5 })
+    ).rejects.toBeInstanceOf(AuthError);
+    await expect(
+      updateSale(legacySupabase, 'legacy-user-id', 55, { price: 20 })
+    ).rejects.toBeInstanceOf(AuthError);
+    await expect(deleteSale(legacySupabase, 'legacy-user-id', 55)).rejects.toBeInstanceOf(
+      AuthError
+    );
+
+    expect(createParchmentClient).not.toHaveBeenCalled();
+  });
+
+  it('preserves legacy AuthError semantics for missing owned resources', async () => {
+    const getSession = vi.fn().mockResolvedValue({
+      data: {
+        session: {
+          access_token: 'legacy-session-token',
+          user: { id: 'legacy-user-id' },
+        },
+      },
+    });
+    const legacySupabase = { auth: { getSession } } as never;
+    const missing = {
+      error: { error: { message: 'not found' } },
+      response: new Response(null, { status: 404 }),
+    };
+    vi.mocked(createParchmentClient).mockResolvedValue({
+      roasts: { get: vi.fn().mockResolvedValue(missing) },
+      sales: {
+        update: vi.fn().mockResolvedValue(missing),
+        delete: vi.fn().mockResolvedValue(missing),
+      },
+    } as never);
+
+    await expect(
+      resolveSaleRoast(legacySupabase, 'legacy-user-id', { roastId: 42 })
+    ).rejects.toEqual(
+      expect.objectContaining({
+        name: 'AuthError',
+        message: 'Roast profile 42 not found or does not belong to you.',
+      })
+    );
+    await expect(
+      recordSale(legacySupabase, 'legacy-user-id', { roastId: 42, oz: 12, price: 18.5 })
+    ).rejects.toEqual(
+      expect.objectContaining({
+        name: 'AuthError',
+        message: 'Roast profile 42 not found or does not belong to you.',
+      })
+    );
+    await expect(updateSale(legacySupabase, 'legacy-user-id', 55, { price: 20 })).rejects.toEqual(
+      expect.objectContaining({
+        name: 'AuthError',
+        message: 'Sale 55 not found or does not belong to you.',
+      })
+    );
+    await expect(deleteSale(legacySupabase, 'legacy-user-id', 55)).rejects.toEqual(
+      expect.objectContaining({
+        name: 'AuthError',
+        message: 'Sale 55 not found or does not belong to you.',
+      })
+    );
   });
 
   it('unwraps create API errors', async () => {
