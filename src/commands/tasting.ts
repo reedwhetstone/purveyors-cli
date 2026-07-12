@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import * as p from '@clack/prompts';
 import { outputData, info, success } from '../lib/output.js';
-import { withErrorHandling, PrvrsError } from '../lib/errors.js';
+import { withErrorHandling, PrvrsError, AuthError } from '../lib/errors.js';
 import { requireAuth } from '../lib/auth-guard.js';
 import {
   getTastingNotes,
@@ -140,7 +140,7 @@ Required (flag mode): <bean-id> + all five score flags (--aroma, --body, --acidi
         async (beanId: string | undefined, opts: Record<string, unknown>, cmd: Command) => {
           const globalOpts = cmd.optsWithGlobals() as OutputOptions;
 
-          const { supabase, userId } = await requireAuth('member');
+          const { supabase } = await requireAuth('member');
 
           // ── Interactive form mode ────────────────────────────────────────
           // Auto-enter form mode if config form-mode is true and required args are missing
@@ -149,7 +149,13 @@ Required (flag mode): <bean-id> + all five score flags (--aroma, --body, --acidi
           if (formMode) {
             p.intro('Rate Coffee');
 
-            const bean = await pickBean(supabase, userId);
+            const {
+              data: { session: pickerSession },
+            } = await supabase.auth.getSession();
+            if (!pickerSession?.access_token) {
+              throw new AuthError('Session expired. Run `purvey auth login` and retry.');
+            }
+            const bean = await pickBean(pickerSession.access_token);
 
             const aroma = await promptCuppingScore('Aroma');
             const body = await promptCuppingScore('Body');
@@ -175,14 +181,24 @@ Required (flag mode): <bean-id> + all five score flags (--aroma, --body, --acidi
 
             const spin = p.spinner();
             spin.start('Saving rating...');
-            const data = await rateCoffee(supabase, userId, bean.id, {
-              aroma,
-              body,
-              acidity,
-              sweetness,
-              aftertaste,
-              notes: notesStr !== '' ? notesStr : undefined,
-            });
+            const {
+              data: { session: writeSession },
+            } = await supabase.auth.getSession();
+            if (!writeSession?.access_token) {
+              throw new AuthError('Session expired mid-form. Run `purvey auth login` and retry.');
+            }
+            const data = await rateCoffee(
+              bean.id,
+              {
+                aroma,
+                body,
+                acidity,
+                sweetness,
+                aftertaste,
+                notes: notesStr !== '' ? notesStr : undefined,
+              },
+              writeSession.access_token
+            );
             spin.stop('Done');
 
             p.outro(`Rating saved for "${bean.name}"!`);
@@ -224,15 +240,25 @@ Required (flag mode): <bean-id> + all five score flags (--aroma, --body, --acidi
           const sweetness = parseCuppingScore(opts.sweetness as string, 'sweetness');
           const aftertaste = parseCuppingScore(opts.aftertaste as string, 'aftertaste');
 
-          const data = await rateCoffee(supabase, userId, inventoryId, {
-            aroma,
-            body,
-            acidity,
-            sweetness,
-            aftertaste,
-            brewMethod: opts.brewMethod as string | undefined,
-            notes: opts.notes as string | undefined,
-          });
+          const {
+            data: { session: writeSession },
+          } = await supabase.auth.getSession();
+          if (!writeSession?.access_token) {
+            throw new AuthError('Session expired. Run `purvey auth login` and retry.');
+          }
+          const data = await rateCoffee(
+            inventoryId,
+            {
+              aroma,
+              body,
+              acidity,
+              sweetness,
+              aftertaste,
+              brewMethod: opts.brewMethod as string | undefined,
+              notes: opts.notes as string | undefined,
+            },
+            writeSession.access_token
+          );
 
           success(`Cupping notes saved for inventory item ${inventoryId}.`);
           outputData(data, globalOpts);

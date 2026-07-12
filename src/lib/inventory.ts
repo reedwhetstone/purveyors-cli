@@ -99,9 +99,12 @@ export interface DeleteInventoryOptions {
 /**
  * List green coffee inventory for a user.
  */
-export async function listInventory(opts: ListInventoryInput): Promise<InventoryItem[]> {
+export async function listInventory(
+  opts: ListInventoryInput,
+  tokenOverride?: string
+): Promise<InventoryItem[]> {
   const parsed = listInventorySchema.parse(opts);
-  const client = await createParchmentClient('member');
+  const client = await createParchmentClient('member', tokenOverride);
   const envelope = unwrapParchment(
     await client.inventory.list({
       stocked_only: parsed.stocked_only,
@@ -120,9 +123,9 @@ export async function listInventory(opts: ListInventoryInput): Promise<Inventory
 /**
  * Fetch a single inventory item by ID (must belong to userId).
  */
-export async function getInventory(id: number): Promise<InventoryItem> {
+export async function getInventory(id: number, tokenOverride?: string): Promise<InventoryItem> {
   getInventorySchema.parse({ id });
-  const client = await createParchmentClient('member');
+  const client = await createParchmentClient('member', tokenOverride);
   const pageSize = 100;
   for (let offset = 0; ; offset += pageSize) {
     const envelope = unwrapParchment(

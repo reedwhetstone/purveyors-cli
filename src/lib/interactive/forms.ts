@@ -5,8 +5,9 @@
  */
 
 import * as p from '@clack/prompts';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { listRoasts } from '../roast.js';
+import { listInventory } from '../inventory.js';
+import { searchCatalog } from '../catalog.js';
 
 // ─── Cancel guard ─────────────────────────────────────────────────────────────
 
@@ -28,34 +29,16 @@ export function guardCancel(result: unknown): void {
  * `{ allowCancel: true }` to get `null` back instead, for callers that must
  * keep running after a cancelled selection (e.g. `roast watch --prompt-each`).
  */
+export async function pickBean(tokenOverride?: string): Promise<{ id: number; name: string }>;
 export async function pickBean(
-  supabase: SupabaseClient,
-  userId: string
-): Promise<{ id: number; name: string }>;
-export async function pickBean(
-  supabase: SupabaseClient,
-  userId: string,
+  tokenOverride: string | undefined,
   options: { allowCancel: boolean }
 ): Promise<{ id: number; name: string } | null>;
 export async function pickBean(
-  supabase: SupabaseClient,
-  userId: string,
+  tokenOverride?: string,
   options: { allowCancel?: boolean } = {}
 ): Promise<{ id: number; name: string } | null> {
-  const { data, error } = await supabase
-    .from('green_coffee_inv')
-    .select('id, coffee_catalog!catalog_id (name)')
-    .eq('user', userId)
-    .eq('stocked', true)
-    .order('id', { ascending: false })
-    .limit(50);
-
-  if (error) throw error;
-
-  const rows = (data ?? []) as Array<{
-    id: number;
-    coffee_catalog: { name: string | null } | { name: string | null }[] | null;
-  }>;
+  const rows = await listInventory({ stocked_only: true, limit: 50 }, tokenOverride);
 
   if (rows.length === 0) {
     if (options.allowCancel) {
@@ -67,10 +50,7 @@ export async function pickBean(
   }
 
   const selectOptions = rows.map((row) => {
-    const catalog = Array.isArray(row.coffee_catalog)
-      ? (row.coffee_catalog[0] ?? null)
-      : row.coffee_catalog;
-    const name = catalog?.name ?? `Bean #${row.id}`;
+    const name = row.coffee_catalog?.name ?? `Bean #${row.id}`;
     return { value: String(row.id), label: `${name} (#${row.id})`, hint: name };
   });
 
@@ -86,10 +66,7 @@ export async function pickBean(
 
   const selectedId = parseInt(selected as string, 10);
   const matchedRow = rows.find((r) => r.id === selectedId);
-  const catalog = Array.isArray(matchedRow?.coffee_catalog)
-    ? (matchedRow?.coffee_catalog[0] ?? null)
-    : (matchedRow?.coffee_catalog ?? null);
-  const name = catalog?.name ?? `Bean #${selectedId}`;
+  const name = matchedRow?.coffee_catalog?.name ?? `Bean #${selectedId}`;
 
   return { id: selectedId, name };
 }
@@ -132,9 +109,7 @@ export async function pickRoast(
  * Interactive catalog search — user types search term, sees matching coffees.
  * Returns selected catalog item ID and name.
  */
-export async function pickCatalogItem(
-  supabase: SupabaseClient
-): Promise<{ id: number; name: string }> {
+export async function pickCatalogItem(): Promise<{ id: number; name: string }> {
   const searchTerm = await p.text({
     message: 'Search coffee catalog (origin, name, or flavor)',
     placeholder: 'e.g. Ethiopia, natural, berry',
@@ -146,33 +121,14 @@ export async function pickCatalogItem(
   guardCancel(searchTerm);
 
   const term = (searchTerm as string).trim();
-  const safe = term.replace(/[(),.*%]/g, '');
-
-  const { data, error } = await supabase
-    .from('coffee_catalog')
-    .select('id, name, country, processing, price_per_lb, cost_lb')
-    .or(
-      [
-        `name.ilike.%${safe}%`,
-        `country.ilike.%${safe}%`,
-        `continent.ilike.%${safe}%`,
-        `region.ilike.%${safe}%`,
-        `cupping_notes.ilike.%${safe}%`,
-        `description_short.ilike.%${safe}%`,
-      ].join(',')
-    )
-    .limit(20);
-
-  if (error) throw error;
-
-  const rows = (data ?? []) as Array<{
-    id: number;
-    name: string | null;
-    country: string | null;
-    processing: string | null;
-    price_per_lb: number | null;
-    cost_lb: number | null;
-  }>;
+  const [byName, byOrigin, byFlavor] = await Promise.all([
+    searchCatalog({ name: term, limit: 20 }),
+    searchCatalog({ origin: term, limit: 20 }),
+    searchCatalog({ flavor: term, limit: 20 }),
+  ]);
+  const rows = [
+    ...new Map([...byName, ...byOrigin, ...byFlavor].map((row) => [row.id, row])).values(),
+  ].slice(0, 20);
 
   if (rows.length === 0) {
     p.cancel(`No coffees found matching "${term}". Try a different search.`);

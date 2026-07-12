@@ -13,7 +13,7 @@ import {
   getTastingNotes,
   rateCoffee,
 } from '../src/lib/tasting.js';
-import { PrvrsError, AuthError } from '../src/lib/errors.js';
+import { PrvrsError } from '../src/lib/errors.js';
 import { createParchmentClient } from '../src/lib/parchment.js';
 
 // ─── Filter validation (original tests preserved) ─────────────────────────────
@@ -251,132 +251,68 @@ describe('getTastingNotes', () => {
   });
 });
 
-// ─── rateCoffee query-builder tests ──────────────────────────────────────────
-
-function makeRatingSupabase(overrides: {
-  fetchExisting?: { data?: unknown; error?: unknown };
-  updateResult?: { error?: unknown };
-  refetch?: { data?: unknown; error?: unknown };
-}) {
-  let callCount = 0;
-
-  const chain = {
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    update: vi.fn().mockReturnThis(),
-    single: vi.fn().mockImplementation(() => {
-      callCount++;
-      if (callCount === 1) {
-        // First single() call: ownership check
-        return Promise.resolve(
-          overrides.fetchExisting ?? { data: { id: 7, catalog_id: 128 }, error: null }
-        );
-      }
-      // Second single() call: re-fetch updated row
-      return Promise.resolve(
-        overrides.refetch ?? {
-          data: {
-            id: 7,
-            catalog_id: 128,
-            cupping_notes: '{}',
-            notes: null,
-            last_updated: '2026-04-03',
-          },
-          error: null,
-        }
-      );
-    }),
-    // update().eq().eq() chain resolves via then
-    then: vi.fn().mockImplementation((resolve: (v: unknown) => void) => {
-      resolve(overrides.updateResult ?? { error: null });
-    }),
-  };
-
-  return {
-    from: vi.fn().mockReturnValue(chain),
-    _chain: chain,
-    _callCount: () => callCount,
-  };
-}
-
 describe('rateCoffee', () => {
   const validInput = { aroma: 4, body: 3, acidity: 5, sweetness: 4, aftertaste: 4 };
 
-  it('throws AuthError when the inventory item does not belong to the user', async () => {
-    const supabase = makeRatingSupabase({
-      fetchExisting: { data: null, error: { message: 'not found' } },
-    });
-
-    await expect(rateCoffee(supabase as never, 'user-abc', 99, validInput)).rejects.toThrow(
-      AuthError
-    );
-  });
-
-  it('returns the updated inventory row on success', async () => {
-    const expectedRow = {
+  it('writes the canonical tasting payload with a pinned token', async () => {
+    const expected = {
       id: 7,
-      catalog_id: 128,
-      cupping_notes: { aroma: 4, body: 3 },
+      rank: null,
       notes: null,
-      last_updated: '2026-04-03',
+      cupping_notes: JSON.stringify({ ...validInput, brew_method: 'pour_over' }),
+      purchase_date: null,
+      purchased_qty_lbs: 5,
+      bean_cost: 8,
+      tax_ship_cost: null,
+      last_updated: '2026-07-12T00:00:00.000Z',
+      user: 'user-1',
+      catalog_id: 128,
+      stocked: true,
+      coffee_catalog: null,
     };
-    const supabase = makeRatingSupabase({
-      fetchExisting: { data: { id: 7, catalog_id: 128 }, error: null },
-      refetch: { data: expectedRow, error: null },
+    const rate = vi.fn().mockResolvedValue({
+      data: { data: expected, meta: {} },
+      response: new Response(null, { status: 200 }),
     });
+    const list = vi.fn().mockResolvedValue({
+      data: { data: [expected], meta: {} },
+      response: new Response(null, { status: 200 }),
+    });
+    vi.mocked(createParchmentClient).mockResolvedValue({
+      tasting: { rate },
+      inventory: { list },
+    } as never);
 
-    const result = await rateCoffee(supabase as never, 'user-abc', 7, validInput);
-
-    expect(result).toEqual(expectedRow);
-  });
-
-  it('includes optional brewMethod and notes in the cupping payload', async () => {
-    const supabase = makeRatingSupabase({});
-    const updateSpy = supabase._chain.update;
-
-    await rateCoffee(supabase as never, 'user-abc', 7, {
+    await expect(
+      rateCoffee(
+        7,
+        {
+          ...validInput,
+          brewMethod: 'pour_over',
+          notes: 'Clean finish',
+        },
+        'session-token'
+      )
+    ).resolves.toEqual(expected);
+    expect(createParchmentClient).toHaveBeenCalledWith('member', 'session-token');
+    expect(rate).toHaveBeenCalledWith(7, {
       ...validInput,
       brewMethod: 'pour_over',
       notes: 'Clean finish',
     });
-
-    expect(updateSpy).toHaveBeenCalledOnce();
-    const payload = updateSpy.mock.calls[0][0] as { cupping_notes: Record<string, unknown> };
-    expect(payload.cupping_notes.brew_method).toBe('pour_over');
-    expect(payload.cupping_notes.notes).toBe('Clean finish');
+    expect(list).toHaveBeenCalledWith({ limit: 100, offset: 0 });
   });
 
-  it('does NOT include brew_method key when brewMethod is omitted', async () => {
-    const supabase = makeRatingSupabase({});
-    const updateSpy = supabase._chain.update;
-
-    await rateCoffee(supabase as never, 'user-abc', 7, validInput);
-
-    const payload = updateSpy.mock.calls[0][0] as { cupping_notes: Record<string, unknown> };
-    expect('brew_method' in payload.cupping_notes).toBe(false);
-    expect('notes' in payload.cupping_notes).toBe(false);
-  });
-
-  it('includes rated_at timestamp in the cupping payload', async () => {
-    const supabase = makeRatingSupabase({});
-    const updateSpy = supabase._chain.update;
-
-    await rateCoffee(supabase as never, 'user-abc', 7, validInput);
-
-    const payload = updateSpy.mock.calls[0][0] as { cupping_notes: Record<string, unknown> };
-    expect(typeof payload.cupping_notes.rated_at).toBe('string');
-    // Should be a valid ISO timestamp
-    expect(new Date(payload.cupping_notes.rated_at as string).getTime()).not.toBeNaN();
-  });
-
-  it('throws when the update query fails', async () => {
-    const supabase = makeRatingSupabase({
-      fetchExisting: { data: { id: 7, catalog_id: 128 }, error: null },
-      updateResult: { error: new Error('DB write failed') },
+  it('unwraps API ownership failures', async () => {
+    const rate = vi.fn().mockResolvedValue({
+      error: { error: { message: 'Inventory item not found or not owned by caller' } },
+      response: new Response(null, { status: 404 }),
     });
+    vi.mocked(createParchmentClient).mockResolvedValue({ tasting: { rate } } as never);
 
-    await expect(rateCoffee(supabase as never, 'user-abc', 7, validInput)).rejects.toThrow(
-      'DB write failed'
-    );
+    await expect(rateCoffee(99, validInput, 'session-token')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      message: 'Inventory item not found or not owned by caller',
+    });
   });
 });

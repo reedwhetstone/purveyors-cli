@@ -11,8 +11,8 @@ importers:
         specifier: ^1.1.0
         version: 1.1.0
       '@purveyors/sdk':
-        specifier: ^0.8.0
-        version: 0.8.0
+        specifier: ^0.9.0
+        version: 0.9.0
       '@supabase/supabase-js':
         specifier: ^2.49.1
         version: 2.99.1
@@ -403,10 +403,10 @@ packages:
         integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==,
       }
 
-  '@purveyors/sdk@0.8.0':
+  '@purveyors/sdk@0.9.0':
     resolution:
       {
-        integrity: sha512-+kiDrbYINBbYPCtu2efjIegvOlRJ3aqfnjKWY06Q73PC0KQhx6W7HHbUU5P1lPJEklqULi/XnXVRep+aywcC+g==,
+        integrity: sha512-emXMIIBrJaWFvZmpFKdySjDJTt1cmP7eQFjRqP/OZvtB55xQx7epyvo/H9ZMCo79M5CDg6ym0AOyHVaAV0L3hQ==,
       }
 
   '@rollup/rollup-android-arm-eabi@4.59.0':
@@ -2063,7 +2063,7 @@ snapshots:
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
 
-  '@purveyors/sdk@0.8.0':
+  '@purveyors/sdk@0.9.0':
     dependencies:
       openapi-fetch: 0.13.8
 
