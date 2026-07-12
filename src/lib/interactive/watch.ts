@@ -14,6 +14,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ImportRoastResult } from '../roast.js';
 import type { MilestoneData, ProcessedRoastData } from '../artisan/types.js';
 import { CONFIG_DIR } from '../config.js';
+import { listInventory } from '../inventory.js';
+import { AuthError } from '../errors.js';
 
 // ─── Roast importer seam ────────────────────────────────────────────────────
 
@@ -100,6 +102,8 @@ export interface StartWatchRuntime {
   removeSignalListener?: (signal: 'SIGINT' | 'SIGTERM', listener: () => void) => void;
   addExitKeyListener?: (listener: () => void) => () => void;
   debounceMs?: number;
+  sessionTokenProvider?: () => Promise<string | undefined>;
+  inventoryLister?: typeof listInventory;
 }
 
 function addDefaultExitKeyListener(listener: () => void): () => void {
@@ -426,6 +430,18 @@ export async function startWatch(
   const removeSignalListener = runtime.removeSignalListener ?? process.removeListener.bind(process);
   const addExitKeyListener = runtime.addExitKeyListener ?? addDefaultExitKeyListener;
   const debounceMs = runtime.debounceMs ?? 2000;
+  const sessionTokenProvider =
+    runtime.sessionTokenProvider ??
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new AuthError('Session expired mid-watch. Run `purvey auth login` and retry.');
+      }
+      return session.access_token;
+    });
+  const inventoryLister = runtime.inventoryLister ?? listInventory;
 
   // 1. Validate directory exists
   try {
@@ -567,7 +583,7 @@ export async function startWatch(
       process.stderr.write(`\nNew file detected: ${filename}\n`);
       // allowCancel keeps the watch session alive on Ctrl+C / Escape so the
       // shutdown path can still print the summary and commit queued imports.
-      const bean = await pickBean(supabase, userId, { allowCancel: true });
+      const bean = await pickBean(await sessionTokenProvider(), { allowCancel: true });
       if (!bean) {
         const record: ImportRecord = {
           fileName: filename,
@@ -612,7 +628,14 @@ export async function startWatch(
     // Auto-match mode: use AI to classify the bean
     let aiResult: Awaited<ReturnType<typeof runAutoMatch>> | undefined;
     if (opts.autoMatch && !opts.promptEach) {
-      aiResult = await runAutoMatch(supabase, userId, filename, fileContent);
+      aiResult = await runAutoMatch(
+        supabase,
+        userId,
+        filename,
+        fileContent,
+        inventoryLister,
+        sessionTokenProvider
+      );
       if (aiResult.skip) {
         // AI returned low confidence or failed — mark as needs-review
         const record: ImportRecord = {
@@ -851,7 +874,9 @@ async function runAutoMatch(
   supabase: SupabaseClient,
   userId: string,
   filename: string,
-  fileContent: string
+  fileContent: string,
+  inventoryLister: typeof listInventory,
+  sessionTokenProvider: () => Promise<string | undefined>
 ): Promise<AutoMatchResult> {
   // Parse alog metadata without full import
   let alogMetadata: {
@@ -888,27 +913,13 @@ async function runAutoMatch(
   }> = [];
 
   try {
-    const { data, error } = await supabase
-      .from('green_coffee_inv')
-      .select('id, coffee_catalog!catalog_id (name, country, processing)')
-      .eq('user', userId)
-      .eq('stocked', true)
-      .limit(100);
-
-    if (error) throw error;
-
-    const rows = (data ?? []) as Array<{
-      id: number;
-      coffee_catalog:
-        | { name: string | null; country: string | null; processing: string | null }
-        | { name: string | null; country: string | null; processing: string | null }[]
-        | null;
-    }>;
+    const rows = await inventoryLister(
+      { stocked_only: true, limit: 100 },
+      await sessionTokenProvider()
+    );
 
     inventory = rows.map((row) => {
-      const catalog = Array.isArray(row.coffee_catalog)
-        ? (row.coffee_catalog[0] ?? null)
-        : row.coffee_catalog;
+      const catalog = row.coffee_catalog;
       return {
         id: row.id,
         coffee_name: catalog?.name ?? `Bean #${row.id}`,

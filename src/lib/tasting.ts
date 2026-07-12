@@ -1,7 +1,6 @@
 import { z } from 'zod';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import { AuthError, PrvrsError } from './errors.js';
-import type { InventoryItem } from './inventory.js';
+import { PrvrsError } from './errors.js';
+import { getInventory, type InventoryItem } from './inventory.js';
 import { createParchmentClient, unwrapParchment } from './parchment.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -109,56 +108,17 @@ export async function getTastingNotes(
 }
 
 /**
- * Rate a coffee by storing cupping scores on the inventory item (must belong to userId).
+ * Rate an owned inventory lot through the canonical Parchment API.
  */
 export async function rateCoffee(
-  supabase: SupabaseClient,
-  userId: string,
   id: number,
-  input: RateCoffeeInput
+  input: RateCoffeeInput,
+  tokenOverride?: string
 ): Promise<InventoryItem> {
   const parsed = rateCoffeeSchema.parse(input);
-
-  // Verify ownership of the inventory item
-  const { data: existing, error: fetchError } = await supabase
-    .from('green_coffee_inv')
-    .select('id, catalog_id')
-    .eq('id', id)
-    .eq('user', userId)
-    .single();
-
-  if (fetchError || !existing) {
-    throw new AuthError(`Inventory item ${id} not found or does not belong to you.`);
-  }
-
-  const cupping: CuppingNotes = {
-    aroma: parsed.aroma,
-    body: parsed.body,
-    acidity: parsed.acidity,
-    sweetness: parsed.sweetness,
-    aftertaste: parsed.aftertaste,
-    rated_at: new Date().toISOString(),
-  };
-
-  if (parsed.brewMethod !== undefined) cupping.brew_method = parsed.brewMethod;
-  if (parsed.notes !== undefined) cupping.notes = parsed.notes;
-
-  const { error: updateError } = await supabase
-    .from('green_coffee_inv')
-    .update({ cupping_notes: cupping as unknown as string })
-    .eq('id', id)
-    .eq('user', userId);
-
-  if (updateError) throw updateError;
-
-  // Re-fetch the updated row
-  const { data, error } = await supabase
-    .from('green_coffee_inv')
-    .select('id, catalog_id, cupping_notes, notes, last_updated')
-    .eq('id', id)
-    .single();
-
-  if (error) throw error;
-
-  return data as unknown as InventoryItem;
+  const client = await createParchmentClient('member', tokenOverride);
+  unwrapParchment(await client.tasting.rate(id, parsed), 'Tasting rate');
+  // Preserve the public CLI/helper output contract: callers historically receive
+  // the refreshed inventory row rather than the mutation-specific API payload.
+  return getInventory(id, tokenOverride);
 }

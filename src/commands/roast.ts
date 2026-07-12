@@ -26,6 +26,7 @@ import {
 } from '../lib/parchment.js';
 import type { components } from '@purveyors/sdk';
 import type { OutputOptions } from '../types/index.js';
+import { getInventory } from '../lib/inventory.js';
 
 /** Canonical `POST /v1/roasts/imports` response payload. */
 type RoastImportPayload = components['schemas']['RoastImportResponse'];
@@ -153,6 +154,16 @@ export async function createInteractiveRoast(
     throw new AuthError('Session expired mid-create. Run `purvey auth login` and retry.');
   }
   return createRoast(input, session.access_token);
+}
+
+async function requireCurrentSessionToken(supabase: SupabaseClient): Promise<string> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new AuthError('Session expired. Run `purvey auth login` and retry.');
+  }
+  return session.access_token;
 }
 
 // ─── Command builder ──────────────────────────────────────────────────────────
@@ -346,9 +357,9 @@ Required flags: --coffee-id (green_coffee_inv.id)
         if (formMode) {
           p.intro('Create Roast Profile');
 
-          const { supabase, userId } = await requireAuth('member');
+          const { supabase } = await requireAuth('member');
 
-          const bean = await pickBean(supabase, userId);
+          const bean = await pickBean(await requireCurrentSessionToken(supabase));
 
           const today = todayIso();
           const defaultBatch = `${bean.name} ${today}`;
@@ -620,9 +631,9 @@ Required: <file> path and --coffee-id (unless using --form)
             }
 
             // Authenticate
-            const { supabase, userId } = await requireAuth('member');
+            const { supabase } = await requireAuth('member');
 
-            const bean = await pickBean(supabase, userId);
+            const bean = await pickBean(await requireCurrentSessionToken(supabase));
 
             const today = todayIso();
             const defaultBatch = `${bean.name} ${today}`;
@@ -958,7 +969,7 @@ Notes:
             guardCancel(batchPrefixRaw);
             batchPrefix = String(batchPrefixRaw).trim() || 'Roast';
           } else {
-            const bean = await pickBean(supabase, userId);
+            const bean = await pickBean(await requireCurrentSessionToken(supabase));
             watchCoffeeId = bean.id;
             watchCoffeeName = bean.name;
 
@@ -1091,27 +1102,8 @@ Notes:
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --coffee-id: "${opts.coffeeId}".`);
           }
 
-          // Look up coffee name from inventory
-          const { data: invItem, error: invError } = await supabase
-            .from('green_coffee_inv')
-            .select('id, coffee_catalog!catalog_id (name)')
-            .eq('id', coffeeId)
-            .eq('user', userId)
-            .single();
-
-          if (invError || !invItem) {
-            throw new PrvrsError(
-              'NOT_FOUND',
-              `Inventory item ${coffeeId} not found or does not belong to you.`
-            );
-          }
-
-          const catalogRaw = invItem.coffee_catalog as
-            | { name: string | null }
-            | { name: string | null }[]
-            | null;
-          const catalog = Array.isArray(catalogRaw) ? (catalogRaw[0] ?? null) : catalogRaw;
-          coffeeName = catalog?.name ?? `Coffee #${coffeeId}`;
+          const invItem = await getInventory(coffeeId, await requireCurrentSessionToken(supabase));
+          coffeeName = invItem.coffee_catalog?.name ?? `Coffee #${coffeeId}`;
         }
 
         const batchPrefix = (opts.batchPrefix as string | undefined) ?? coffeeName;

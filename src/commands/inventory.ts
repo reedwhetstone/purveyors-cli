@@ -155,7 +155,7 @@ Required flags: --catalog-id, --qty
           const { supabase } = await requireAuth('member');
           p.intro('Add Bean to Inventory');
 
-          const catalogItem = await pickCatalogItem(supabase);
+          const catalogItem = await pickCatalogItem();
 
           const qtyRaw = await p.text({
             message: 'Quantity (lbs)',

@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import { AuthError, PrvrsError } from './errors.js';
+import { PrvrsError } from './errors.js';
 import { createParchmentClient, unwrapParchment } from './parchment.js';
 
 export interface Sale {
@@ -112,33 +111,6 @@ export type DeleteSaleInput = z.input<typeof deleteSaleSchema>;
 
 type SalesParchmentClient = Awaited<ReturnType<typeof createParchmentClient>>;
 
-async function legacySessionToken(
-  supabase: SupabaseClient,
-  expectedUserId: string
-): Promise<string> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    throw new AuthError('Sales operations require an authenticated Purveyors session.');
-  }
-  if (!session.user?.id || session.user.id !== expectedUserId) {
-    throw new AuthError('The authenticated Purveyors session does not match the requested user.');
-  }
-  return session.access_token;
-}
-
-async function preserveLegacyNotFound<T>(operation: Promise<T>, message: string): Promise<T> {
-  try {
-    return await operation;
-  } catch (error) {
-    if (error instanceof PrvrsError && error.code === 'NOT_FOUND') {
-      throw new AuthError(message);
-    }
-    throw error;
-  }
-}
-
 async function listExactSaleRoastMatches(
   client: SalesParchmentClient,
   coffeeId: number,
@@ -203,25 +175,10 @@ export async function listSales(
   return envelope.data as Sale[];
 }
 
-export function resolveSaleRoast(
+export async function resolveSaleRoast(
   input: SaleTargetSelectorInput,
   tokenOverride?: string
-): Promise<ResolvedSaleTarget>;
-export function resolveSaleRoast(
-  supabase: SupabaseClient,
-  userId: string,
-  input: SaleTargetSelectorInput
-): Promise<ResolvedSaleTarget>;
-export async function resolveSaleRoast(
-  inputOrSupabase: SaleTargetSelectorInput | SupabaseClient,
-  tokenOverrideOrUserId?: string,
-  legacyInput?: SaleTargetSelectorInput
 ): Promise<ResolvedSaleTarget> {
-  const legacyCall = legacyInput !== undefined;
-  const input = legacyInput ?? (inputOrSupabase as SaleTargetSelectorInput);
-  const tokenOverride = legacyCall
-    ? await legacySessionToken(inputOrSupabase as SupabaseClient, tokenOverrideOrUserId as string)
-    : tokenOverrideOrUserId;
   const parsed = saleTargetSelectorSchema.parse(input);
   const client = await createParchmentClient('member', tokenOverride);
 
@@ -229,12 +186,7 @@ export async function resolveSaleRoast(
     const getRoast = Promise.resolve(client.roasts.get(String(parsed.roastId))).then((result) =>
       unwrapParchment(result, 'Sale roast selector')
     );
-    const envelope = legacyCall
-      ? await preserveLegacyNotFound(
-          getRoast,
-          `Roast profile ${parsed.roastId} not found or does not belong to you.`
-        )
-      : await getRoast;
+    const envelope = await getRoast;
     const roast = envelope.data;
     if (roast.coffee_id == null) {
       throw new PrvrsError(
@@ -280,30 +232,9 @@ export async function resolveSaleRoast(
   };
 }
 
-export function recordSale(input: RecordSaleInput, tokenOverride?: string): Promise<Sale>;
-export function recordSale(
-  supabase: SupabaseClient,
-  userId: string,
-  input: RecordSaleInput
-): Promise<Sale>;
-export async function recordSale(
-  inputOrSupabase: RecordSaleInput | SupabaseClient,
-  tokenOverrideOrUserId?: string,
-  legacyInput?: RecordSaleInput
-): Promise<Sale> {
-  const input = legacyInput ?? (inputOrSupabase as RecordSaleInput);
-  const tokenOverride = legacyInput
-    ? await legacySessionToken(inputOrSupabase as SupabaseClient, tokenOverrideOrUserId as string)
-    : tokenOverrideOrUserId;
+export async function recordSale(input: RecordSaleInput, tokenOverride?: string): Promise<Sale> {
   const parsed = recordSaleSchema.parse(input);
-  const resolveTarget = resolveSaleRoast(parsed, tokenOverride);
-  const target =
-    legacyInput && parsed.roastId !== undefined
-      ? await preserveLegacyNotFound(
-          resolveTarget,
-          `Roast profile ${parsed.roastId} not found or does not belong to you.`
-        )
-      : await resolveTarget;
+  const target = await resolveSaleRoast(parsed, tokenOverride);
   const client = await createParchmentClient('member', tokenOverride);
   const body = {
     greenCoffeeInvId: target.greenCoffeeInvId!,
@@ -320,29 +251,11 @@ export async function recordSale(
   return envelope.data as Sale;
 }
 
-export function updateSale(
+export async function updateSale(
   id: number,
   input: UpdateSaleInput,
   tokenOverride?: string
-): Promise<Sale>;
-export function updateSale(
-  supabase: SupabaseClient,
-  userId: string,
-  id: number,
-  input: UpdateSaleInput
-): Promise<Sale>;
-export async function updateSale(
-  idOrSupabase: number | SupabaseClient,
-  inputOrUserId: UpdateSaleInput | string,
-  tokenOverrideOrId?: string | number,
-  legacyInput?: UpdateSaleInput
 ): Promise<Sale> {
-  const legacyCall = typeof idOrSupabase !== 'number';
-  const id = legacyCall ? (tokenOverrideOrId as number) : idOrSupabase;
-  const input = legacyCall ? legacyInput! : (inputOrUserId as UpdateSaleInput);
-  const tokenOverride = legacyCall
-    ? await legacySessionToken(idOrSupabase, inputOrUserId as string)
-    : (tokenOverrideOrId as string | undefined);
   deleteSaleSchema.parse({ id });
   const parsed = updateSaleSchema.parse(input);
   const client = await createParchmentClient('member', tokenOverride);
@@ -355,32 +268,15 @@ export async function updateSale(
   const update = Promise.resolve(client.sales.update(id, body)).then((result) =>
     unwrapParchment(result, 'Sale update')
   );
-  const envelope = legacyCall
-    ? await preserveLegacyNotFound(update, `Sale ${id} not found or does not belong to you.`)
-    : await update;
+  const envelope = await update;
   return envelope.data as Sale;
 }
 
-export function deleteSale(id: number, tokenOverride?: string): Promise<void>;
-export function deleteSale(supabase: SupabaseClient, userId: string, id: number): Promise<void>;
-export async function deleteSale(
-  idOrSupabase: number | SupabaseClient,
-  tokenOverrideOrUserId?: string,
-  legacyId?: number
-): Promise<void> {
-  const legacyCall = typeof idOrSupabase !== 'number';
-  const id = legacyCall ? legacyId! : idOrSupabase;
-  const tokenOverride = legacyCall
-    ? await legacySessionToken(idOrSupabase, tokenOverrideOrUserId as string)
-    : tokenOverrideOrUserId;
+export async function deleteSale(id: number, tokenOverride?: string): Promise<void> {
   deleteSaleSchema.parse({ id });
   const client = await createParchmentClient('member', tokenOverride);
   const remove = Promise.resolve(client.sales.delete(id)).then((result) =>
     unwrapParchment(result, 'Sale delete')
   );
-  if (legacyCall) {
-    await preserveLegacyNotFound(remove, `Sale ${id} not found or does not belong to you.`);
-  } else {
-    await remove;
-  }
+  await remove;
 }

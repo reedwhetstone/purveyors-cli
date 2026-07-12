@@ -73,6 +73,13 @@ function createRuntime() {
     debounceMs: 1,
     saveWatchSessionImpl,
     roastImporter,
+    sessionTokenProvider: vi.fn().mockResolvedValue('session-token'),
+    inventoryLister: vi.fn().mockResolvedValue([
+      {
+        id: 88,
+        coffee_catalog: { name: 'Matched Bean', country: 'Ethiopia', processing: 'Washed' },
+      },
+    ]),
     addSignalListener: vi.fn((signal, listener) => {
       signalListeners.set(signal, listener);
     }),
@@ -402,7 +409,7 @@ describe('startWatch', () => {
     runtime.emitSignal('SIGINT');
     const session = await sessionPromise;
 
-    expect(pickBeanMock).toHaveBeenCalledWith({}, 'user-8', { allowCancel: true });
+    expect(pickBeanMock).toHaveBeenCalledWith('session-token', { allowCancel: true });
     expect(session.imports[0]).toEqual(
       expect.objectContaining({
         fileName: 'cancelled.alog',
@@ -662,6 +669,47 @@ describe('startWatch', () => {
     await sessionPromise;
 
     expect(runtime.hasSignalListener('SIGINT')).toBe(false);
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('fails closed before reading inventory when the bound watch session expires', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-expired-session-'));
+    const runtime = createRuntime();
+    delete runtime.runtime.sessionTokenProvider;
+    const expiredSupabase = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: null } }) },
+    } as never;
+
+    const sessionPromise = startWatch(
+      expiredSupabase,
+      'user-expired',
+      watchDir,
+      {
+        coffeeId: 0,
+        coffeeName: 'auto-match',
+        batchPrefix: 'Roast',
+        commitMode: 'batch',
+        autoMatch: true,
+      },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    await writeFile(join(watchDir, 'expired.alog'), 'expired session content');
+    runtime.emitFileEvent('expired.alog');
+    await sleep(10);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.runtime.inventoryLister).not.toHaveBeenCalled();
+    expect(runtime.roastImporter).not.toHaveBeenCalled();
+    expect(session.imports[0]).toMatchObject({
+      fileName: 'expired.alog',
+      status: 'needs-review',
+      error:
+        'Failed to fetch inventory: Session expired mid-watch. Run `purvey auth login` and retry.',
+    });
 
     await rm(watchDir, { recursive: true, force: true });
   });

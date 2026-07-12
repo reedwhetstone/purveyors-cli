@@ -52,7 +52,7 @@ describe('inventory SDK data plane', () => {
         offset: 20,
       })
     ).resolves.toEqual([item(7)]);
-    expect(createParchmentClient).toHaveBeenCalledWith('member');
+    expect(createParchmentClient).toHaveBeenCalledWith('member', undefined);
     expect(list).toHaveBeenCalledWith(
       expect.objectContaining({
         stocked_only: true,
