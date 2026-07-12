@@ -208,7 +208,7 @@ describe('SDK-backed sales writes', () => {
     expect(list).toHaveBeenCalledTimes(2);
   });
 
-  it('deduplicates overlapping pages while evaluating new rows', async () => {
+  it('does not skip a later exact match after deduplicating overlapping pages', async () => {
     const exact = { roast_id: 1, coffee_id: 7, batch_name: 'Batch A' };
     const list = vi
       .fn()
@@ -222,14 +222,14 @@ describe('SDK-backed sales writes', () => {
           data: [exact, { roast_id: 3, coffee_id: 7, batch_name: 'Batch A other' }],
         })
       )
-      .mockResolvedValueOnce(ok({ data: [] }));
+      .mockResolvedValueOnce(ok({ data: [{ roast_id: 4, coffee_id: 7, batch_name: 'Batch A' }] }));
     vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { list } } as never);
 
-    await expect(resolveSaleRoast({ coffeeId: 7, batchName: 'Batch A' })).resolves.toMatchObject({
-      roastId: 1,
+    await expect(resolveSaleRoast({ coffeeId: 7, batchName: 'Batch A' })).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
     });
     expect(list).toHaveBeenNthCalledWith(2, expect.objectContaining({ offset: 2 }));
-    expect(list).toHaveBeenNthCalledWith(3, expect.objectContaining({ offset: 4 }));
+    expect(list).toHaveBeenNthCalledWith(3, expect.objectContaining({ offset: 3 }));
   });
 
   it('rejects a non-empty page containing no unseen roast IDs', async () => {

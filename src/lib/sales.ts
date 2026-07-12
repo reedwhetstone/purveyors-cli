@@ -157,7 +157,7 @@ async function listExactSaleRoastMatches(
       )
     );
     if (exactMatches.length > 1) break;
-    offset += rows.length;
+    offset += unseenRows.length;
   } while (true);
   return exactMatches;
 }
