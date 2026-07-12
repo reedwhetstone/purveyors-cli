@@ -35,4 +35,4 @@ Negative:
 Risks and tradeoffs:
 
 - Key creation must stay synchronized with the full set of CLI data-plane scopes.
-- Revoking superseded keys is a multi-request operation. A partial revocation failure can leave an older key active; the CLI best-effort revokes the newly minted key and preserves the prior local credential rather than committing a partially completed replacement.
+- Revoking superseded keys is a multi-request operation. Mint failure preserves the prior local credential. A later partial revocation failure can leave an older key active and may already have revoked the locally stored prior key; the CLI best-effort revokes the newly minted key and does not commit the incomplete replacement.
