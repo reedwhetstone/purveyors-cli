@@ -805,6 +805,7 @@ const commandGroups: CliCommandGroupContract[] = [
         ],
         notes: [
           'Selector modes: exact --roast-id, or resolved --coffee-id + --batch-name.',
+          'Creates use the canonical sales API with an idempotency key; selectors resolve through canonical roast endpoints.',
           'Use exactly one selector mode.',
           'If resolved mode is ambiguous, rerun with --roast-id.',
         ],

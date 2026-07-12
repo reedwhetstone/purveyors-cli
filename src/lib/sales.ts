@@ -1,9 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import { AuthError, PrvrsError } from './errors.js';
+import { PrvrsError } from './errors.js';
 import { createParchmentClient, unwrapParchment } from './parchment.js';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface Sale {
   id: number;
@@ -18,21 +16,15 @@ export interface Sale {
   buyer: string | null;
   sell_date: string | null;
   user: string | null;
-  last_updated?: string;
   wholesale?: boolean;
 }
 
 export interface ResolvedSaleTarget {
+  greenCoffeeInvId: number;
+  batchName?: string;
   roastId: number;
   mode: 'exact' | 'resolved';
 }
-
-// ─── Shared select columns ────────────────────────────────────────────────────
-
-export const SALE_SELECT =
-  'id, roast_id, oz_sold, sale_price, buyer, sell_date, user, last_updated';
-
-// ─── Zod schemas ──────────────────────────────────────────────────────────────
 
 export const listSalesSchema = z.object({
   limit: z.number().int().min(1).default(20),
@@ -42,7 +34,6 @@ export const listSalesSchema = z.object({
   dateEnd: z.string().optional(),
   buyer: z.string().optional(),
 });
-
 export type ListSalesInput = z.input<typeof listSalesSchema>;
 
 const saleTargetFields = {
@@ -58,7 +49,6 @@ function validateSaleTargetSelector(
   const hasRoastId = value.roastId !== undefined;
   const hasCoffeeId = value.coffeeId !== undefined;
   const hasBatchName = value.batchName !== undefined;
-
   if (hasRoastId && (hasCoffeeId || hasBatchName)) {
     ctx.addIssue({
       code: 'custom',
@@ -67,7 +57,6 @@ function validateSaleTargetSelector(
     });
     return;
   }
-
   if (!hasRoastId && !hasCoffeeId && !hasBatchName) {
     ctx.addIssue({
       code: 'custom',
@@ -76,7 +65,6 @@ function validateSaleTargetSelector(
     });
     return;
   }
-
   if (!hasRoastId && hasCoffeeId !== hasBatchName) {
     ctx.addIssue({
       code: 'custom',
@@ -89,7 +77,6 @@ function validateSaleTargetSelector(
 export const saleTargetSelectorSchema = z
   .object(saleTargetFields)
   .superRefine(validateSaleTargetSelector);
-
 export type SaleTargetSelectorInput = z.input<typeof saleTargetSelectorSchema>;
 
 export const recordSaleSchema = z
@@ -101,7 +88,6 @@ export const recordSaleSchema = z
     sellDate: z.string().optional(),
   })
   .superRefine(validateSaleTargetSelector);
-
 export type RecordSaleInput = z.input<typeof recordSaleSchema>;
 
 export const updateSaleSchema = z
@@ -111,23 +97,14 @@ export const updateSaleSchema = z
     buyer: z.string().optional(),
     sellDate: z.string().optional(),
   })
-  .refine((v) => Object.keys(v).some((k) => v[k as keyof typeof v] !== undefined), {
+  .refine((v) => Object.values(v).some((value) => value !== undefined), {
     message: 'No update fields provided. Pass at least one of: oz, price, buyer, sellDate.',
   });
-
 export type UpdateSaleInput = z.input<typeof updateSaleSchema>;
 
-export const deleteSaleSchema = z.object({
-  id: z.number().int().positive(),
-});
-
+export const deleteSaleSchema = z.object({ id: z.number().int().positive() });
 export type DeleteSaleInput = z.input<typeof deleteSaleSchema>;
 
-// ─── Pure lib functions ───────────────────────────────────────────────────────
-
-/**
- * List sales for a user (newest first, with roast profile join).
- */
 export async function listSales(
   opts: ListSalesInput = {},
   tokenOverride?: string
@@ -149,184 +126,128 @@ export async function listSales(
 }
 
 export async function resolveSaleRoast(
-  supabase: SupabaseClient,
-  userId: string,
-  input: SaleTargetSelectorInput
+  input: SaleTargetSelectorInput,
+  tokenOverride?: string
 ): Promise<ResolvedSaleTarget> {
   const parsed = saleTargetSelectorSchema.parse(input);
+  const client = await createParchmentClient('member', tokenOverride);
 
   if (parsed.roastId !== undefined) {
-    const { data: roastExists, error: roastError } = await supabase
-      .from('roast_profiles')
-      .select('roast_id')
-      .eq('roast_id', parsed.roastId)
-      .eq('user', userId)
-      .single();
-
-    if (roastError || !roastExists) {
-      throw new AuthError(`Roast profile ${parsed.roastId} not found or does not belong to you.`);
+    const envelope = unwrapParchment(
+      await client.roasts.get(String(parsed.roastId)),
+      'Sale roast selector'
+    );
+    const roast = envelope.data;
+    if (roast.coffee_id == null) {
+      throw new PrvrsError(
+        'INVALID_ARGUMENT',
+        `Roast profile ${parsed.roastId} is not linked to a green coffee inventory item.`
+      );
     }
-
-    return { roastId: parsed.roastId, mode: 'exact' };
+    return {
+      greenCoffeeInvId: roast.coffee_id,
+      batchName: roast.batch_name ?? undefined,
+      roastId: roast.roast_id,
+      mode: 'exact',
+    };
   }
 
-  const { data: matches, error: lookupError } = await supabase
-    .from('roast_profiles')
-    .select('roast_id, batch_name')
-    .eq('user', userId)
-    .eq('coffee_id', parsed.coffeeId!)
-    .eq('batch_name', parsed.batchName!)
-    .limit(2);
+  const exactMatches: Array<{
+    roast_id: number;
+    coffee_id: number | null;
+    batch_name: string | null;
+  }> = [];
+  const pageSize = 100;
+  let offset = 0;
+  const seenRoastIds = new Set<number>();
+  do {
+    const envelope = unwrapParchment(
+      await client.roasts.list({
+        coffee_id: parsed.coffeeId,
+        batch_name: parsed.batchName,
+        limit: pageSize,
+        offset,
+      }),
+      'Sale roast selector'
+    );
+    const rows = envelope.data;
+    if (rows.length === 0) break;
+    const unseenRows = rows.filter((row) => !seenRoastIds.has(row.roast_id));
+    if (unseenRows.length === 0) {
+      throw new PrvrsError(
+        'GENERAL_ERROR',
+        'Sale roast selector pagination did not advance. Retry the request.'
+      );
+    }
+    for (const row of unseenRows) seenRoastIds.add(row.roast_id);
+    exactMatches.push(
+      ...unseenRows.filter(
+        (row) => row.coffee_id === parsed.coffeeId && row.batch_name === parsed.batchName
+      )
+    );
+    if (exactMatches.length > 1) break;
+    offset += rows.length;
+  } while (true);
 
-  if (lookupError) throw lookupError;
-
-  const resolvedMatches = (matches ?? []) as Array<{ roast_id: number; batch_name: string | null }>;
-
-  if (resolvedMatches.length === 0) {
+  if (exactMatches.length === 0) {
     throw new PrvrsError(
       'NOT_FOUND',
       `No roast profile found for --coffee-id ${parsed.coffeeId} with batch name "${parsed.batchName}". Use 'purvey roast list --coffee-id ${parsed.coffeeId}' to inspect candidates, or pass --roast-id directly.`
     );
   }
-
-  if (resolvedMatches.length > 1) {
-    const matchIds = resolvedMatches.map((row) => row.roast_id).join(', ');
+  if (exactMatches.length > 1) {
     throw new PrvrsError(
       'INVALID_ARGUMENT',
-      `Multiple roast profiles match --coffee-id ${parsed.coffeeId} and batch name "${parsed.batchName}". Matching roast IDs: ${matchIds}. Re-run with --roast-id.`
+      `Multiple roast profiles match --coffee-id ${parsed.coffeeId} and batch name "${parsed.batchName}". Matching roast IDs: ${exactMatches.map((row) => row.roast_id).join(', ')}. Re-run with --roast-id.`
     );
   }
-
-  return { roastId: resolvedMatches[0].roast_id, mode: 'resolved' };
-}
-
-/**
- * Record a new sale (target roast must belong to userId).
- */
-export async function recordSale(
-  supabase: SupabaseClient,
-  userId: string,
-  input: RecordSaleInput
-): Promise<Sale> {
-  const parsed = recordSaleSchema.parse(input);
-  const target = await resolveSaleRoast(supabase, userId, parsed);
-
-  const todayIso = () => new Date().toISOString().slice(0, 10);
-
-  const insertPayload: Record<string, unknown> = {
-    user: userId,
-    roast_id: target.roastId,
-    oz_sold: parsed.oz,
-    sale_price: parsed.price,
-    sell_date: parsed.sellDate ?? todayIso(),
+  return {
+    greenCoffeeInvId: parsed.coffeeId!,
+    batchName: parsed.batchName,
+    roastId: exactMatches[0].roast_id,
+    mode: 'resolved',
   };
-
-  if (parsed.buyer !== undefined) insertPayload.buyer = parsed.buyer;
-
-  const { data: inserted, error: insertError } = await supabase
-    .from('sales')
-    .insert(insertPayload)
-    .select('id')
-    .single();
-
-  if (insertError) throw insertError;
-
-  // Re-fetch the full row with roast join
-  const { data, error } = await supabase
-    .from('sales')
-    .select(`${SALE_SELECT}, roast_profiles!roast_id (batch_name, coffee_name)`)
-    .eq('id', inserted.id)
-    .single();
-
-  if (error) throw error;
-
-  return data as Sale;
 }
 
-/**
- * Update an existing sale (must belong to userId).
- */
+export async function recordSale(input: RecordSaleInput, tokenOverride?: string): Promise<Sale> {
+  const parsed = recordSaleSchema.parse(input);
+  const target = await resolveSaleRoast(parsed, tokenOverride);
+  const client = await createParchmentClient('member', tokenOverride);
+  const body = {
+    greenCoffeeInvId: target.greenCoffeeInvId,
+    ozSold: parsed.oz,
+    price: parsed.price,
+    ...(parsed.buyer !== undefined ? { buyer: parsed.buyer } : {}),
+    ...(target.batchName !== undefined ? { batchName: target.batchName } : {}),
+    ...(parsed.sellDate !== undefined ? { sellDate: parsed.sellDate } : {}),
+  };
+  const envelope = unwrapParchment(
+    await client.sales.create(body, { idempotencyKey: randomUUID() }),
+    'Sale create'
+  );
+  return envelope.data as Sale;
+}
+
 export async function updateSale(
-  supabase: SupabaseClient,
-  userId: string,
   id: number,
-  input: UpdateSaleInput
+  input: UpdateSaleInput,
+  tokenOverride?: string
 ): Promise<Sale> {
   deleteSaleSchema.parse({ id });
   const parsed = updateSaleSchema.parse(input);
-
-  // Verify ownership
-  const { data: existing, error: fetchError } = await supabase
-    .from('sales')
-    .select('id')
-    .eq('id', id)
-    .eq('user', userId)
-    .single();
-
-  if (fetchError || !existing) {
-    throw new AuthError(`Sale ${id} not found or does not belong to you.`);
-  }
-
-  const updates: Record<string, unknown> = {};
-  if (parsed.oz !== undefined) updates.oz_sold = parsed.oz;
-  if (parsed.price !== undefined) updates.sale_price = parsed.price;
-  if (parsed.buyer !== undefined) updates.buyer = parsed.buyer;
-  if (parsed.sellDate !== undefined) updates.sell_date = parsed.sellDate;
-
-  if (Object.keys(updates).length === 0) {
-    throw new PrvrsError(
-      'INVALID_ARGUMENT',
-      'No update fields provided. Pass at least one of: oz, price, buyer, sellDate.'
-    );
-  }
-
-  const { error: updateError } = await supabase
-    .from('sales')
-    .update(updates)
-    .eq('id', id)
-    .eq('user', userId);
-
-  if (updateError) throw updateError;
-
-  // Re-fetch the updated row
-  const { data, error } = await supabase
-    .from('sales')
-    .select(`${SALE_SELECT}, roast_profiles!roast_id (batch_name, coffee_name)`)
-    .eq('id', id)
-    .single();
-
-  if (error) throw error;
-
-  return data as Sale;
+  const client = await createParchmentClient('member', tokenOverride);
+  const body = {
+    ...(parsed.oz !== undefined ? { ozSold: parsed.oz } : {}),
+    ...(parsed.price !== undefined ? { price: parsed.price } : {}),
+    ...(parsed.buyer !== undefined ? { buyer: parsed.buyer } : {}),
+    ...(parsed.sellDate !== undefined ? { sellDate: parsed.sellDate } : {}),
+  };
+  const envelope = unwrapParchment(await client.sales.update(id, body), 'Sale update');
+  return envelope.data as Sale;
 }
 
-/**
- * Delete a sale (must belong to userId).
- */
-export async function deleteSale(
-  supabase: SupabaseClient,
-  userId: string,
-  id: number
-): Promise<void> {
+export async function deleteSale(id: number, tokenOverride?: string): Promise<void> {
   deleteSaleSchema.parse({ id });
-
-  // Verify ownership
-  const { data: existing, error: fetchError } = await supabase
-    .from('sales')
-    .select('id')
-    .eq('id', id)
-    .eq('user', userId)
-    .single();
-
-  if (fetchError || !existing) {
-    throw new AuthError(`Sale ${id} not found or does not belong to you.`);
-  }
-
-  const { error: deleteError } = await supabase
-    .from('sales')
-    .delete()
-    .eq('id', id)
-    .eq('user', userId);
-
-  if (deleteError) throw deleteError;
+  const client = await createParchmentClient('member', tokenOverride);
+  unwrapParchment(await client.sales.delete(id), 'Sale delete');
 }

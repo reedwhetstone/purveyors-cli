@@ -26,7 +26,7 @@ Current command groups:
 - `procurement`: saved sourcing brief reads and matches through `@purveyors/sdk`
 - `inventory`: `list`, `get`, `add`, `update`, `delete`
 - `roast`: `list`, `get`, `create`, `update`, `delete`, `import`, `watch`
-- `sales`: `list`, `record`, `update`, `delete`
+- `sales`: `list`, `record`, `update`, `delete` through canonical SDK sales and roast endpoints
 - `tasting`: `get`, `rate`
 - `config`: `list`, `get`, `set`, `reset`
 - `context`: dense human-readable reference, plus manifest-compatible JSON with `--json` or `--pretty`
