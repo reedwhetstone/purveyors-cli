@@ -804,10 +804,10 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--form' },
         ],
         notes: [
-          'Selector modes: exact --roast-id, or resolved --coffee-id + --batch-name.',
+          'Selector modes: --roast-id resolves its inventory + batch, or pass --coffee-id + --batch-name directly.',
           'Creates use the canonical sales API with an idempotency key; selectors resolve through canonical roast endpoints.',
           'Use exactly one selector mode.',
-          'If resolved mode is ambiguous, rerun with --roast-id.',
+          'Sales retain inventory + batch, not roast ID; duplicate batch names on one inventory item are rejected.',
         ],
       },
       {

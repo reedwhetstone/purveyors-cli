@@ -105,6 +105,52 @@ export type UpdateSaleInput = z.input<typeof updateSaleSchema>;
 export const deleteSaleSchema = z.object({ id: z.number().int().positive() });
 export type DeleteSaleInput = z.input<typeof deleteSaleSchema>;
 
+type SalesParchmentClient = Awaited<ReturnType<typeof createParchmentClient>>;
+
+async function listExactSaleRoastMatches(
+  client: SalesParchmentClient,
+  coffeeId: number,
+  batchName: string | undefined
+) {
+  const exactMatches: Array<{
+    roast_id: number;
+    coffee_id: number | null;
+    batch_name: string | null;
+  }> = [];
+  const pageSize = 100;
+  let offset = 0;
+  const seenRoastIds = new Set<number>();
+  do {
+    const envelope = unwrapParchment(
+      await client.roasts.list({
+        coffee_id: coffeeId,
+        batch_name: batchName,
+        limit: pageSize,
+        offset,
+      }),
+      'Sale roast selector'
+    );
+    const rows = envelope.data;
+    if (rows.length === 0) break;
+    const unseenRows = rows.filter((row) => !seenRoastIds.has(row.roast_id));
+    if (unseenRows.length === 0) {
+      throw new PrvrsError(
+        'GENERAL_ERROR',
+        'Sale roast selector pagination did not advance. Retry the request.'
+      );
+    }
+    for (const row of unseenRows) seenRoastIds.add(row.roast_id);
+    exactMatches.push(
+      ...unseenRows.filter(
+        (row) => row.coffee_id === coffeeId && (row.batch_name ?? undefined) === batchName
+      )
+    );
+    if (exactMatches.length > 1) break;
+    offset += rows.length;
+  } while (true);
+  return exactMatches;
+}
+
 export async function listSales(
   opts: ListSalesInput = {},
   tokenOverride?: string
@@ -144,50 +190,23 @@ export async function resolveSaleRoast(
         `Roast profile ${parsed.roastId} is not linked to a green coffee inventory item.`
       );
     }
+    const batchName = roast.batch_name ?? undefined;
+    const exactMatches = await listExactSaleRoastMatches(client, roast.coffee_id, batchName);
+    if (exactMatches.length > 1) {
+      throw new PrvrsError(
+        'INVALID_ARGUMENT',
+        `Roast profile ${parsed.roastId} shares inventory item ${roast.coffee_id} and batch name "${batchName ?? ''}" with roast IDs ${exactMatches.map((row) => row.roast_id).join(', ')}. The canonical sales record cannot retain a roast ID; give each roast a unique batch name before recording this sale.`
+      );
+    }
     return {
       greenCoffeeInvId: roast.coffee_id,
-      batchName: roast.batch_name ?? undefined,
+      batchName,
       roastId: roast.roast_id,
       mode: 'exact',
     };
   }
 
-  const exactMatches: Array<{
-    roast_id: number;
-    coffee_id: number | null;
-    batch_name: string | null;
-  }> = [];
-  const pageSize = 100;
-  let offset = 0;
-  const seenRoastIds = new Set<number>();
-  do {
-    const envelope = unwrapParchment(
-      await client.roasts.list({
-        coffee_id: parsed.coffeeId,
-        batch_name: parsed.batchName,
-        limit: pageSize,
-        offset,
-      }),
-      'Sale roast selector'
-    );
-    const rows = envelope.data;
-    if (rows.length === 0) break;
-    const unseenRows = rows.filter((row) => !seenRoastIds.has(row.roast_id));
-    if (unseenRows.length === 0) {
-      throw new PrvrsError(
-        'GENERAL_ERROR',
-        'Sale roast selector pagination did not advance. Retry the request.'
-      );
-    }
-    for (const row of unseenRows) seenRoastIds.add(row.roast_id);
-    exactMatches.push(
-      ...unseenRows.filter(
-        (row) => row.coffee_id === parsed.coffeeId && row.batch_name === parsed.batchName
-      )
-    );
-    if (exactMatches.length > 1) break;
-    offset += rows.length;
-  } while (true);
+  const exactMatches = await listExactSaleRoastMatches(client, parsed.coffeeId!, parsed.batchName);
 
   if (exactMatches.length === 0) {
     throw new PrvrsError(
@@ -198,7 +217,7 @@ export async function resolveSaleRoast(
   if (exactMatches.length > 1) {
     throw new PrvrsError(
       'INVALID_ARGUMENT',
-      `Multiple roast profiles match --coffee-id ${parsed.coffeeId} and batch name "${parsed.batchName}". Matching roast IDs: ${exactMatches.map((row) => row.roast_id).join(', ')}. Re-run with --roast-id.`
+      `Multiple roast profiles match --coffee-id ${parsed.coffeeId} and batch name "${parsed.batchName}". Matching roast IDs: ${exactMatches.map((row) => row.roast_id).join(', ')}. The canonical sales record cannot retain a roast ID; give each roast a unique batch name before recording this sale.`
     );
   }
   return {

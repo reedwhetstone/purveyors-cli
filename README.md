@@ -146,9 +146,9 @@ Parchment API surfaces, an owner-bound API key with the required scope:
 `purvey` uses Google OAuth through purveyors.io.
 
 Set `PARCHMENT_API_KEY` (or `PURVEYORS_API_KEY`) to authenticate SDK-backed catalog,
-inventory, tasting-read, market, price-index, and procurement operations without using
-the stored session JWT. API-key credentials take precedence. Roast, sales, and
-`tasting rate` still use the session-backed migration path in this release.
+inventory, roast, sales, tasting-read, market, price-index, and procurement operations
+without using the stored session JWT. API-key credentials take precedence. `tasting rate`
+still uses the session-backed migration path in this release.
 
 Interactive login:
 
@@ -691,7 +691,7 @@ Notes:
 
 `sales record` flags:
 
-- `--roast-id <id>`; exact selector mode
+- `--roast-id <id>`; resolve the sale inventory and batch from a roast profile
 - `--coffee-id <id>`; resolved selector mode, requires `--batch-name`
 - `--batch-name <name>`; resolved selector mode, requires `--coffee-id`
 - `--oz <amount>`; required in flag mode
@@ -724,8 +724,8 @@ purvey sales delete 5 --yes
 Notes:
 
 - Sales commands require an authenticated `member` role.
-- Use exactly one selector mode for `sales record`: exact `--roast-id`, or resolved `--coffee-id` plus `--batch-name`.
-- If resolved mode matches multiple roasts, rerun with `--roast-id`.
+- Use exactly one selector mode for `sales record`: `--roast-id`, or `--coffee-id` plus `--batch-name`.
+- Sales retain inventory and batch, not roast ID. Duplicate batch names on one inventory item are rejected even when selected through `--roast-id`.
 - `--price` is total sale price, not per-ounce price.
 
 ### tasting
@@ -881,7 +881,7 @@ Use the right ID for the right command.
 - `catalog_id`: `coffee_catalog` rows; used by `catalog get`, `catalog similar`, `inventory add --catalog-id`, `tasting get`, `roast list --catalog-id`
 - `inventory id`: `green_coffee_inv` rows; used by `inventory get/update/delete`, `roast --coffee-id`, `tasting rate`, `roast list --coffee-id`
 - `roast_id`: `roast_data` rows; used by `roast get/delete`, `sales record --roast-id`, `roast list --roast-id`
-- `sales record` also supports resolving a roast from `inventory id` plus `--batch-name`; if that selector is ambiguous, use exact `roast_id`
+- `sales record` also supports resolving a roast from `inventory id` plus `--batch-name`; because sales retain inventory + batch rather than roast ID, duplicate batch names on one inventory item are rejected
 - `sale id`: `coffee_sales` rows; used by `sales update/delete`
 
 ## Environment variables

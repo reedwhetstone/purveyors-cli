@@ -174,12 +174,16 @@ describe('SDK-backed roast and sales data planes', () => {
       order.push('resolve');
       return Promise.resolve(ok({ data: { roast_id: 9, coffee_id: 7, batch_name: 'Batch A' } }));
     });
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ data: [{ roast_id: 9, coffee_id: 7, batch_name: 'Batch A' }] }))
+      .mockResolvedValueOnce(ok({ data: [] }));
     const create = vi.fn().mockImplementation(() => {
       order.push('create');
       return Promise.resolve(ok({ data: { id: 3 } }));
     });
     vi.mocked(createParchmentClient).mockResolvedValue({
-      roasts: { get },
+      roasts: { get, list },
       sales: { create },
     } as never);
     const getSession = vi

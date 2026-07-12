@@ -232,7 +232,7 @@ Notes:
   sales
     .command('record')
     .description('Record a new sale')
-    .option('--roast-id <id>', 'Exact roast profile ID (roast_data.roast_id)')
+    .option('--roast-id <id>', 'Roast profile used to resolve the sale inventory and batch')
     .option('--coffee-id <id>', 'Inventory item ID used for resolved selector mode')
     .option('--batch-name <name>', 'Batch name used with --coffee-id for resolved selector mode')
     .option('--oz <amount>', '[REQUIRED] Ounces sold')
@@ -251,10 +251,10 @@ Examples:
   purvey sales record --form     # interactive wizard (browse roasts)
 
 Selector modes:
-  Exact:    --roast-id <id>
+  Roast:    --roast-id <id>
   Resolved: --coffee-id <id> --batch-name <name>
   Use exactly one selector mode.
-  If multiple roasts match the same inventory item + batch name, re-run with --roast-id.
+  Sales retain inventory + batch, not roast ID. Duplicate batch names on one inventory item are rejected.
 
 Required flags: selector mode, --oz, --price
   Use 'purvey roast list' to find your --roast-id.
