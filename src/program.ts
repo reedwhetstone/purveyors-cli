@@ -109,7 +109,7 @@ Market intelligence (canonical API; entitled slices require Parchment Intelligen
   procurement get     Get a saved sourcing brief by id
   procurement matches Page through catalog matches for a brief
 
-Local and reference commands (no pre-existing session required):
+Local and reference commands (no pre-existing credentials required):
   config list       Show all config values
   config get        Get a config value
   config set        Set a config value

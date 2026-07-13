@@ -3,7 +3,7 @@
  * Proxies requests through the purveyors.io API — never calls AI providers directly.
  */
 
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AuthClient } from './auth-client.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,7 +42,7 @@ export interface ClassifyRoastResult {
  * Requires authenticated session. The proxy validates member role server-side.
  */
 export async function classifyRoast(
-  supabase: SupabaseClient,
+  supabase: AuthClient,
   input: ClassifyRoastInput
 ): Promise<ClassifyRoastResult> {
   // Get the current session token for auth

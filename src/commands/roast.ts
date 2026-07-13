@@ -17,7 +17,7 @@ import { pickBean, guardCancel } from '../lib/interactive/forms.js';
 import { normalizePathInput } from '../lib/path-input.js';
 import { startWatch, loadWatchSession } from '../lib/interactive/watch.js';
 import type { WatchRoastImporter } from '../lib/interactive/watch.js';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AuthClient } from '../lib/auth-client.js';
 import { getConfigValue } from '../lib/config.js';
 import {
   createParchmentClient,
@@ -116,7 +116,7 @@ export function mapSdkImportResult(
  * JWT is pinned per request so an exported PARCHMENT_API_KEY/PURVEYORS_API_KEY
  * for another account cannot authorize a write against the session user's beans.
  */
-export function createWatchRoastImporter(supabase: SupabaseClient): WatchRoastImporter {
+export function createWatchRoastImporter(supabase: AuthClient): WatchRoastImporter {
   return async (args) => {
     const {
       data: { session },
@@ -144,7 +144,7 @@ export function createWatchRoastImporter(supabase: SupabaseClient): WatchRoastIm
 
 /** Resolve the current form session at write time and pin it to the roast create request. */
 export async function createInteractiveRoast(
-  supabase: SupabaseClient,
+  supabase: AuthClient,
   input: Parameters<typeof createRoast>[0]
 ): Promise<RoastProfile> {
   const {
@@ -156,7 +156,7 @@ export async function createInteractiveRoast(
   return createRoast(input, session.access_token);
 }
 
-async function requireCurrentSessionToken(supabase: SupabaseClient): Promise<string> {
+async function requireCurrentSessionToken(supabase: AuthClient): Promise<string> {
   const {
     data: { session },
   } = await supabase.auth.getSession();

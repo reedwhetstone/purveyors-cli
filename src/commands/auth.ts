@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { createServer } from 'http';
-import { createAnonClient, validateSession } from '../lib/supabase.js';
+import { validateSession } from '../lib/auth-client.js';
 import { writeCredentials, deleteCredentials } from '../lib/config.js';
 import { outputData, shouldUseInteractiveOutput, success, info, warn } from '../lib/output.js';
 import { withErrorHandling, AuthError, exitCodeForError } from '../lib/errors.js';
@@ -8,9 +8,29 @@ import type { OutputOptions, StoredCredentials } from '../types/index.js';
 import chalk from 'chalk';
 import ora from 'ora';
 import { createInterface, type Interface as ReadlineInterface } from 'readline';
+import { createParchmentClient, type ParchmentClient } from '@purveyors/sdk';
+import { getParchmentBaseUrl } from '../lib/parchment-base.js';
+import { hostname } from 'os';
+import { randomUUID } from 'crypto';
 
 const DEFAULT_CALLBACK_HOST = 'localhost';
 const CALLBACK_PATH = '/auth/callback';
+const SUPABASE_AUTH_URL =
+  process.env.PURVEYORS_SUPABASE_URL || 'https://bjblfzfdtfvuitqdbodn.supabase.co';
+const CLI_API_KEY_SCOPES = [
+  // The canonical API uses catalog:read for catalog, Market Index,
+  // Price Index, and procurement reads; those data planes do not define
+  // separate key scopes.
+  'catalog:read',
+  'inventory:read',
+  'inventory:write',
+  'roast:read',
+  'roast:write',
+  'sales:read',
+  'sales:write',
+  'tasting:read',
+  'tasting:write',
+] as const;
 
 interface CallbackResult {
   accessToken: string;
@@ -20,6 +40,7 @@ interface CallbackResult {
 
 interface CallbackServer {
   port: number;
+  state: string;
   tokenPromise: Promise<CallbackResult>;
   close: () => void;
 }
@@ -31,6 +52,73 @@ interface ManualCallbackReader {
 
 type ManualCallbackQuestion = (query: string, callback: (answer: string) => void) => void;
 
+export function createOAuthUrl(redirectTo: string): string {
+  const url = new URL('/auth/v1/authorize', SUPABASE_AUTH_URL);
+  url.searchParams.set('provider', 'google');
+  url.searchParams.set('redirect_to', redirectTo);
+  return url.toString();
+}
+
+function decodeSessionIdentity(accessToken: string): StoredCredentials['user'] {
+  try {
+    const payload = JSON.parse(
+      Buffer.from(accessToken.split('.')[1] ?? '', 'base64url').toString('utf8')
+    ) as Record<string, unknown>;
+    return {
+      id: typeof payload.sub === 'string' ? payload.sub : 'unknown',
+      email: typeof payload.email === 'string' ? payload.email : 'unknown',
+      role: typeof payload.role === 'string' ? payload.role : undefined,
+    };
+  } catch {
+    return { id: 'unknown', email: 'unknown' };
+  }
+}
+
+export async function exchangeOAuthSessionForApiKey(
+  accessToken: string,
+  clientOverride?: ParchmentClient
+): Promise<StoredCredentials> {
+  const client =
+    clientOverride ?? createParchmentClient({ baseUrl: getParchmentBaseUrl(), token: accessToken });
+  const me = await client.me();
+  if (!me.response.ok || me.error || !me.data?.authenticated || !me.data.userId) {
+    throw new AuthError('OAuth session could not be verified by Parchment.');
+  }
+  const keyName = `purvey-cli-${hostname()}`;
+  const existing = await client.apiKeys.list();
+  if (!existing.response.ok || existing.error) {
+    throw new AuthError('Failed to inspect existing CLI API keys.', existing.error);
+  }
+  const supersededKeys = (existing.data?.data ?? []).filter(
+    (key) => key.name === keyName && key.isActive
+  );
+  const result = await client.apiKeys.create({
+    name: keyName,
+    scopes: [...CLI_API_KEY_SCOPES],
+  });
+  if (!result.response.ok || result.error || !result.data?.apiKey) {
+    throw new AuthError('Failed to create a scoped Parchment API key.', result.error);
+  }
+  for (const key of supersededKeys) {
+    const revoked = await client.apiKeys.revoke(key.id);
+    if (!revoked.response.ok || revoked.error) {
+      await client.apiKeys.revoke(result.data.key.id).catch(() => undefined);
+      throw new AuthError('Failed to replace the existing CLI API key.', revoked.error);
+    }
+  }
+  const identity = decodeSessionIdentity(accessToken);
+  return {
+    apiKey: result.data.apiKey,
+    keyId: result.data.key.id,
+    createdAt: result.data.key.createdAt ?? new Date().toISOString(),
+    user: {
+      ...identity,
+      id: me.data.userId,
+      role: me.data.primaryAppRole ?? identity.role,
+    },
+  };
+}
+
 /**
  * Start a one-shot local HTTP server to receive the Supabase OAuth callback.
  *
@@ -40,6 +128,7 @@ type ManualCallbackQuestion = (query: string, callback: (answer: string) => void
  */
 function startCallbackServer(): Promise<CallbackServer> {
   return new Promise((resolve, reject) => {
+    const state = randomUUID();
     let tokenResolve!: (val: CallbackResult) => void;
     let tokenReject!: (err: Error) => void;
 
@@ -51,7 +140,7 @@ function startCallbackServer(): Promise<CallbackServer> {
     const server = createServer((req, res) => {
       const url = new URL(req.url ?? '/', `http://${DEFAULT_CALLBACK_HOST}`);
 
-      if (url.pathname === CALLBACK_PATH) {
+      if (url.pathname === CALLBACK_PATH && url.searchParams.get('state') === state) {
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(`<!DOCTYPE html>
 <html>
@@ -68,6 +157,7 @@ function startCallbackServer(): Promise<CallbackServer> {
       access_token: params.get('access_token'),
       refresh_token: params.get('refresh_token'),
       expires_in: params.get('expires_in'),
+      state: new URLSearchParams(window.location.search).get('state'),
     })
   }).then(() => {
     document.body.innerHTML =
@@ -88,13 +178,19 @@ function startCallbackServer(): Promise<CallbackServer> {
           server.close();
 
           try {
-            const { access_token, refresh_token, expires_in } = JSON.parse(body) as {
+            const {
+              access_token,
+              refresh_token,
+              expires_in,
+              state: callbackState,
+            } = JSON.parse(body) as {
               access_token?: string;
               refresh_token?: string;
               expires_in?: string;
+              state?: string;
             };
 
-            if (!access_token || !refresh_token) {
+            if (!access_token || !refresh_token || callbackState !== state) {
               tokenReject(new AuthError('OAuth callback did not include tokens. Try again.'));
               return;
             }
@@ -123,6 +219,7 @@ function startCallbackServer(): Promise<CallbackServer> {
       }
       resolve({
         port: addr.port,
+        state,
         tokenPromise,
         close: () => {
           try {
@@ -142,7 +239,7 @@ function startCallbackServer(): Promise<CallbackServer> {
  * Extract Supabase OAuth tokens from a full callback URL, URL fragment, or
  * query string. Exported for auth-flow contract tests.
  */
-export function parseOAuthCallbackUrl(callbackUrl: string): CallbackResult {
+export function parseOAuthCallbackUrl(callbackUrl: string, expectedState?: string): CallbackResult {
   const trimmed = callbackUrl.trim();
 
   if (!trimmed) {
@@ -166,6 +263,13 @@ export function parseOAuthCallbackUrl(callbackUrl: string): CallbackResult {
   const refreshToken = params.get('refresh_token');
   const expiresIn = params.get('expires_in');
 
+  if (expectedState) {
+    const parsedUrl = new URL(trimmed, 'http://localhost');
+    if (parsedUrl.searchParams.get('state') !== expectedState) {
+      throw new AuthError('OAuth callback state did not match this login attempt.');
+    }
+  }
+
   if (!accessToken || !refreshToken) {
     throw new AuthError(
       'Could not extract tokens from the URL.\n' +
@@ -183,7 +287,8 @@ export function parseOAuthCallbackUrl(callbackUrl: string): CallbackResult {
 export function createManualCallbackReaderForQuestion(
   question: ManualCallbackQuestion,
   closeQuestion: () => void,
-  canRead: boolean
+  canRead: boolean,
+  expectedState?: string
 ): ManualCallbackReader | null {
   if (!canRead) return null;
 
@@ -198,7 +303,7 @@ export function createManualCallbackReaderForQuestion(
         if (closed) return;
 
         try {
-          const callbackResult = parseOAuthCallbackUrl(answer);
+          const callbackResult = parseOAuthCallbackUrl(answer, expectedState);
           closed = true;
           closeQuestion();
           resolve(callbackResult);
@@ -226,7 +331,7 @@ export function createManualCallbackReaderForQuestion(
   };
 }
 
-function createManualCallbackReader(): ManualCallbackReader | null {
+function createManualCallbackReader(expectedState: string): ManualCallbackReader | null {
   if (!process.stdin.isTTY) return null;
 
   const rl: ReadlineInterface = createInterface({
@@ -237,7 +342,8 @@ function createManualCallbackReader(): ManualCallbackReader | null {
   return createManualCallbackReaderForQuestion(
     rl.question.bind(rl),
     () => rl.close(),
-    process.stdin.isTTY
+    process.stdin.isTTY,
+    expectedState
   );
 }
 
@@ -247,22 +353,14 @@ function createManualCallbackReader(): ManualCallbackReader | null {
  */
 const loginAction = withErrorHandling(async () => {
   const callbackServer = await startCallbackServer();
-  const { port, tokenPromise } = callbackServer;
-  const redirectTo = `http://${DEFAULT_CALLBACK_HOST}:${port}${CALLBACK_PATH}`;
+  const { port, state, tokenPromise } = callbackServer;
+  const redirectTo = `http://${DEFAULT_CALLBACK_HOST}:${port}${CALLBACK_PATH}?state=${encodeURIComponent(state)}`;
 
   try {
-    const supabase = createAnonClient();
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo },
-    });
-
-    if (error || !data.url) {
-      throw new AuthError('Failed to generate OAuth URL.', error);
-    }
+    const oauthUrl = createOAuthUrl(redirectTo);
 
     console.log(chalk.bold('\n  Opening browser for authentication...'));
-    console.log(chalk.dim(`  If the browser does not open, visit:\n  ${data.url}\n`));
+    console.log(chalk.dim(`  If the browser does not open, visit:\n  ${oauthUrl}\n`));
     console.log(
       chalk.dim(
         '  Waiting for the browser callback. If the browser lands on a localhost URL but\n' +
@@ -279,7 +377,7 @@ const loginAction = withErrorHandling(async () => {
           : process.platform === 'win32'
             ? 'start'
             : 'xdg-open';
-      const child = spawn(openCmd, [data.url], { detached: true, stdio: 'ignore' });
+      const child = spawn(openCmd, [oauthUrl], { detached: true, stdio: 'ignore' });
       child.on('error', () => {
         // Browser open failed (headless environment) — user can visit URL manually
       });
@@ -288,7 +386,7 @@ const loginAction = withErrorHandling(async () => {
       // Gracefully ignore — URL is already printed above
     }
 
-    const manualReader = createManualCallbackReader();
+    const manualReader = createManualCallbackReader(state);
     const spinner = ora({ text: 'Waiting for authentication...', stream: process.stderr }).start();
 
     let callbackResult: CallbackResult;
@@ -301,26 +399,9 @@ const loginAction = withErrorHandling(async () => {
       manualReader?.close();
     }
 
-    const { accessToken, refreshToken, expiresIn } = callbackResult;
+    const { accessToken } = callbackResult;
     spinner.succeed('Authentication received');
-
-    // Fetch user info to confirm identity
-    const client = createAnonClient();
-    await client.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
-    const {
-      data: { user },
-    } = await client.auth.getUser();
-
-    const creds: StoredCredentials = {
-      accessToken,
-      refreshToken,
-      expiresAt: Date.now() + expiresIn * 1000,
-      user: {
-        id: user?.id ?? 'unknown',
-        email: user?.email ?? 'unknown',
-        role: user?.role,
-      },
-    };
+    const creds = await exchangeOAuthSessionForApiKey(accessToken);
 
     await writeCredentials(creds);
     success(`Logged in as ${chalk.bold(creds.user.email)}`);
@@ -363,13 +444,15 @@ const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
     authenticated: true,
     email: session.email,
     role: session.role ?? 'authenticated',
-    tokenExpires: new Date(session.expiresAt).toISOString(),
+    keyId: session.keyId,
+    keyCreated: session.createdAt,
   };
 
   if (isInteractive) {
     success(`Logged in as ${chalk.bold(session.email)}`);
     info(`Role: ${result.role}`);
-    info(`Token expires: ${result.tokenExpires}`);
+    info(`API key: ${result.keyId}`);
+    info(`Created: ${result.keyCreated}`);
     return;
   }
 
@@ -382,20 +465,14 @@ const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
  */
 const headlessLoginAction = withErrorHandling(async () => {
   // Generate OAuth URL with purveyors.io callback page as redirect
-  const redirectTo = 'https://purveyors.io/auth/cli-callback';
-  const supabase = createAnonClient();
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: { redirectTo, skipBrowserRedirect: true },
-  });
-
-  if (error || !data.url) {
-    throw new AuthError('Failed to generate OAuth URL.');
-  }
+  const state = randomUUID();
+  const redirectTo = new URL('https://purveyors.io/auth/cli-callback');
+  redirectTo.searchParams.set('state', state);
+  const oauthUrl = createOAuthUrl(redirectTo.toString());
 
   console.log(chalk.bold('\n  Headless Login\n'));
   console.log('  1. Open this URL in a browser and sign in:\n');
-  console.log(`     ${chalk.cyan(data.url)}\n`);
+  console.log(`     ${chalk.cyan(oauthUrl)}\n`);
   console.log("  2. After login, you'll see a page with a callback URL.");
   console.log('  3. Copy the full callback URL and paste it below.\n');
 
@@ -414,30 +491,10 @@ const headlessLoginAction = withErrorHandling(async () => {
     throw new AuthError('No URL provided.');
   }
 
-  const { accessToken, refreshToken, expiresIn } = parseOAuthCallbackUrl(callbackUrl);
+  const { accessToken } = parseOAuthCallbackUrl(callbackUrl, state);
 
   const spinner = ora({ text: 'Validating session...', stream: process.stderr }).start();
-  const client = createAnonClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await client.auth.getUser(accessToken);
-
-  if (userError || !user) {
-    spinner.fail('Token validation failed');
-    throw new AuthError('Invalid or expired token. Try the login flow again.');
-  }
-
-  const creds: StoredCredentials = {
-    accessToken,
-    refreshToken,
-    expiresAt: Date.now() + expiresIn * 1000,
-    user: {
-      id: user.id,
-      email: user.email ?? 'unknown',
-      role: user.role,
-    },
-  };
+  const creds = await exchangeOAuthSessionForApiKey(accessToken);
 
   await writeCredentials(creds);
   spinner.succeed(`Logged in as ${chalk.bold(creds.user.email)}`);
@@ -449,7 +506,9 @@ const headlessLoginAction = withErrorHandling(async () => {
  */
 const logoutAction = withErrorHandling(async () => {
   await deleteCredentials();
-  success('Logged out successfully.');
+  warn(
+    'Local credentials cleared. The server API key remains active; revoke it from the Purveyors account key dashboard if this machine is lost or compromised.'
+  );
 });
 
 /**
@@ -486,8 +545,8 @@ Examples:
 
 Notes:
   Credentials are stored at ~/.config/purvey/credentials.json (mode 0600).
-  Tokens auto-refresh; no need to re-login between sessions.
-  Uses Google OAuth via Supabase — same account as purveyors.io web app.
+  OAuth is used once to mint a scoped Parchment API key; session tokens are not retained.
+  Re-login replaces the prior CLI key for this machine.
 `
   );
 
@@ -507,10 +566,11 @@ Examples:
   purvey auth status --json 2>/dev/null | jq .
 
 Output fields:
-  authenticated  boolean — true if a valid session exists
+  authenticated  boolean — true if the stored API key is valid
   email          your Google account email
   role           your purveyors.io role (viewer or member)
-  tokenExpires   ISO timestamp when the access token expires
+  keyId          identifier of the stored Parchment API key
+  keyCreated     ISO timestamp when the key was created
 
 Notes:
   When stdout is a TTY (interactive terminal), output is human-readable unless

@@ -206,12 +206,12 @@ describe('CLI manifest contract', () => {
     expect(text).toContain('PURVEY CLI - Agent Reference');
     expect(text).toContain('Module import:    @purveyors/cli/manifest');
     expect(text).toContain(
-      'No pre-existing session required for: auth, config, context, manifest.'
+      'No pre-existing credentials required for: auth, config, context, manifest.'
     );
     expect(text).toContain('Local-only commands: config, context, manifest.');
     expect(text).toContain('Mixed public and entitled access: market.');
     expect(text).toContain(
-      'Mixed-access public teaser slices can run without a session; filtered or non-public slices require server-side entitlements.'
+      'Mixed-access public teaser slices can run without credentials; filtered or non-public slices require a valid scoped key and server-side entitlements.'
     );
     expect(text).not.toContain('ALL commands require authentication.');
     expect(text).toContain('Machine-mode error envelope: stderr');
@@ -272,6 +272,14 @@ describe('CLI manifest contract', () => {
     expect(helpText).toMatch(
       /manifest \[options\]\s+Output the preferred stable machine-readable CLI/
     );
+  });
+
+  it('describes API-key custody without advertising the removed session runtime', () => {
+    const serialized = JSON.stringify(getCliManifest());
+
+    expect(serialized).not.toMatch(/session-authenticated|logged-in session|Purveyors session/);
+    expect(serialized).toContain('scoped API key');
+    expect(serialized).toContain('purvey auth login');
   });
 
   it('emits valid JSON from `purvey context --json` with the corrected context shape', () => {
@@ -335,7 +343,7 @@ describe('CLI manifest contract', () => {
     expect(output).toContain('PURVEY CLI - Agent Reference');
     expect(output).toContain('WORKFLOWS');
     expect(output).toContain(
-      'No pre-existing session required for: auth, config, context, manifest.'
+      'No pre-existing credentials required for: auth, config, context, manifest.'
     );
     expect(output).toContain('Local-only commands: config, context, manifest.');
     expect(output).toContain('Mixed public and entitled access: market.');

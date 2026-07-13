@@ -9,9 +9,9 @@ export interface GlobalOptions {
 }
 
 export interface StoredCredentials {
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: number; // Unix timestamp (ms)
+  apiKey: string;
+  keyId: string;
+  createdAt: string;
   user: {
     id: string;
     email: string;
