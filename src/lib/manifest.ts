@@ -761,6 +761,7 @@ const commandGroups: CliCommandGroupContract[] = [
         ],
         notes: [
           '--auto-match is mutually exclusive with --coffee-id.',
+          '--auto-match classifies roast metadata against stocked inventory through the canonical Parchment POST /v1/roasts/classify SDK operation.',
           '--commit-mode defaults to batch so new roasts are queued until the session ends.',
         ],
       },
