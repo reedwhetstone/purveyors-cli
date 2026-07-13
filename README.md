@@ -449,7 +449,7 @@ Notes:
 
 - `price-index` is backed by the canonical Parchment API `GET /v1/price-index` through `@purveyors/sdk`.
 - Session-token use requires the local `member` role; API-key use is accepted via `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY` and PPI entitlement is enforced server-side.
-- `PARCHMENT_API_BASE_URL` overrides the canonical API base for this SDK-backed command. `PURVEYORS_BASE_URL` is also accepted for shared environment compatibility.
+- `PARCHMENT_API_BASE_URL` overrides the canonical API base for this SDK-backed command.
 
 ### market
 

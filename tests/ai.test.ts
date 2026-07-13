@@ -103,6 +103,27 @@ describe('classifyRoast SDK contract', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     delete process.env.PARCHMENT_API_BASE_URL;
+    delete process.env.PURVEYORS_BASE_URL;
+  });
+
+  it('does not route the canonical classifier through the legacy web-base override', async () => {
+    const { classifyRoast } = await import('../src/lib/ai.js');
+    process.env.PURVEYORS_BASE_URL = 'https://www.purveyors.example.test';
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ match: null }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', mockFetch);
+
+    await classifyRoast(authenticatedClient() as unknown as Parameters<typeof classifyRoast>[0], {
+      alogMetadata: { title: 'Test' },
+      inventory: [],
+    });
+
+    const request = mockFetch.mock.calls[0][0] as Request;
+    expect(request.url).toBe('https://api.purveyors.io/v1/roasts/classify');
   });
 
   function authenticatedClient() {
@@ -171,10 +192,10 @@ describe('classifyRoast SDK contract', () => {
   });
 
   it.each([
-    [403, 'Member role required for AI features.'],
-    [429, 'Rate limit exceeded. Try again later.'],
-    [503, 'Classification provider unavailable.'],
-  ])('preserves API error messages for HTTP %i', async (status, message) => {
+    [403, 'Roast classification requires a member account or a paid API plan'],
+    [429, 'Roast classification rate limit exceeded'],
+    [503, 'Roast classification provider is unavailable'],
+  ])('propagates the canonical API error envelope for HTTP %i', async (status, message) => {
     const { classifyRoast } = await import('../src/lib/ai.js');
     vi.stubGlobal(
       'fetch',
