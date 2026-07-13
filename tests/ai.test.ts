@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import type { ClassifyRoastInput, ClassifyRoastResult } from '../src/lib/ai.js';
 
 // ─── Type validation ──────────────────────────────────────────────────────────
@@ -97,10 +97,46 @@ describe('confidence threshold logic', () => {
   });
 });
 
-// ─── classifyRoast error handling ────────────────────────────────────────────
+// ─── classifyRoast SDK contract ──────────────────────────────────────────────
 
-describe('classifyRoast error handling', () => {
-  it('throws AuthError when no session', async () => {
+describe('classifyRoast SDK contract', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.PARCHMENT_API_BASE_URL;
+    delete process.env.PURVEYORS_BASE_URL;
+  });
+
+  it('does not route the canonical classifier through the legacy web-base override', async () => {
+    const { classifyRoast } = await import('../src/lib/ai.js');
+    process.env.PURVEYORS_BASE_URL = 'https://www.purveyors.example.test';
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ match: null }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', mockFetch);
+
+    await classifyRoast(authenticatedClient() as unknown as Parameters<typeof classifyRoast>[0], {
+      alogMetadata: { title: 'Test' },
+      inventory: [],
+    });
+
+    const request = mockFetch.mock.calls[0][0] as Request;
+    expect(request.url).toBe('https://api.purveyors.io/v1/roasts/classify');
+  });
+
+  function authenticatedClient() {
+    return {
+      auth: {
+        getSession: vi.fn().mockResolvedValue({
+          data: { session: { access_token: 'mock-token' } },
+        }),
+      },
+    };
+  }
+
+  it('preserves the unauthenticated-session error', async () => {
     const { classifyRoast } = await import('../src/lib/ai.js');
 
     const mockSupabase = {
@@ -117,105 +153,9 @@ describe('classifyRoast error handling', () => {
     ).rejects.toThrow('Not authenticated');
   });
 
-  it('throws on 403 response', async () => {
+  it('posts the unchanged input to the canonical SDK URL with the session bearer token', async () => {
     const { classifyRoast } = await import('../src/lib/ai.js');
-
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 403,
-      statusText: 'Forbidden',
-    });
-
-    const originalFetch = global.fetch;
-    global.fetch = mockFetch;
-
-    const mockSupabase = {
-      auth: {
-        getSession: vi.fn().mockResolvedValue({
-          data: { session: { access_token: 'mock-token' } },
-        }),
-      },
-    } as unknown as Parameters<typeof classifyRoast>[0];
-
-    try {
-      await expect(
-        classifyRoast(mockSupabase, {
-          alogMetadata: { title: 'Test' },
-          inventory: [],
-        })
-      ).rejects.toThrow('Member role required');
-    } finally {
-      global.fetch = originalFetch;
-    }
-  });
-
-  it('throws on 429 response', async () => {
-    const { classifyRoast } = await import('../src/lib/ai.js');
-
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 429,
-      statusText: 'Too Many Requests',
-    });
-
-    const originalFetch = global.fetch;
-    global.fetch = mockFetch;
-
-    const mockSupabase = {
-      auth: {
-        getSession: vi.fn().mockResolvedValue({
-          data: { session: { access_token: 'mock-token' } },
-        }),
-      },
-    } as unknown as Parameters<typeof classifyRoast>[0];
-
-    try {
-      await expect(
-        classifyRoast(mockSupabase, {
-          alogMetadata: { title: 'Test' },
-          inventory: [],
-        })
-      ).rejects.toThrow('Rate limit exceeded');
-    } finally {
-      global.fetch = originalFetch;
-    }
-  });
-
-  it('throws generic error on other non-ok responses', async () => {
-    const { classifyRoast } = await import('../src/lib/ai.js');
-
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
-      statusText: 'Internal Server Error',
-    });
-
-    const originalFetch = global.fetch;
-    global.fetch = mockFetch;
-
-    const mockSupabase = {
-      auth: {
-        getSession: vi.fn().mockResolvedValue({
-          data: { session: { access_token: 'mock-token' } },
-        }),
-      },
-    } as unknown as Parameters<typeof classifyRoast>[0];
-
-    try {
-      await expect(
-        classifyRoast(mockSupabase, {
-          alogMetadata: { title: 'Test' },
-          inventory: [],
-        })
-      ).rejects.toThrow('AI classification failed');
-    } finally {
-      global.fetch = originalFetch;
-    }
-  });
-
-  it('returns parsed result on success', async () => {
-    const { classifyRoast } = await import('../src/lib/ai.js');
-
+    process.env.PARCHMENT_API_BASE_URL = 'https://parchment.example.test/';
     const expectedResult: ClassifyRoastResult = {
       match: {
         inventoryId: 3,
@@ -225,63 +165,67 @@ describe('classifyRoast error handling', () => {
       },
     };
 
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: vi.fn().mockResolvedValue(expectedResult),
-    });
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(expectedResult), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', mockFetch);
+    const input: ClassifyRoastInput = {
+      alogMetadata: { title: 'colombia-02.alog', filename: 'colombia-02.alog' },
+      inventory: [{ id: 3, coffee_name: 'Colombia Huila', origin: 'Colombia' }],
+    };
 
-    const originalFetch = global.fetch;
-    global.fetch = mockFetch;
+    const result = await classifyRoast(
+      authenticatedClient() as unknown as Parameters<typeof classifyRoast>[0],
+      input
+    );
 
-    const mockSupabase = {
-      auth: {
-        getSession: vi.fn().mockResolvedValue({
-          data: { session: { access_token: 'mock-token' } },
-        }),
-      },
-    } as unknown as Parameters<typeof classifyRoast>[0];
-
-    try {
-      const result = await classifyRoast(mockSupabase, {
-        alogMetadata: { title: 'colombia-02.alog' },
-        inventory: [{ id: 3, coffee_name: 'Colombia Huila', origin: 'Colombia' }],
-      });
-      expect(result.match).not.toBeNull();
-      expect(result.match!.inventoryId).toBe(3);
-      expect(result.match!.confidence).toBe(82);
-    } finally {
-      global.fetch = originalFetch;
-    }
+    const request = mockFetch.mock.calls[0][0] as Request;
+    expect(request.url).toBe('https://parchment.example.test/v1/roasts/classify');
+    expect(request.method).toBe('POST');
+    expect(request.headers.get('authorization')).toBe('Bearer mock-token');
+    expect(request.headers.get('content-type')).toContain('application/json');
+    await expect(request.clone().json()).resolves.toEqual(input);
+    expect(result).toEqual(expectedResult);
   });
 
-  it('handles network error (fetch throws) gracefully at call site', async () => {
+  it.each([
+    [403, 'Roast classification requires a member account or a paid API plan'],
+    [429, 'Roast classification rate limit exceeded'],
+    [503, 'Roast classification provider is unavailable'],
+  ])('propagates the canonical API error envelope for HTTP %i', async (status, message) => {
     const { classifyRoast } = await import('../src/lib/ai.js');
-
-    const mockFetch = vi.fn().mockRejectedValue(new Error('network error'));
-
-    const originalFetch = global.fetch;
-    global.fetch = mockFetch;
-
-    const mockSupabase = {
-      auth: {
-        getSession: vi.fn().mockResolvedValue({
-          data: { session: { access_token: 'mock-token' } },
-        }),
-      },
-    } as unknown as Parameters<typeof classifyRoast>[0];
-
-    try {
-      // The function itself throws — callers (runAutoMatch) catch it
-      await expect(
-        classifyRoast(mockSupabase, {
-          alogMetadata: { title: 'Test' },
-          inventory: [],
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: { message } }), {
+          status,
+          headers: { 'Content-Type': 'application/json' },
         })
-      ).rejects.toThrow('network error');
-    } finally {
-      global.fetch = originalFetch;
-    }
+      )
+    );
+
+    await expect(
+      classifyRoast(authenticatedClient() as unknown as Parameters<typeof classifyRoast>[0], {
+        alogMetadata: { title: 'Test' },
+        inventory: [],
+      })
+    ).rejects.toThrow(message);
+  });
+
+  it('lets network errors propagate for watch mode to mark as needs-review', async () => {
+    const { classifyRoast } = await import('../src/lib/ai.js');
+    const mockFetch = vi.fn().mockRejectedValue(new Error('network error'));
+    vi.stubGlobal('fetch', mockFetch);
+
+    await expect(
+      classifyRoast(authenticatedClient() as unknown as Parameters<typeof classifyRoast>[0], {
+        alogMetadata: { title: 'Test' },
+        inventory: [],
+      })
+    ).rejects.toThrow('network error');
   });
 });
 

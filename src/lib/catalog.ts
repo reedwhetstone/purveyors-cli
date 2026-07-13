@@ -982,14 +982,14 @@ async function parseCatalogApiError(
 
       return new PrvrsError(
         'CONFIG_ERROR',
-        `Catalog similarity API endpoint not found. Set PURVEYORS_BASE_URL to a Purveyors deployment that supports ${context}.`,
+        `Catalog similarity API endpoint not found. Set PARCHMENT_API_BASE_URL to a Parchment deployment that supports ${context}.`,
         details
       );
     }
 
     return new PrvrsError(
       'CONFIG_ERROR',
-      `Catalog API endpoint not found. Set PURVEYORS_BASE_URL to a Purveyors deployment that supports ${context}.`,
+      `Catalog API endpoint not found. Set PARCHMENT_API_BASE_URL to a Parchment deployment that supports ${context}.`,
       details
     );
   }

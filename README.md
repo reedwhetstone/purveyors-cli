@@ -449,7 +449,7 @@ Notes:
 
 - `price-index` is backed by the canonical Parchment API `GET /v1/price-index` through `@purveyors/sdk`.
 - Session-token use requires the local `member` role; API-key use is accepted via `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY` and PPI entitlement is enforced server-side.
-- `PARCHMENT_API_BASE_URL` overrides the canonical API base for this SDK-backed command. `PURVEYORS_BASE_URL` is also accepted for shared environment compatibility.
+- `PARCHMENT_API_BASE_URL` overrides the canonical API base for this SDK-backed command.
 
 ### market
 
@@ -668,6 +668,7 @@ Notes:
 - `--coffee-id` uses inventory IDs.
 - `roast import` and `roast watch` normalize pasted paths by trimming whitespace, removing one layer of matching quotes, and accepting common shell-escaped characters.
 - `roast watch --auto-match` is mutually exclusive with `--coffee-id`.
+- `roast watch --auto-match` sends roast metadata and the current stocked-inventory candidates to the canonical Parchment `POST /v1/roasts/classify` endpoint via `@purveyors/sdk`; it never calls an AI provider directly.
 - `roast watch --commit-mode` defaults to `batch`.
 
 ### sales
@@ -886,7 +887,7 @@ Use the right ID for the right command.
 - `PURVEYORS_BASE_URL`: override the Purveyors web base URL
 - `PURVEYORS_API_KEY`: explicit API-key override for canonical Parchment commands
 - `PARCHMENT_API_KEY`: preferred API-key variable for SDK-backed Parchment commands; also accepted for API-backed proof and paid-tier similarity paths
-- `PARCHMENT_API_BASE_URL`: override the SDK-backed Parchment API base URL for `market`, `price-index`, and `procurement` commands
+- `PARCHMENT_API_BASE_URL`: override the SDK-backed Parchment API base URL, including `market`, `price-index`, `procurement`, and roast auto-classification requests
 - `PURVEY_DEBUG`: enable verbose error output
 
 ## For AI agents

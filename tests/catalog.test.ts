@@ -53,6 +53,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.PARCHMENT_API_KEY;
   delete process.env.PURVEYORS_API_KEY;
+  delete process.env.PARCHMENT_API_BASE_URL;
   delete process.env.PURVEYORS_BASE_URL;
   vi.mocked(resolveParchmentToken).mockImplementation(async (role = 'viewer') => {
     const apiKey = process.env.PARCHMENT_API_KEY || process.env.PURVEYORS_API_KEY;
@@ -819,7 +820,7 @@ describe('catalog command auth and structured filter parsing', () => {
   });
 
   it('uses API-key canonical similarity reads without session auth when an API key env is set', async () => {
-    process.env.PURVEYORS_BASE_URL = 'https://example.test';
+    process.env.PARCHMENT_API_BASE_URL = 'https://example.test';
     process.env.PARCHMENT_API_KEY = 'parchment-key';
     const response = makeCanonicalSimilarityResponse();
     const fetchMock = vi.fn().mockResolvedValue(
@@ -859,7 +860,7 @@ describe('catalog command auth and structured filter parsing', () => {
   });
 
   it('uses member session auth for canonical similarity reads when no API key env is set', async () => {
-    process.env.PURVEYORS_BASE_URL = 'https://example.test';
+    process.env.PARCHMENT_API_BASE_URL = 'https://example.test';
     const response = makeCanonicalSimilarityResponse();
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(response), {
@@ -1108,7 +1109,7 @@ describe('searchCatalog', () => {
   });
 
   it('uses /v1/catalog include=proof instead of direct Supabase reads when requested', async () => {
-    process.env.PURVEYORS_BASE_URL = 'https://example.test';
+    process.env.PARCHMENT_API_BASE_URL = 'https://example.test';
     const proof = {
       version: 'proof-summary-v1',
       overall: { label: 'partial', families_with_signals: 2 },
@@ -1192,7 +1193,7 @@ describe('searchCatalog', () => {
   });
 
   it('ignores pagination flags for include-proof ID searches', async () => {
-    process.env.PURVEYORS_BASE_URL = 'https://example.test';
+    process.env.PARCHMENT_API_BASE_URL = 'https://example.test';
     process.env.PARCHMENT_API_KEY = 'parchment-key';
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ data: [makeItem({ id: 11 }), makeItem({ id: 12 })] }), {
@@ -1236,7 +1237,7 @@ describe('searchCatalog', () => {
   });
 
   it('fetches a single proof-backed catalog item through /v1/catalog ids', async () => {
-    process.env.PURVEYORS_BASE_URL = 'https://example.test';
+    process.env.PARCHMENT_API_BASE_URL = 'https://example.test';
     const proof = {
       version: 'proof-summary-v1',
       overall: { label: 'strong', families_with_signals: 4 },
@@ -1310,7 +1311,7 @@ describe('getCatalogSimilaritySchema', () => {
 
 describe('getCatalogSimilarity', () => {
   it('calls /v1/catalog/{id}/similar with canonical query params and session auth', async () => {
-    process.env.PURVEYORS_BASE_URL = 'https://example.test';
+    process.env.PARCHMENT_API_BASE_URL = 'https://example.test';
     const response = makeCanonicalSimilarityResponse();
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(response), {

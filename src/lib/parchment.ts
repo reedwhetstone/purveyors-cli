@@ -9,8 +9,8 @@ export { getParchmentBaseUrl } from './parchment-base.js';
  *
  * Unlike the legacy hand-rolled catalog fetch paths (which default to the
  * coffee-app BFF at www.purveyors.io), SDK-backed commands talk to the
- * canonical API directly. `PARCHMENT_API_BASE_URL` takes precedence, then the
- * shared `PURVEYORS_BASE_URL` override, then the canonical default.
+ * canonical API directly. Only `PARCHMENT_API_BASE_URL` overrides the
+ * canonical default; `PURVEYORS_BASE_URL` remains web-host-only.
  */
 /**
  * Resolve the bearer token for Parchment requests, mirroring the existing CLI
