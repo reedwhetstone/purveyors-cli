@@ -95,7 +95,9 @@ export type CatalogMatchKind = 'canonical_candidate' | 'similar_recommendation';
 export type CatalogIdentityEligibility = 'eligible' | 'blocked' | 'insufficient_evidence';
 export type CatalogMatchConfidenceLabel = 'high_beta' | 'medium_beta' | 'low_beta';
 export type CatalogSimilarityQueryStrategy =
-  'bounded-vector-candidates-v1' | 'canonical-vector-aggregated-v2' | 'legacy-vector-aggregated-v1';
+  | 'bounded-vector-candidates-v1'
+  | 'canonical-vector-aggregated-v2'
+  | 'legacy-vector-aggregated-v1';
 
 export interface CatalogCanonicalPricing {
   price_per_lb: number | null;
