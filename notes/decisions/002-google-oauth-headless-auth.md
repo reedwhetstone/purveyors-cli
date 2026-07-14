@@ -1,6 +1,6 @@
 # ADR-002: Google OAuth with Headless Fallback Instead of API Keys
 
-**Status:** Accepted
+**Status:** Superseded by `docs/ADR-003-parchment-device-authorization.md`
 **Date:** 2026-03-14 (approximate)
 
 ## Context

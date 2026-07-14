@@ -47,7 +47,7 @@ import {
 } from '../src/lib/catalog.js';
 import { outputData } from '../src/lib/output.js';
 import type { CatalogItem, CatalogSimilarityResponse } from '../src/lib/catalog.js';
-import type { AuthClient } from '../src/lib/auth-client.js';
+import type { CredentialContext } from '../src/lib/auth-client.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -757,7 +757,7 @@ describe('sanitizeFilterValue', () => {
 
 // ─── searchCatalog query mapping ─────────────────────────────────────────────
 
-function makeSearchSupabase(response: { data?: unknown; error?: unknown | null } = {}) {
+function makeSearchCredentialContext(response: { data?: unknown; error?: unknown | null } = {}) {
   const query = {
     data: response.data ?? [],
     error: response.error ?? null,
@@ -774,7 +774,7 @@ function makeSearchSupabase(response: { data?: unknown; error?: unknown | null }
   const select = vi.fn(() => query);
   const from = vi.fn(() => ({ select }));
 
-  return { supabase: { from } as unknown as AuthClient, query, select, from };
+  return { credentialContext: { from } as unknown as CredentialContext, query, select, from };
 }
 
 async function runCatalogCommand(args: string[]): Promise<void> {
@@ -791,8 +791,8 @@ async function runCatalogCommand(args: string[]): Promise<void> {
 
 describe('catalog command auth and structured filter parsing', () => {
   it('requires viewer auth for normal catalog search', async () => {
-    const { supabase } = makeSearchSupabase();
-    vi.mocked(requireAuth).mockResolvedValue({ supabase, userId: 'user-1' });
+    const { credentialContext } = makeSearchCredentialContext();
+    vi.mocked(requireAuth).mockResolvedValue({ credentialContext, userId: 'user-1' });
 
     await runCatalogCommand(['search', '--origin', 'Ethiopia']);
 
@@ -869,14 +869,12 @@ describe('catalog command auth and structured filter parsing', () => {
       })
     );
     vi.stubGlobal('fetch', fetchMock);
-    const supabase = {
-      auth: {
-        getSession: vi.fn().mockResolvedValue({
-          data: { session: { access_token: 'session-token' } },
-        }),
-      },
-    } as unknown as AuthClient;
-    vi.mocked(requireAuth).mockResolvedValue({ supabase, userId: 'user-1' });
+    const credentialContext = {
+      getSession: vi.fn().mockResolvedValue({
+        data: { session: { apiKey: 'session-token' } },
+      }),
+    } as unknown as CredentialContext;
+    vi.mocked(requireAuth).mockResolvedValue({ credentialContext, userId: 'user-1' });
 
     await runCatalogCommand(['similar', '1182']);
 
@@ -899,8 +897,8 @@ describe('catalog command auth and structured filter parsing', () => {
     ];
 
     for (const args of structuredFlags) {
-      const { supabase } = makeSearchSupabase();
-      vi.mocked(requireAuth).mockResolvedValueOnce({ supabase, userId: 'user-1' });
+      const { credentialContext } = makeSearchCredentialContext();
+      vi.mocked(requireAuth).mockResolvedValueOnce({ credentialContext, userId: 'user-1' });
 
       await runCatalogCommand(['search', ...args]);
     }
@@ -1108,7 +1106,7 @@ describe('searchCatalog', () => {
     expect(createParchmentClient).not.toHaveBeenCalled();
   });
 
-  it('uses /v1/catalog include=proof instead of direct Supabase reads when requested', async () => {
+  it('uses /v1/catalog include=proof instead of direct Parchment reads when requested', async () => {
     process.env.PARCHMENT_API_BASE_URL = 'https://example.test';
     const proof = {
       version: 'proof-summary-v1',

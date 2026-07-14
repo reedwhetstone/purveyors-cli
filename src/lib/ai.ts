@@ -1,6 +1,6 @@
 /** AI roast classification through the canonical Parchment API. */
 
-import type { AuthClient } from './auth-client.js';
+import type { CredentialContext } from './auth-client.js';
 import { createParchmentClient, unwrapParchment } from './parchment.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -31,6 +31,31 @@ export interface ClassifyRoastResult {
   } | null;
 }
 
+/** Published pre-0.32 structural input retained for downstream package consumers. */
+export interface LegacyClassifyAuthFacade {
+  auth: {
+    getSession(): Promise<{
+      data: { session: { access_token: string } | null };
+    }>;
+  };
+}
+
+async function resolveClassificationApiKey(
+  source: CredentialContext | LegacyClassifyAuthFacade
+): Promise<string | undefined> {
+  if ('getSession' in source) {
+    const {
+      data: { session },
+    } = await source.getSession();
+    return session?.apiKey;
+  }
+
+  const {
+    data: { session },
+  } = await source.auth.getSession();
+  return session?.access_token;
+}
+
 // ─── Client ───────────────────────────────────────────────────────────────────
 
 /**
@@ -40,18 +65,16 @@ export interface ClassifyRoastResult {
  * entitlement and the token's owner-bound roast scope server-side.
  */
 export async function classifyRoast(
-  supabase: AuthClient,
+  credentialContext: CredentialContext | LegacyClassifyAuthFacade,
   input: ClassifyRoastInput
 ): Promise<ClassifyRoastResult> {
-  // Get the current session token for auth
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) {
+  // Resolve the current stored API key at the request boundary.
+  const apiKey = await resolveClassificationApiKey(credentialContext);
+  if (!apiKey) {
     throw new Error('Not authenticated. Run `purvey auth login` first.');
   }
 
-  const client = await createParchmentClient('member', session.access_token);
+  const client = await createParchmentClient('member', apiKey);
   const data = unwrapParchment(await client.roasts.classify(input), 'AI roast classification');
 
   // Keep the historical library contract tolerant of an omitted match.

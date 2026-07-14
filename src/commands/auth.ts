@@ -1,419 +1,317 @@
 import { Command } from 'commander';
-import { createServer } from 'http';
+import { createHash, randomBytes } from 'crypto';
+import { hostname } from 'os';
+import { spawn } from 'child_process';
+import { createParchmentClient, type ParchmentClient } from '@purveyors/sdk';
+import chalk from 'chalk';
+import ora from 'ora';
 import { validateSession } from '../lib/auth-client.js';
 import { writeCredentials, deleteCredentials } from '../lib/config.js';
+import { getParchmentBaseUrl } from '../lib/parchment-base.js';
 import { outputData, shouldUseInteractiveOutput, success, info, warn } from '../lib/output.js';
 import { withErrorHandling, AuthError, exitCodeForError } from '../lib/errors.js';
 import type { OutputOptions, StoredCredentials } from '../types/index.js';
-import chalk from 'chalk';
-import ora from 'ora';
-import { createInterface, type Interface as ReadlineInterface } from 'readline';
-import { createParchmentClient, type ParchmentClient } from '@purveyors/sdk';
-import { getParchmentBaseUrl } from '../lib/parchment-base.js';
-import { hostname } from 'os';
-import { randomUUID } from 'crypto';
 
-const DEFAULT_CALLBACK_HOST = 'localhost';
-const CALLBACK_PATH = '/auth/callback';
-const SUPABASE_AUTH_URL =
-  process.env.PURVEYORS_SUPABASE_URL || 'https://bjblfzfdtfvuitqdbodn.supabase.co';
-const CLI_API_KEY_SCOPES = [
-  // The canonical API uses catalog:read for catalog, Market Index,
-  // Price Index, and procurement reads; those data planes do not define
-  // separate key scopes.
-  'catalog:read',
-  'inventory:read',
-  'inventory:write',
-  'roast:read',
-  'roast:write',
-  'sales:read',
-  'sales:write',
-  'tasting:read',
-  'tasting:write',
-] as const;
+const DEFAULT_POLL_INTERVAL_SECONDS = 5;
+const EXCHANGE_CANCELLATION_TIMEOUT_MS = 30_000;
 
-interface CallbackResult {
-  accessToken: string;
-  refreshToken: string;
-  expiresIn: number;
+type CliAuthClient = Pick<ParchmentClient, 'cliAuth'>;
+
+interface DeviceLoginOptions {
+  headless: boolean;
+  client?: CliAuthClient;
+  machineName?: string;
+  openBrowser?: (url: string) => Promise<boolean>;
+  sleep?: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
+  signal?: AbortSignal;
+  exchangeCancellationTimeoutMs?: number;
+  onExchangeCancellationWait?: () => void;
 }
 
-interface CallbackServer {
-  port: number;
-  state: string;
-  tokenPromise: Promise<CallbackResult>;
-  close: () => void;
+interface ApiErrorBody {
+  code?: string;
+  message?: string;
 }
 
-interface ManualCallbackReader {
-  promise: Promise<CallbackResult>;
-  close: () => void;
+interface ApiErrorEnvelope {
+  error?: ApiErrorBody;
 }
 
-type ManualCallbackQuestion = (query: string, callback: (answer: string) => void) => void;
-
-export function createOAuthUrl(redirectTo: string): string {
-  const url = new URL('/auth/v1/authorize', SUPABASE_AUTH_URL);
-  url.searchParams.set('provider', 'google');
-  url.searchParams.set('redirect_to', redirectTo);
-  return url.toString();
+/** Generate an RFC 7636 verifier and its S256 challenge. */
+export function createPkcePair(): { verifier: string; challenge: string } {
+  const verifier = randomBytes(32).toString('base64url');
+  const challenge = createHash('sha256').update(verifier).digest('base64url');
+  return { verifier, challenge };
 }
 
-function decodeSessionIdentity(accessToken: string): StoredCredentials['user'] {
-  try {
-    const payload = JSON.parse(
-      Buffer.from(accessToken.split('.')[1] ?? '', 'base64url').toString('utf8')
-    ) as Record<string, unknown>;
-    return {
-      id: typeof payload.sub === 'string' ? payload.sub : 'unknown',
-      email: typeof payload.email === 'string' ? payload.email : 'unknown',
-      role: typeof payload.role === 'string' ? payload.role : undefined,
-    };
-  } catch {
-    return { id: 'unknown', email: 'unknown' };
-  }
+function apiError(result: { error?: unknown }): ApiErrorBody {
+  if (!result.error || typeof result.error !== 'object') return {};
+  const envelope = result.error as ApiErrorEnvelope;
+  if (envelope.error && typeof envelope.error === 'object') return envelope.error;
+  // Be tolerant of hand-written/mock clients that return the inner body directly.
+  return result.error as ApiErrorBody;
 }
 
-export async function exchangeOAuthSessionForApiKey(
-  accessToken: string,
-  clientOverride?: ParchmentClient
-): Promise<StoredCredentials> {
-  const client =
-    clientOverride ?? createParchmentClient({ baseUrl: getParchmentBaseUrl(), token: accessToken });
-  const me = await client.me();
-  if (!me.response.ok || me.error || !me.data?.authenticated || !me.data.userId) {
-    throw new AuthError('OAuth session could not be verified by Parchment.');
-  }
-  const keyName = `purvey-cli-${hostname()}`;
-  const existing = await client.apiKeys.list();
-  if (!existing.response.ok || existing.error) {
-    throw new AuthError('Failed to inspect existing CLI API keys.', existing.error);
-  }
-  const supersededKeys = (existing.data?.data ?? []).filter(
-    (key) => key.name === keyName && key.isActive
-  );
-  const result = await client.apiKeys.create({
-    name: keyName,
-    scopes: [...CLI_API_KEY_SCOPES],
-  });
-  if (!result.response.ok || result.error || !result.data?.apiKey) {
-    throw new AuthError('Failed to create a scoped Parchment API key.', result.error);
-  }
-  for (const key of supersededKeys) {
-    const revoked = await client.apiKeys.revoke(key.id);
-    if (!revoked.response.ok || revoked.error) {
-      await client.apiKeys.revoke(result.data.key.id).catch(() => undefined);
-      throw new AuthError('Failed to replace the existing CLI API key.', revoked.error);
-    }
-  }
-  const identity = decodeSessionIdentity(accessToken);
-  return {
-    apiKey: result.data.apiKey,
-    keyId: result.data.key.id,
-    createdAt: result.data.key.createdAt ?? new Date().toISOString(),
-    user: {
-      ...identity,
-      id: me.data.userId,
-      role: me.data.primaryAppRole ?? identity.role,
-    },
-  };
+/** Normalize hostnames to Parchment's stable, human-readable machine-name contract. */
+export function normalizeMachineName(value: string): string {
+  const normalized = value
+    .trim()
+    .replace(/[^A-Za-z0-9._ -]+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 64)
+    .trim()
+    .replace(/^-+|-+$/g, '');
+  return normalized || 'unknown-machine';
 }
 
-/**
- * Start a one-shot local HTTP server to receive the Supabase OAuth callback.
- *
- * Supabase delivers tokens in the URL fragment (#access_token=...) which is
- * client-side only. We serve a minimal HTML page that extracts the fragment
- * values and POSTs them back to the local server, then resolves the promise.
- */
-function startCallbackServer(): Promise<CallbackServer> {
+function wait(milliseconds: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const state = randomUUID();
-    let tokenResolve!: (val: CallbackResult) => void;
-    let tokenReject!: (err: Error) => void;
-
-    const tokenPromise = new Promise<CallbackResult>((res, rej) => {
-      tokenResolve = res;
-      tokenReject = rej;
-    });
-
-    const server = createServer((req, res) => {
-      const url = new URL(req.url ?? '/', `http://${DEFAULT_CALLBACK_HOST}`);
-
-      if (url.pathname === CALLBACK_PATH && url.searchParams.get('state') === state) {
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(`<!DOCTYPE html>
-<html>
-<head><title>Authenticating...</title></head>
-<body>
-<p>Completing authentication, please wait...</p>
-<script>
-  const hash = window.location.hash.substring(1);
-  const params = new URLSearchParams(hash);
-  fetch('/auth/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      access_token: params.get('access_token'),
-      refresh_token: params.get('refresh_token'),
-      expires_in: params.get('expires_in'),
-      state: new URLSearchParams(window.location.search).get('state'),
-    })
-  }).then(() => {
-    document.body.innerHTML =
-      '<h2 style="font-family:sans-serif;color:#2d6a4f;">✔ Authenticated! You can close this tab.</h2>';
-  });
-</script>
-</body>
-</html>`);
-        return;
-      }
-
-      if (url.pathname === '/auth/token' && req.method === 'POST') {
-        let body = '';
-        req.on('data', (chunk) => (body += chunk));
-        req.on('end', () => {
-          res.writeHead(200);
-          res.end('ok');
-          server.close();
-
-          try {
-            const {
-              access_token,
-              refresh_token,
-              expires_in,
-              state: callbackState,
-            } = JSON.parse(body) as {
-              access_token?: string;
-              refresh_token?: string;
-              expires_in?: string;
-              state?: string;
-            };
-
-            if (!access_token || !refresh_token || callbackState !== state) {
-              tokenReject(new AuthError('OAuth callback did not include tokens. Try again.'));
-              return;
-            }
-
-            tokenResolve({
-              accessToken: access_token,
-              refreshToken: refresh_token,
-              expiresIn: parseInt(expires_in ?? '3600', 10),
-            });
-          } catch {
-            tokenReject(new AuthError('Failed to parse OAuth callback response.'));
-          }
-        });
-        return;
-      }
-
-      res.writeHead(404);
-      res.end();
-    });
-
-    server.listen(0, DEFAULT_CALLBACK_HOST, () => {
-      const addr = server.address();
-      if (!addr || typeof addr === 'string') {
-        reject(new AuthError('Failed to start callback server.'));
-        return;
-      }
-      resolve({
-        port: addr.port,
-        state,
-        tokenPromise,
-        close: () => {
-          try {
-            server.close();
-          } catch {
-            // Server may already be closed after an automatic callback.
-          }
-        },
-      });
-    });
-
-    server.on('error', (err) => reject(err));
-  });
-}
-
-/**
- * Extract Supabase OAuth tokens from a full callback URL, URL fragment, or
- * query string. Exported for auth-flow contract tests.
- */
-export function parseOAuthCallbackUrl(callbackUrl: string, expectedState?: string): CallbackResult {
-  const trimmed = callbackUrl.trim();
-
-  if (!trimmed) {
-    throw new AuthError('No URL provided.');
-  }
-
-  // Supabase usually puts tokens in the fragment:
-  // #access_token=...&refresh_token=...
-  let tokenStr = '';
-  if (trimmed.includes('#')) {
-    tokenStr = trimmed.split('#')[1] ?? '';
-  } else if (trimmed.includes('?')) {
-    tokenStr = trimmed.split('?').slice(1).join('?');
-  } else {
-    // Allow pasting just the fragment/query content.
-    tokenStr = trimmed;
-  }
-
-  const params = new URLSearchParams(tokenStr);
-  const accessToken = params.get('access_token');
-  const refreshToken = params.get('refresh_token');
-  const expiresIn = params.get('expires_in');
-
-  if (expectedState) {
-    const parsedUrl = new URL(trimmed, 'http://localhost');
-    if (parsedUrl.searchParams.get('state') !== expectedState) {
-      throw new AuthError('OAuth callback state did not match this login attempt.');
+    if (signal?.aborted) {
+      reject(new AuthError('Login cancelled.'));
+      return;
     }
-  }
-
-  if (!accessToken || !refreshToken) {
-    throw new AuthError(
-      'Could not extract tokens from the URL.\n' +
-        '  Make sure you copied the full callback URL including the #access_token=... part.'
-    );
-  }
-
-  return {
-    accessToken,
-    refreshToken,
-    expiresIn: parseInt(expiresIn ?? '3600', 10),
-  };
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new AuthError('Login cancelled.'));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, milliseconds);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
-export function createManualCallbackReaderForQuestion(
-  question: ManualCallbackQuestion,
-  closeQuestion: () => void,
-  canRead: boolean,
-  expectedState?: string
-): ManualCallbackReader | null {
-  if (!canRead) return null;
+function awaitAbortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(new AuthError('Login cancelled.'));
 
-  let closed = false;
-  const prompt = chalk.bold('  If the browser cannot return here, paste the full callback URL: ');
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      reject(new AuthError('Login cancelled.'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      }
+    );
+  });
+}
 
-  const promise = new Promise<CallbackResult>((resolve) => {
-    const ask = () => {
-      if (closed) return;
+function awaitExchangeSettlement<T>(
+  promise: Promise<T>,
+  options: Pick<
+    DeviceLoginOptions,
+    'signal' | 'exchangeCancellationTimeoutMs' | 'onExchangeCancellationWait'
+  >
+): Promise<T> {
+  const { signal } = options;
+  if (!signal) return promise;
 
-      question(prompt, (answer) => {
-        if (closed) return;
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let cancellationTimer: ReturnType<typeof setTimeout> | undefined;
 
-        try {
-          const callbackResult = parseOAuthCallbackUrl(answer, expectedState);
-          closed = true;
-          closeQuestion();
-          resolve(callbackResult);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Failed to parse callback URL.';
-          console.log(chalk.yellow(`  Ignoring invalid callback URL: ${message}`));
-          console.log(
-            chalk.dim('  Still waiting for the browser callback; paste a valid URL to retry.')
-          );
-          ask();
-        }
-      });
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      if (cancellationTimer) clearTimeout(cancellationTimer);
+      callback();
+    };
+    const onAbort = () => {
+      if (settled || cancellationTimer) return;
+      options.onExchangeCancellationWait?.();
+      cancellationTimer = setTimeout(() => {
+        finish(() =>
+          reject(
+            new AuthError(
+              'Login cancellation timed out while Parchment was issuing the one-time key. ' +
+                'The prior key may have been replaced; run `purvey auth login` again.'
+            )
+          )
+        );
+      }, options.exchangeCancellationTimeoutMs ?? EXCHANGE_CANCELLATION_TIMEOUT_MS);
     };
 
-    ask();
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
+    promise.then(
+      (value) => finish(() => resolve(value)),
+      (error: unknown) => finish(() => reject(error))
+    );
   });
+}
 
+/** Open the verification page, returning false when no browser command is available. */
+export async function openVerificationPage(url: string): Promise<boolean> {
+  const command =
+    process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
+  const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
+
+  return new Promise((resolve) => {
+    try {
+      const child = spawn(command, args, { detached: true, stdio: 'ignore' });
+      child.once('spawn', () => {
+        child.unref();
+        resolve(true);
+      });
+      child.once('error', () => resolve(false));
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+function toStoredCredentials(data: {
+  apiKey: string;
+  key: { id: string; createdAt: string | null };
+  user: { id: string; email: string; role: string };
+}): StoredCredentials {
   return {
-    promise,
-    close: () => {
-      if (closed) return;
-      closed = true;
-      closeQuestion();
-    },
+    apiKey: data.apiKey,
+    keyId: data.key.id,
+    createdAt: data.key.createdAt ?? new Date().toISOString(),
+    user: data.user,
   };
 }
 
-function createManualCallbackReader(expectedState: string): ManualCallbackReader | null {
-  if (!process.stdin.isTTY) return null;
+/**
+ * Run the Parchment-owned browser/device authorization protocol.
+ * The verifier and signed request token remain memory-only and are discarded on exit.
+ */
+export async function performDeviceLogin(options: DeviceLoginOptions): Promise<StoredCredentials> {
+  if (options.signal?.aborted) throw new AuthError('Login cancelled.');
+  const client = options.client ?? createParchmentClient({ baseUrl: getParchmentBaseUrl() });
+  const { verifier, challenge } = createPkcePair();
 
-  const rl: ReadlineInterface = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  let created: Awaited<ReturnType<CliAuthClient['cliAuth']['create']>>;
+  try {
+    created = await awaitAbortable(
+      client.cliAuth.create({
+        machineName: normalizeMachineName(options.machineName ?? hostname()),
+        codeChallenge: challenge,
+      }),
+      options.signal
+    );
+  } catch (error) {
+    if (error instanceof AuthError) throw error;
+    if (options.signal?.aborted) throw new AuthError('Login cancelled.');
+    throw new AuthError('Could not contact Parchment to start login.', error);
+  }
+  if (!created.response.ok || created.error || !created.data) {
+    const detail = apiError(created).message;
+    throw new AuthError(detail ?? 'Parchment could not start the login request.', created.error);
+  }
 
-  return createManualCallbackReaderForQuestion(
-    rl.question.bind(rl),
-    () => rl.close(),
-    process.stdin.isTTY,
-    expectedState
+  const { requestToken, verificationUri, expiresAt } = created.data;
+  const intervalSeconds = Math.max(
+    1,
+    Number.isFinite(created.data.intervalSeconds)
+      ? created.data.intervalSeconds
+      : DEFAULT_POLL_INTERVAL_SECONDS
   );
+
+  if (options.headless) {
+    console.log(chalk.bold('\n  Headless Login\n'));
+    console.log('  Open this URL in a browser and approve access:\n');
+    console.log(`  ${chalk.cyan(verificationUri)}\n`);
+  } else {
+    console.log(chalk.bold('\n  Opening Purveyors in your browser...'));
+    const opened = await (options.openBrowser ?? openVerificationPage)(verificationUri);
+    if (!opened) {
+      warn('Could not open a browser. Open this URL to continue:');
+      console.log(`  ${chalk.cyan(verificationUri)}\n`);
+    } else {
+      console.log(chalk.dim(`  If the browser did not open, visit:\n  ${verificationUri}\n`));
+    }
+  }
+
+  const expiresAtMs = Date.parse(expiresAt);
+  if (!Number.isFinite(expiresAtMs)) {
+    throw new AuthError('Parchment returned an invalid login expiration time.');
+  }
+
+  const sleep = options.sleep ?? wait;
+  while (true) {
+    const remainingMs = expiresAtMs - Date.now();
+    if (remainingMs <= 0) {
+      throw new AuthError('Login request expired. Run `purvey auth login` to try again.');
+    }
+    await sleep(Math.min(intervalSeconds * 1000, remainingMs), options.signal);
+    if (Date.now() >= expiresAtMs) {
+      throw new AuthError('Login request expired. Run `purvey auth login` to try again.');
+    }
+    if (options.signal?.aborted) throw new AuthError('Login cancelled.');
+
+    let exchanged: Awaited<ReturnType<CliAuthClient['cliAuth']['exchange']>>;
+    try {
+      exchanged = await awaitExchangeSettlement(
+        client.cliAuth.exchange({
+          requestToken,
+          codeVerifier: verifier,
+        }),
+        options
+      );
+    } catch (error) {
+      if (error instanceof AuthError) throw error;
+      if (options.signal?.aborted) throw new AuthError('Login cancelled.');
+      throw new AuthError('Could not contact Parchment while waiting for approval.', error);
+    }
+
+    if (exchanged.response.ok && !exchanged.error && exchanged.data) {
+      return toStoredCredentials(exchanged.data);
+    }
+    if (options.signal?.aborted) throw new AuthError('Login cancelled.');
+
+    const error = apiError(exchanged);
+    if (error.code === 'authorization_pending') continue;
+    if (error.code === 'request_expired') {
+      throw new AuthError('Login request expired. Run `purvey auth login` to try again.');
+    }
+    if (error.code === 'request_consumed') {
+      throw new AuthError('Login request was already used. Run `purvey auth login` to try again.');
+    }
+    if (error.code === 'invalid_request' || error.code === 'request_conflict') {
+      throw new AuthError(error.message ?? 'Parchment rejected the login request.');
+    }
+    throw new AuthError(error.message ?? 'Parchment could not complete login.', exchanged.error);
+  }
 }
 
-/**
- * `purvey auth login`
- * Opens a browser for Google OAuth via Supabase, captures the callback token.
- */
-const loginAction = withErrorHandling(async () => {
-  const callbackServer = await startCallbackServer();
-  const { port, state, tokenPromise } = callbackServer;
-  const redirectTo = `http://${DEFAULT_CALLBACK_HOST}:${port}${CALLBACK_PATH}?state=${encodeURIComponent(state)}`;
+async function login(headless: boolean): Promise<void> {
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  process.once('SIGINT', cancel);
+  const spinner = ora({ text: 'Waiting for browser approval...', stream: process.stderr });
 
   try {
-    const oauthUrl = createOAuthUrl(redirectTo);
-
-    console.log(chalk.bold('\n  Opening browser for authentication...'));
-    console.log(chalk.dim(`  If the browser does not open, visit:\n  ${oauthUrl}\n`));
-    console.log(
-      chalk.dim(
-        '  Waiting for the browser callback. If the browser lands on a localhost URL but\n' +
-          '  the CLI does not finish, copy that full URL and paste it below.\n'
-      )
-    );
-
-    // Open browser cross-platform (graceful fallback for headless)
-    try {
-      const { spawn } = await import('child_process');
-      const openCmd =
-        process.platform === 'darwin'
-          ? 'open'
-          : process.platform === 'win32'
-            ? 'start'
-            : 'xdg-open';
-      const child = spawn(openCmd, [oauthUrl], { detached: true, stdio: 'ignore' });
-      child.on('error', () => {
-        // Browser open failed (headless environment) — user can visit URL manually
-      });
-      child.unref();
-    } catch {
-      // Gracefully ignore — URL is already printed above
-    }
-
-    const manualReader = createManualCallbackReader(state);
-    const spinner = ora({ text: 'Waiting for authentication...', stream: process.stderr }).start();
-
-    let callbackResult: CallbackResult;
-    try {
-      callbackResult = await Promise.race([
-        tokenPromise,
-        ...(manualReader ? [manualReader.promise] : []),
-      ]);
-    } finally {
-      manualReader?.close();
-    }
-
-    const { accessToken } = callbackResult;
-    spinner.succeed('Authentication received');
-    const creds = await exchangeOAuthSessionForApiKey(accessToken);
-
-    await writeCredentials(creds);
-    success(`Logged in as ${chalk.bold(creds.user.email)}`);
+    const credentialsPromise = performDeviceLogin({
+      headless,
+      signal: controller.signal,
+      onExchangeCancellationWait: () => {
+        spinner.text =
+          'Cancellation requested; waiting up to 30s for the one-time exchange to settle safely. Press Ctrl-C again to force exit.';
+      },
+    });
+    spinner.start();
+    const credentials = await credentialsPromise;
+    await writeCredentials(credentials);
+    spinner.succeed(`Logged in as ${chalk.bold(credentials.user.email)}`);
+  } catch (error) {
+    spinner.stop();
+    throw error;
   } finally {
-    callbackServer.close();
+    process.removeListener('SIGINT', cancel);
   }
-});
+}
 
-/**
- * `purvey auth status`
- * Shows current login state and token info.
- */
 const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
   const opts = cmd.optsWithGlobals() as OutputOptions;
   const isInteractive = shouldUseInteractiveOutput(opts);
@@ -459,51 +357,6 @@ const statusAction = withErrorHandling(async (_: unknown, cmd: Command) => {
   outputData(result, opts);
 });
 
-/**
- * `purvey auth login --headless`
- * Headless login for agents and servers. Generates OAuth URL, user pastes back callback.
- */
-const headlessLoginAction = withErrorHandling(async () => {
-  // Generate OAuth URL with purveyors.io callback page as redirect
-  const state = randomUUID();
-  const redirectTo = new URL('https://purveyors.io/auth/cli-callback');
-  redirectTo.searchParams.set('state', state);
-  const oauthUrl = createOAuthUrl(redirectTo.toString());
-
-  console.log(chalk.bold('\n  Headless Login\n'));
-  console.log('  1. Open this URL in a browser and sign in:\n');
-  console.log(`     ${chalk.cyan(oauthUrl)}\n`);
-  console.log("  2. After login, you'll see a page with a callback URL.");
-  console.log('  3. Copy the full callback URL and paste it below.\n');
-
-  // Read the callback URL from stdin
-  const { createInterface } = await import('readline');
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-
-  const callbackUrl = await new Promise<string>((resolve) => {
-    rl.question(chalk.bold('  Paste callback URL: '), (answer) => {
-      rl.close();
-      resolve(answer.trim());
-    });
-  });
-
-  if (!callbackUrl) {
-    throw new AuthError('No URL provided.');
-  }
-
-  const { accessToken } = parseOAuthCallbackUrl(callbackUrl, state);
-
-  const spinner = ora({ text: 'Validating session...', stream: process.stderr }).start();
-  const creds = await exchangeOAuthSessionForApiKey(accessToken);
-
-  await writeCredentials(creds);
-  spinner.succeed(`Logged in as ${chalk.bold(creds.user.email)}`);
-});
-
-/**
- * `purvey auth logout`
- * Clears stored credentials from disk.
- */
 const logoutAction = withErrorHandling(async () => {
   await deleteCredentials();
   warn(
@@ -511,44 +364,32 @@ const logoutAction = withErrorHandling(async () => {
   );
 });
 
-/**
- * Build and return the `auth` command subtree.
- */
 export function buildAuthCommand(): Command {
   const auth = new Command('auth').description('Manage authentication with purveyors.io');
 
-  const login = auth
+  auth
     .command('login')
     .description('Log in to purveyors.io')
-    .option('--headless', 'Headless login (prints URL, you paste back the callback)')
-    .action(async (opts) => {
-      if (opts.headless) {
-        return headlessLoginAction();
-      }
-      // Default: browser OAuth flow
-      return loginAction();
-    });
-
-  login.addHelpText(
-    'after',
-    `
+    .option('--headless', 'Print the approval URL without opening a browser')
+    .action(async (opts: { headless?: boolean }) => login(Boolean(opts.headless)))
+    .addHelpText(
+      'after',
+      `
 Examples:
-  ${chalk.dim('# Browser login (interactive, opens Google OAuth in default browser)')}
+  ${chalk.dim('# Browser login (opens the Purveyors approval page)')}
   purvey auth login
 
-  ${chalk.dim('# Headless login (agents, CI, servers — no browser required)')}
+  ${chalk.dim('# Headless login (agents, SSH sessions, and remote servers)')}
   purvey auth login --headless
-  ${chalk.dim('# → prints a Google OAuth URL')}
-  ${chalk.dim('# → open URL, sign in with Google')}
-  ${chalk.dim('# → copy the full callback URL from the browser')}
-  ${chalk.dim('# → paste it back at the prompt')}
+  ${chalk.dim('# → open the printed URL in any browser and approve access')}
+  ${chalk.dim('# → the CLI completes automatically; nothing is pasted back')}
 
 Notes:
   Credentials are stored at ~/.config/purvey/credentials.json (mode 0600).
-  OAuth is used once to mint a scoped Parchment API key; session tokens are not retained.
-  Re-login replaces the prior CLI key for this machine.
+  The CLI stores only the scoped Parchment API key returned after approval.
+  Re-login atomically replaces the prior CLI key for this machine.
 `
-  );
+    );
 
   auth
     .command('status')

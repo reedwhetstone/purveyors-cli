@@ -1,6 +1,6 @@
 # ADR-001: Transient OAuth with API-key credential custody
 
-**Status:** Accepted
+**Status:** Superseded by ADR-003
 **Date:** 2026-07-12
 
 ## Context
@@ -30,7 +30,7 @@ Negative:
 
 - A revoked key cannot refresh itself; the user must run `purvey auth login` again.
 - Logout clears local custody but cannot revoke the server key because lifecycle endpoints require a session principal. Users can revoke it from the account key dashboard, and the next login replaces the machine-named key.
-- OAuth bootstrap remains coupled to the configured Supabase Auth issuer, although no Supabase runtime client is shipped.
+- The original browser callback bootstrap remained coupled to the web identity issuer. ADR-003 removes that final CLI-side coupling.
 
 Risks and tradeoffs:
 

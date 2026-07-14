@@ -130,7 +130,7 @@ function createRuntime() {
   };
 }
 
-function createAutoMatchSupabase(matchId: number, coffeeName: string) {
+function createAutoMatchCredentialContext(matchId: number, coffeeName: string) {
   const limit = vi.fn().mockResolvedValue({
     data: [
       {
@@ -550,7 +550,7 @@ describe('startWatch', () => {
     });
 
     const sessionPromise = startWatch(
-      createAutoMatchSupabase(88, 'Matched Bean'),
+      createAutoMatchCredentialContext(88, 'Matched Bean'),
       'user-5',
       watchDir,
       {
@@ -733,12 +733,12 @@ describe('startWatch', () => {
     const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-expired-session-'));
     const runtime = createRuntime();
     delete runtime.runtime.sessionTokenProvider;
-    const expiredSupabase = {
-      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: null } }) },
+    const expiredCredentialContext = {
+      getSession: vi.fn().mockResolvedValue({ data: { session: null } }),
     } as never;
 
     const sessionPromise = startWatch(
-      expiredSupabase,
+      expiredCredentialContext,
       'user-expired',
       watchDir,
       {

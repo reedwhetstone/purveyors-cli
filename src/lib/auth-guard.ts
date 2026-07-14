@@ -1,4 +1,4 @@
-import { createAuthenticatedClient, type AuthClient } from './auth-client.js';
+import { createCredentialContext, type CredentialContext } from './auth-client.js';
 import { AuthError } from './errors.js';
 import { createParchmentClient } from '@purveyors/sdk';
 import { getParchmentBaseUrl } from './parchment-base.js';
@@ -15,23 +15,23 @@ const ROLE_HIERARCHY: Record<string, number> = {
 
 /**
  * Ensure the user is authenticated and has the required role.
- * Returns the stored-credential auth facade and userId.
+ * Returns the stored API-key credential context and userId.
  *
  * - 'viewer' = any logged-in user (catalog read commands)
  * - 'member' = member role or higher (all write/personal-data commands)
  */
 export async function requireAuth(
   role: RequiredRole = 'viewer'
-): Promise<{ supabase: AuthClient; userId: string }> {
-  // createAuthenticatedClient already throws AuthError when:
+): Promise<{ credentialContext: CredentialContext; userId: string }> {
+  // createCredentialContext already throws AuthError when:
   //   - no credentials on disk
   //   - session is expired/revoked (with appropriate message)
-  const supabase = await createAuthenticatedClient();
+  const credentialContext = await createCredentialContext();
 
   const {
     data: { user },
     error,
-  } = await supabase.auth.getUser();
+  } = await credentialContext.getUser();
 
   if (error || !user) {
     throw new AuthError('Authentication failed. Run `purvey auth login` first.');
@@ -41,13 +41,13 @@ export async function requireAuth(
   if (role !== 'viewer') {
     const {
       data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) {
+    } = await credentialContext.getSession();
+    if (!session?.apiKey) {
       throw new AuthError('Authentication failed. Run `purvey auth login` first.');
     }
     const result = await createParchmentClient({
       baseUrl: getParchmentBaseUrl(),
-      token: session.access_token,
+      token: session.apiKey,
     }).me();
     if (!result.response.ok || result.error || !result.data?.authenticated) {
       throw new AuthError('Authentication failed. Run `purvey auth login` first.');
@@ -65,5 +65,5 @@ export async function requireAuth(
     }
   }
 
-  return { supabase, userId: user.id };
+  return { credentialContext, userId: user.id };
 }

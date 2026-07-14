@@ -27,18 +27,18 @@ export async function resolveParchmentToken(
     return apiKey;
   }
 
-  const { supabase } = await requireAuth(requiredRole);
+  const { credentialContext } = await requireAuth(requiredRole);
   const {
     data: { session },
-  } = await supabase.auth.getSession();
+  } = await credentialContext.getSession();
 
-  if (!session?.access_token) {
+  if (!session?.apiKey) {
     throw new AuthError(
       'Parchment API reads require a Purveyors session or API key. Run `purvey auth login`, or set PARCHMENT_API_KEY/PURVEYORS_API_KEY.'
     );
   }
 
-  return session.access_token;
+  return session.apiKey;
 }
 
 /**
@@ -52,11 +52,11 @@ export async function resolveParchmentSessionTokenIfAvailable(
   requiredRole: RequiredRole = 'viewer'
 ): Promise<string | undefined> {
   try {
-    const { supabase } = await requireAuth(requiredRole);
+    const { credentialContext } = await requireAuth(requiredRole);
     const {
       data: { session },
-    } = await supabase.auth.getSession();
-    return session?.access_token;
+    } = await credentialContext.getSession();
+    return session?.apiKey;
   } catch (error) {
     if (error instanceof AuthError) {
       return undefined;

@@ -3,23 +3,21 @@ import { readCredentials } from './config.js';
 import { AuthError } from './errors.js';
 import { getParchmentBaseUrl } from './parchment-base.js';
 
-export interface AuthSession {
-  access_token: string;
+export interface ApiKeySession {
+  apiKey: string;
   user: { id: string; email?: string; role?: string };
 }
 
-/** Minimal auth facade retained so command flows can refresh credentials at use time. */
-export interface AuthClient {
-  auth: {
-    getSession(): Promise<{ data: { session: AuthSession | null } }>;
-    getUser(): Promise<{
-      data: { user: AuthSession['user'] | null };
-      error: Error | null;
-    }>;
-  };
+/** Local API-key context used by interactive command flows. */
+export interface CredentialContext {
+  getSession(): Promise<{ data: { session: ApiKeySession | null } }>;
+  getUser(): Promise<{
+    data: { user: ApiKeySession['user'] | null };
+    error: Error | null;
+  }>;
 }
 
-export async function createAuthenticatedClient(): Promise<AuthClient> {
+export async function createCredentialContext(): Promise<CredentialContext> {
   const credentials = await readCredentials();
   if (!credentials?.apiKey) {
     throw new AuthError('Not logged in. Run `purvey auth login` first.');
@@ -38,8 +36,8 @@ export async function createAuthenticatedClient(): Promise<AuthClient> {
     throw new AuthError('Authentication failed. Run `purvey auth login` first.', identity.error);
   }
 
-  const session: AuthSession = {
-    access_token: credentials.apiKey,
+  const session: ApiKeySession = {
+    apiKey: credentials.apiKey,
     user: {
       ...credentials.user,
       id: identity.data.userId ?? credentials.user.id,
@@ -47,10 +45,8 @@ export async function createAuthenticatedClient(): Promise<AuthClient> {
     },
   };
   return {
-    auth: {
-      getSession: async () => ({ data: { session } }),
-      getUser: async () => ({ data: { user: session.user }, error: null }),
-    },
+    getSession: async () => ({ data: { session } }),
+    getUser: async () => ({ data: { user: session.user }, error: null }),
   };
 }
 

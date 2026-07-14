@@ -25,12 +25,10 @@ type SalesRecordOptions = {
 };
 
 type SessionSource = {
-  auth: {
-    getSession(): Promise<{ data: { session: { access_token: string } | null } }>;
-  };
+  getSession(): Promise<{ data: { session: { apiKey: string } | null } }>;
 };
 
-/** Keep selection session-scoped, then refresh and pin the identity at the write boundary. */
+/** Keep selection credential-scoped, then refresh and pin the identity at the write boundary. */
 export async function recordInteractiveSale(
   sessionSource: SessionSource,
   input: Omit<RecordSaleInput, 'roastId' | 'coffeeId' | 'batchName'>,
@@ -39,20 +37,20 @@ export async function recordInteractiveSale(
 ): Promise<Sale> {
   const {
     data: { session: selectionSession },
-  } = await sessionSource.auth.getSession();
-  if (!selectionSession?.access_token) {
+  } = await sessionSource.getSession();
+  if (!selectionSession?.apiKey) {
     throw new AuthError('Session expired mid-form. Run `purvey auth login` and retry.');
   }
-  const roast = await selectRoast(selectionSession.access_token);
+  const roast = await selectRoast(selectionSession.apiKey);
 
   const {
     data: { session: writeSession },
-  } = await sessionSource.auth.getSession();
-  if (!writeSession?.access_token) {
+  } = await sessionSource.getSession();
+  if (!writeSession?.apiKey) {
     throw new AuthError('Session expired mid-form. Run `purvey auth login` and retry.');
   }
   onWriteStart();
-  return recordSale({ roastId: roast.id, ...input }, writeSession.access_token);
+  return recordSale({ roastId: roast.id, ...input }, writeSession.apiKey);
 }
 
 function parsePositiveIntegerOption(flag: string, value: string): number {
@@ -271,7 +269,7 @@ Required flags: selector mode, --oz, --price
           opts.form ||
           (!hasCompleteRecordSaleFlagInput(opts) && (await getConfigValue('form-mode')) === 'true');
         if (formMode) {
-          const { supabase } = await requireAuth('member');
+          const { credentialContext } = await requireAuth('member');
           p.intro('Record Sale');
 
           const ozRaw = await p.text({
@@ -312,7 +310,7 @@ Required flags: selector mode, --oz, --price
 
           const spin = p.spinner();
           const data = await recordInteractiveSale(
-            supabase,
+            credentialContext,
             {
               oz: parseFloat(String(ozRaw)),
               price: parseFloat(String(priceRaw)),

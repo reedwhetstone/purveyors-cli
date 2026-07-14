@@ -17,7 +17,7 @@ import { pickBean, guardCancel } from '../lib/interactive/forms.js';
 import { normalizePathInput } from '../lib/path-input.js';
 import { startWatch, loadWatchSession } from '../lib/interactive/watch.js';
 import type { WatchRoastImporter } from '../lib/interactive/watch.js';
-import type { AuthClient } from '../lib/auth-client.js';
+import type { CredentialContext } from '../lib/auth-client.js';
 import { getConfigValue } from '../lib/config.js';
 import {
   createParchmentClient,
@@ -110,21 +110,21 @@ export function mapSdkImportResult(
 
 /**
  * Build the roast importer used by `purvey roast watch`. Each import resolves
- * the current member session token at call time (so long-running watch sessions
+ * the current member API key at call time (so long-running watch sessions
  * survive token refresh) and forwards the raw `.alog` to the canonical Parchment
  * API via the SDK, which parses and persists the roast server-side. The session
  * JWT is pinned per request so an exported PARCHMENT_API_KEY/PURVEYORS_API_KEY
  * for another account cannot authorize a write against the session user's beans.
  */
-export function createWatchRoastImporter(supabase: AuthClient): WatchRoastImporter {
+export function createWatchRoastImporter(credentialContext: CredentialContext): WatchRoastImporter {
   return async (args) => {
     const {
       data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) {
+    } = await credentialContext.getSession();
+    if (!session?.apiKey) {
       throw new AuthError('Session expired mid-watch. Run `purvey auth login` and retry.');
     }
-    const client = await createParchmentClient('member', session.access_token);
+    const client = await createParchmentClient('member', session.apiKey);
     const payload = unwrapParchment(
       await client.roasts.import({
         fileContent: args.fileContent,
@@ -144,26 +144,26 @@ export function createWatchRoastImporter(supabase: AuthClient): WatchRoastImport
 
 /** Resolve the current form session at write time and pin it to the roast create request. */
 export async function createInteractiveRoast(
-  supabase: AuthClient,
+  credentialContext: CredentialContext,
   input: Parameters<typeof createRoast>[0]
 ): Promise<RoastProfile> {
   const {
     data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
+  } = await credentialContext.getSession();
+  if (!session?.apiKey) {
     throw new AuthError('Session expired mid-create. Run `purvey auth login` and retry.');
   }
-  return createRoast(input, session.access_token);
+  return createRoast(input, session.apiKey);
 }
 
-async function requireCurrentSessionToken(supabase: AuthClient): Promise<string> {
+async function requireCurrentSessionToken(credentialContext: CredentialContext): Promise<string> {
   const {
     data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
+  } = await credentialContext.getSession();
+  if (!session?.apiKey) {
     throw new AuthError('Session expired. Run `purvey auth login` and retry.');
   }
-  return session.access_token;
+  return session.apiKey;
 }
 
 // ─── Command builder ──────────────────────────────────────────────────────────
@@ -357,9 +357,9 @@ Required flags: --coffee-id (green_coffee_inv.id)
         if (formMode) {
           p.intro('Create Roast Profile');
 
-          const { supabase } = await requireAuth('member');
+          const { credentialContext } = await requireAuth('member');
 
-          const bean = await pickBean(await requireCurrentSessionToken(supabase));
+          const bean = await pickBean(await requireCurrentSessionToken(credentialContext));
 
           const today = todayIso();
           const defaultBatch = `${bean.name} ${today}`;
@@ -413,7 +413,7 @@ Required flags: --coffee-id (green_coffee_inv.id)
 
           const spin = p.spinner();
           spin.start('Creating roast profile...');
-          const data = await createInteractiveRoast(supabase, {
+          const data = await createInteractiveRoast(credentialContext, {
             coffeeId: bean.id,
             batchName: String(batchNameRaw).trim() || defaultBatch,
             ozIn,
@@ -631,9 +631,9 @@ Required: <file> path and --coffee-id (unless using --form)
             }
 
             // Authenticate
-            const { supabase } = await requireAuth('member');
+            const { credentialContext } = await requireAuth('member');
 
-            const bean = await pickBean(await requireCurrentSessionToken(supabase));
+            const bean = await pickBean(await requireCurrentSessionToken(credentialContext));
 
             const today = todayIso();
             const defaultBatch = `${bean.name} ${today}`;
@@ -688,19 +688,19 @@ Required: <file> path and --coffee-id (unless using --form)
             const spin = p.spinner();
             spin.start('Importing roast data...');
             // Parse + persist happen server-side via the canonical Parchment
-            // API. `bean` was resolved through the authenticated Supabase
+            // API. `bean` was resolved through the authenticated Parchment
             // session above (pickBean), so the import must run under that same
-            // session identity. Pin the request to the session access token
+            // credential identity. Pin the request to the stored API key
             // instead of letting an exported PARCHMENT_API_KEY/PURVEYORS_API_KEY
             // for another account authorize an import against a coffeeId owned
             // by the session user.
             const {
               data: { session: formSession },
-            } = await supabase.auth.getSession();
-            if (!formSession?.access_token) {
+            } = await credentialContext.getSession();
+            if (!formSession?.apiKey) {
               throw new AuthError('Session expired mid-import. Run `purvey auth login` and retry.');
             }
-            const client = await createParchmentClient('member', formSession.access_token);
+            const client = await createParchmentClient('member', formSession.apiKey);
             const payload = unwrapParchment(
               await client.roasts.import({
                 fileContent,
@@ -859,8 +859,8 @@ Notes:
     )
     .action(
       withErrorHandling(async (directory: string | undefined, opts: Record<string, unknown>) => {
-        const { supabase, userId } = await requireAuth('member');
-        const roastImporter = createWatchRoastImporter(supabase);
+        const { credentialContext, userId } = await requireAuth('member');
+        const roastImporter = createWatchRoastImporter(credentialContext);
 
         const parseCommitMode = (value: unknown, fallback: 'batch' | 'individual' = 'batch') => {
           if (value === undefined || value === null || String(value).trim() === '') {
@@ -901,7 +901,7 @@ Notes:
             );
           }
           await startWatch(
-            supabase,
+            credentialContext,
             userId,
             saved.directory,
             {
@@ -969,7 +969,7 @@ Notes:
             guardCancel(batchPrefixRaw);
             batchPrefix = String(batchPrefixRaw).trim() || 'Roast';
           } else {
-            const bean = await pickBean(await requireCurrentSessionToken(supabase));
+            const bean = await pickBean(await requireCurrentSessionToken(credentialContext));
             watchCoffeeId = bean.id;
             watchCoffeeName = bean.name;
 
@@ -1033,7 +1033,7 @@ Notes:
           guardCancel(roastNotesRaw);
 
           await startWatch(
-            supabase,
+            credentialContext,
             userId,
             watchDir,
             {
@@ -1102,7 +1102,10 @@ Notes:
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --coffee-id: "${opts.coffeeId}".`);
           }
 
-          const invItem = await getInventory(coffeeId, await requireCurrentSessionToken(supabase));
+          const invItem = await getInventory(
+            coffeeId,
+            await requireCurrentSessionToken(credentialContext)
+          );
           coffeeName = invItem.coffee_catalog?.name ?? `Coffee #${coffeeId}`;
         }
 
@@ -1111,7 +1114,7 @@ Notes:
         const watchDir = normalizePathInput(directory);
 
         await startWatch(
-          supabase,
+          credentialContext,
           userId,
           watchDir,
           {

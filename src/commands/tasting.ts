@@ -140,7 +140,7 @@ Required (flag mode): <bean-id> + all five score flags (--aroma, --body, --acidi
         async (beanId: string | undefined, opts: Record<string, unknown>, cmd: Command) => {
           const globalOpts = cmd.optsWithGlobals() as OutputOptions;
 
-          const { supabase } = await requireAuth('member');
+          const { credentialContext } = await requireAuth('member');
 
           // ── Interactive form mode ────────────────────────────────────────
           // Auto-enter form mode if config form-mode is true and required args are missing
@@ -151,11 +151,11 @@ Required (flag mode): <bean-id> + all five score flags (--aroma, --body, --acidi
 
             const {
               data: { session: pickerSession },
-            } = await supabase.auth.getSession();
-            if (!pickerSession?.access_token) {
+            } = await credentialContext.getSession();
+            if (!pickerSession?.apiKey) {
               throw new AuthError('Session expired. Run `purvey auth login` and retry.');
             }
-            const bean = await pickBean(pickerSession.access_token);
+            const bean = await pickBean(pickerSession.apiKey);
 
             const aroma = await promptCuppingScore('Aroma');
             const body = await promptCuppingScore('Body');
@@ -183,8 +183,8 @@ Required (flag mode): <bean-id> + all five score flags (--aroma, --body, --acidi
             spin.start('Saving rating...');
             const {
               data: { session: writeSession },
-            } = await supabase.auth.getSession();
-            if (!writeSession?.access_token) {
+            } = await credentialContext.getSession();
+            if (!writeSession?.apiKey) {
               throw new AuthError('Session expired mid-form. Run `purvey auth login` and retry.');
             }
             const data = await rateCoffee(
@@ -197,7 +197,7 @@ Required (flag mode): <bean-id> + all five score flags (--aroma, --body, --acidi
                 aftertaste,
                 notes: notesStr !== '' ? notesStr : undefined,
               },
-              writeSession.access_token
+              writeSession.apiKey
             );
             spin.stop('Done');
 
@@ -242,8 +242,8 @@ Required (flag mode): <bean-id> + all five score flags (--aroma, --body, --acidi
 
           const {
             data: { session: writeSession },
-          } = await supabase.auth.getSession();
-          if (!writeSession?.access_token) {
+          } = await credentialContext.getSession();
+          if (!writeSession?.apiKey) {
             throw new AuthError('Session expired. Run `purvey auth login` and retry.');
           }
           const data = await rateCoffee(
@@ -257,7 +257,7 @@ Required (flag mode): <bean-id> + all five score flags (--aroma, --body, --acidi
               brewMethod: opts.brewMethod as string | undefined,
               notes: opts.notes as string | undefined,
             },
-            writeSession.access_token
+            writeSession.apiKey
           );
 
           success(`Cupping notes saved for inventory item ${inventoryId}.`);

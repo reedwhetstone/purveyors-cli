@@ -91,10 +91,10 @@ The shipped auth model is role- and scope-based:
 - Mixed public and entitled access: `market` public teaser slices are unauthenticated; filtered market slices require Parchment Intelligence access enforced server-side
 - Authenticated `member` role required through the stored scoped key: structured process filters on `catalog search`, plus `price-index`, `procurement`, `inventory`, `roast`, `sales`, `tasting`
 
-Google OAuth is available in two supported flows:
+Parchment device authorization exposes the existing purveyors.io Google login in two supported flows:
 
-- `purvey auth login` for local interactive browser-based sign-in. It listens for the localhost callback and also offers a pasted-callback fallback when the browser lands on a URL the CLI cannot receive. Invalid pasted callback URLs are ignored and retried while the listener remains active.
-- `purvey auth login --headless` for agents, CI, and remote machines
+- `purvey auth login` opens the purveyors.io approval page and polls Parchment until the user approves it. Browser-open failure prints the URL and continues polling.
+- `purvey auth login --headless` prints the same approval URL for agents, SSH sessions, and remote machines; approval can happen in any browser and no callback URL is pasted back.
 
 The headless path is a first-class supported environment, not a fallback edge case.
 Auth changes that preserve browser UX but degrade headless agent usability should be
@@ -105,7 +105,7 @@ Credentials are stored locally in `~/.config/purvey/credentials.json`.
 Canonical Parchment API surfaces also accept `PARCHMENT_API_KEY` (or the legacy
 `PURVEYORS_API_KEY` alias). The environment key takes precedence over the scoped API key
 created by `purvey auth login` and must carry the endpoint's owner-bound read or write
-scope. OAuth is transient bootstrap only; the CLI stores no session or refresh token.
+scope. The request token and PKCE verifier are transient bootstrap material only; the CLI stores neither.
 
 ### Artisan path and watch behavior
 
@@ -173,7 +173,7 @@ It provides:
 - a documented auth and role model
 - explicit machine-readable and human-readable reference surfaces
 - reusable in-process exports for catalog, inventory, roast, sales, tasting, shared library helpers, manifest, and AI workflows
-- a first-class headless OAuth path for agents, CI, SSH sessions, and remote containers
+- a first-class headless device-authorization path for agents, CI, SSH sessions, and remote containers
 - compiled artifact checks that keep the published package aligned with source
 - a shared execution layer whose ergonomics directly affect the website and agent
   product surfaces

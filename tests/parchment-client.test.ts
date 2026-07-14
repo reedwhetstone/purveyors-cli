@@ -42,12 +42,10 @@ describe('createParchmentClient', () => {
 
   it('returns a valid member session token when one is available', async () => {
     requireAuthMock.mockResolvedValue({
-      supabase: {
-        auth: {
-          getSession: vi.fn().mockResolvedValue({
-            data: { session: { access_token: 'session-token' } },
-          }),
-        },
+      credentialContext: {
+        getSession: vi.fn().mockResolvedValue({
+          data: { session: { apiKey: 'session-token' } },
+        }),
       },
     });
 
