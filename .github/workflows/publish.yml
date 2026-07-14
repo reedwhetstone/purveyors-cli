@@ -39,9 +39,6 @@ jobs:
 
       - name: Test
         run: pnpm test
-        env:
-          PURVEYORS_SUPABASE_URL: https://placeholder.supabase.co
-          PURVEYORS_SUPABASE_ANON_KEY: placeholder-anon-key
 
       - name: Verify prepublish parity
         run: pnpm verify:prepublish

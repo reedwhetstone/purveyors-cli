@@ -16,7 +16,10 @@ function errorResponse(code: string, message: string, status: number) {
   };
 }
 
-function createClient(exchangeResults: unknown[]) {
+function createClient(
+  exchangeResults: unknown[],
+  expiresAt = new Date(Date.now() + 60_000).toISOString()
+) {
   return {
     cliAuth: {
       create: vi.fn().mockResolvedValue(
@@ -25,7 +28,7 @@ function createClient(exchangeResults: unknown[]) {
             requestToken: 'signed-request-token',
             requestId: 'request-1',
             verificationUri: 'https://purveyors.io/auth/cli?request=signed-request-token',
-            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            expiresAt,
             intervalSeconds: 3,
           },
           201
@@ -203,6 +206,112 @@ describe('Parchment device authorization', () => {
         signal: controller.signal,
       })
     ).rejects.toThrow(/cancelled/);
+    expect(client.cliAuth.exchange).not.toHaveBeenCalled();
+  });
+
+  it('keeps a successful one-time exchange when cancellation arrives in flight', async () => {
+    let resolveExchange!: (value: unknown) => void;
+    const client = createClient([]);
+    client.cliAuth.exchange.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveExchange = resolve))
+    );
+    const controller = new AbortController();
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    const login = performDeviceLogin({
+      headless: true,
+      client: client as never,
+      sleep: vi.fn().mockResolvedValue(undefined),
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(client.cliAuth.exchange).toHaveBeenCalledOnce());
+    controller.abort();
+    resolveExchange(
+      response(
+        {
+          apiKey: 'pk_live_exchanged',
+          key: { id: 'key-1', createdAt: '2026-07-14T02:00:00.000Z' },
+          user: { id: 'user-1', email: 'user@example.com', role: 'member' },
+        },
+        201
+      )
+    );
+
+    await expect(login).resolves.toMatchObject({ apiKey: 'pk_live_exchanged' });
+  });
+
+  it('cancels after an in-flight pending exchange returns', async () => {
+    let resolveExchange!: (value: unknown) => void;
+    const client = createClient([]);
+    client.cliAuth.exchange.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveExchange = resolve))
+    );
+    const controller = new AbortController();
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    const login = performDeviceLogin({
+      headless: true,
+      client: client as never,
+      sleep: vi.fn().mockResolvedValue(undefined),
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(client.cliAuth.exchange).toHaveBeenCalledOnce());
+    controller.abort();
+    resolveExchange(errorResponse('authorization_pending', 'Authorization pending', 409));
+
+    await expect(login).rejects.toThrow(/cancelled/);
+    expect(client.cliAuth.exchange).toHaveBeenCalledOnce();
+  });
+
+  it('reports cancellation when an in-flight network wait rejects after abort', async () => {
+    let rejectExchange!: (error: Error) => void;
+    const client = createClient([]);
+    client.cliAuth.exchange.mockImplementationOnce(
+      () => new Promise((_, reject) => (rejectExchange = reject))
+    );
+    const controller = new AbortController();
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    const login = performDeviceLogin({
+      headless: true,
+      client: client as never,
+      sleep: vi.fn().mockResolvedValue(undefined),
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(client.cliAuth.exchange).toHaveBeenCalledOnce());
+    controller.abort();
+    rejectExchange(new Error('socket closed'));
+
+    await expect(login).rejects.toThrow(/cancelled/);
+  });
+
+  it('caps sleep to the remaining TTL and does not exchange after expiry', async () => {
+    const now = 1_000_000;
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    const client = createClient([], new Date(now + 1000).toISOString());
+    const sleep = vi.fn().mockImplementation(async () => {
+      vi.mocked(Date.now).mockReturnValue(now + 1000);
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await expect(
+      performDeviceLogin({ headless: true, client: client as never, sleep })
+    ).rejects.toThrow(/expired/);
+    expect(sleep).toHaveBeenCalledWith(1000, undefined);
+    expect(client.cliAuth.exchange).not.toHaveBeenCalled();
+  });
+
+  it('rejects an already expired request without sleeping or exchanging', async () => {
+    const now = 1_000_000;
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    const client = createClient([], new Date(now - 1).toISOString());
+    const sleep = vi.fn();
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await expect(
+      performDeviceLogin({ headless: true, client: client as never, sleep })
+    ).rejects.toThrow(/expired/);
+    expect(sleep).not.toHaveBeenCalled();
     expect(client.cliAuth.exchange).not.toHaveBeenCalled();
   });
 });

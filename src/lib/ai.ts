@@ -31,6 +31,31 @@ export interface ClassifyRoastResult {
   } | null;
 }
 
+/** Published pre-0.32 structural input retained for downstream package consumers. */
+export interface LegacyClassifyAuthFacade {
+  auth: {
+    getSession(): Promise<{
+      data: { session: { access_token: string } | null };
+    }>;
+  };
+}
+
+async function resolveClassificationApiKey(
+  source: CredentialContext | LegacyClassifyAuthFacade
+): Promise<string | undefined> {
+  if ('getSession' in source) {
+    const {
+      data: { session },
+    } = await source.getSession();
+    return session?.apiKey;
+  }
+
+  const {
+    data: { session },
+  } = await source.auth.getSession();
+  return session?.access_token;
+}
+
 // ─── Client ───────────────────────────────────────────────────────────────────
 
 /**
@@ -40,18 +65,16 @@ export interface ClassifyRoastResult {
  * entitlement and the token's owner-bound roast scope server-side.
  */
 export async function classifyRoast(
-  credentialContext: CredentialContext,
+  credentialContext: CredentialContext | LegacyClassifyAuthFacade,
   input: ClassifyRoastInput
 ): Promise<ClassifyRoastResult> {
   // Resolve the current stored API key at the request boundary.
-  const {
-    data: { session },
-  } = await credentialContext.getSession();
-  if (!session) {
+  const apiKey = await resolveClassificationApiKey(credentialContext);
+  if (!apiKey) {
     throw new Error('Not authenticated. Run `purvey auth login` first.');
   }
 
-  const client = await createParchmentClient('member', session.apiKey);
+  const client = await createParchmentClient('member', apiKey);
   const data = unwrapParchment(await client.roasts.classify(input), 'AI roast classification');
 
   // Keep the historical library contract tolerant of an omitted match.

@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   realpathSync,
   readFileSync,
   rmSync,
@@ -112,6 +113,40 @@ function readJson(relativePath) {
 
 function readText(relativePath) {
   return readFileSync(resolve(repoRoot, relativePath), 'utf8');
+}
+
+function collectFiles(relativePath) {
+  const absolutePath = resolve(repoRoot, relativePath);
+  if (!existsSync(absolutePath)) return [];
+  const files = [];
+  const visit = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) visit(path);
+      else if (entry.isFile()) files.push(path);
+    }
+  };
+  visit(absolutePath);
+  return files;
+}
+
+export function assertNoActiveLegacyBackendResidue() {
+  const activeFiles = [
+    ...collectFiles('.github'),
+    ...collectFiles('src'),
+    ...collectFiles('tests'),
+    ...collectFiles('scripts'),
+    ...['package.json', 'pnpm-lock.yaml', 'vitest.config.ts', 'README.md', 'AGENTS.md'].map(
+      (path) => resolve(repoRoot, path)
+    ),
+  ];
+  const offenders = activeFiles
+    .filter((path) => new RegExp(`supa${'base'}`, 'i').test(readFileSync(path, 'utf8')))
+    .map((path) => relative(repoRoot, path));
+  assert(
+    offenders.length === 0,
+    `Active CLI surfaces retain legacy backend residue: ${offenders.join(', ')}`
+  );
 }
 
 function stripDotSlash(path) {
@@ -544,12 +579,46 @@ function runPackedSelfImportExports(packFixture) {
   );
 }
 
+function runPackedLegacyAiContract(packFixture) {
+  return run(
+    'node',
+    [
+      '--input-type=module',
+      '-e',
+      `import { classifyRoast } from '@purveyors/cli/ai';
+globalThis.fetch = async (input) => {
+  const request = input instanceof Request ? input : new Request(input);
+  if (request.headers.get('authorization') !== 'Bearer legacy-session-token') {
+    throw new Error('Legacy auth facade token was not forwarded');
+  }
+  return new Response(JSON.stringify({ match: null }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+};
+const legacyFacade = {
+  auth: {
+    getSession: async () => ({
+      data: { session: { access_token: 'legacy-session-token' } },
+    }),
+  },
+};
+console.log(JSON.stringify(await classifyRoast(legacyFacade, {
+  alogMetadata: { title: 'packed-contract.alog' },
+  inventory: [],
+})));`,
+    ],
+    { cwd: packFixture.packageDir }
+  );
+}
+
 export function verifyPrepublishParity() {
   const packageJson = readJson('package.json');
   const readmeText = readText('README.md');
 
   assertPackageReleaseSurface(packageJson);
   assertReadmeReleaseSurface(readmeText);
+  assertNoActiveLegacyBackendResidue();
 
   const packFixture = createPackedArtifactFixture();
 
@@ -589,6 +658,10 @@ export function verifyPrepublishParity() {
     const importedExports = parseJsonStdout(
       runPackedSelfImportExports(packFixture),
       'packed self-import subpath smoke check'
+    );
+    const legacyAiResult = parseJsonStdout(
+      runPackedLegacyAiContract(packFixture),
+      'packed legacy AI callable contract smoke check'
     );
 
     for (const [label, manifest] of [
@@ -633,16 +706,24 @@ export function verifyPrepublishParity() {
       }
     }
 
+    assertDeepEqual(
+      legacyAiResult,
+      { match: null },
+      'Packed legacy @purveyors/cli/ai callable contract'
+    );
+
     return {
       checked: [
         'package.json bin/files/exports surface',
         'npm pack dry-run publish surface',
         'README machine-readable contract snippets',
+        'active auth residue including .github workflows',
         'source vs packed help parity',
         'source manifest/context parity',
         'packed manifest/context parity',
         'packed self-import manifest parity',
         'packed self-import subpath member parity',
+        'packed legacy AI callable contract',
       ],
     };
   } finally {

@@ -164,8 +164,15 @@ export async function performDeviceLogin(options: DeviceLoginOptions): Promise<S
   }
 
   const sleep = options.sleep ?? wait;
-  while (Date.now() < expiresAtMs) {
-    await sleep(intervalSeconds * 1000, options.signal);
+  while (true) {
+    const remainingMs = expiresAtMs - Date.now();
+    if (remainingMs <= 0) {
+      throw new AuthError('Login request expired. Run `purvey auth login` to try again.');
+    }
+    await sleep(Math.min(intervalSeconds * 1000, remainingMs), options.signal);
+    if (Date.now() >= expiresAtMs) {
+      throw new AuthError('Login request expired. Run `purvey auth login` to try again.');
+    }
 
     let exchanged: Awaited<ReturnType<CliAuthClient['cliAuth']['exchange']>>;
     try {
@@ -174,13 +181,14 @@ export async function performDeviceLogin(options: DeviceLoginOptions): Promise<S
         codeVerifier: verifier,
       });
     } catch (error) {
+      if (options.signal?.aborted) throw new AuthError('Login cancelled.');
       throw new AuthError('Could not contact Parchment while waiting for approval.', error);
     }
-    if (options.signal?.aborted) throw new AuthError('Login cancelled.');
 
     if (exchanged.response.ok && !exchanged.error && exchanged.data) {
       return toStoredCredentials(exchanged.data);
     }
+    if (options.signal?.aborted) throw new AuthError('Login cancelled.');
 
     const error = apiError(exchanged);
     if (error.code === 'authorization_pending') continue;
@@ -195,8 +203,6 @@ export async function performDeviceLogin(options: DeviceLoginOptions): Promise<S
     }
     throw new AuthError(error.message ?? 'Parchment could not complete login.', exchanged.error);
   }
-
-  throw new AuthError('Login request expired. Run `purvey auth login` to try again.');
 }
 
 async function login(headless: boolean): Promise<void> {
