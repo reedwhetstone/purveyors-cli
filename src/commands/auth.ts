@@ -13,6 +13,7 @@ import { withErrorHandling, AuthError, exitCodeForError } from '../lib/errors.js
 import type { OutputOptions, StoredCredentials } from '../types/index.js';
 
 const DEFAULT_POLL_INTERVAL_SECONDS = 5;
+const EXCHANGE_CANCELLATION_TIMEOUT_MS = 30_000;
 
 type CliAuthClient = Pick<ParchmentClient, 'cliAuth'>;
 
@@ -23,6 +24,8 @@ interface DeviceLoginOptions {
   openBrowser?: (url: string) => Promise<boolean>;
   sleep?: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
   signal?: AbortSignal;
+  exchangeCancellationTimeoutMs?: number;
+  onExchangeCancellationWait?: () => void;
 }
 
 interface ApiErrorBody {
@@ -79,6 +82,73 @@ function wait(milliseconds: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+function awaitAbortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(new AuthError('Login cancelled.'));
+
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      reject(new AuthError('Login cancelled.'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      }
+    );
+  });
+}
+
+function awaitExchangeSettlement<T>(
+  promise: Promise<T>,
+  options: Pick<
+    DeviceLoginOptions,
+    'signal' | 'exchangeCancellationTimeoutMs' | 'onExchangeCancellationWait'
+  >
+): Promise<T> {
+  const { signal } = options;
+  if (!signal) return promise;
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let cancellationTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      if (cancellationTimer) clearTimeout(cancellationTimer);
+      callback();
+    };
+    const onAbort = () => {
+      if (settled || cancellationTimer) return;
+      options.onExchangeCancellationWait?.();
+      cancellationTimer = setTimeout(() => {
+        finish(() =>
+          reject(
+            new AuthError(
+              'Login cancellation timed out while Parchment was issuing the one-time key. ' +
+                'The prior key may have been replaced; run `purvey auth login` again.'
+            )
+          )
+        );
+      }, options.exchangeCancellationTimeoutMs ?? EXCHANGE_CANCELLATION_TIMEOUT_MS);
+    };
+
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
+    promise.then(
+      (value) => finish(() => resolve(value)),
+      (error: unknown) => finish(() => reject(error))
+    );
+  });
+}
+
 /** Open the verification page, returning false when no browser command is available. */
 export async function openVerificationPage(url: string): Promise<boolean> {
   const command =
@@ -123,11 +193,16 @@ export async function performDeviceLogin(options: DeviceLoginOptions): Promise<S
 
   let created: Awaited<ReturnType<CliAuthClient['cliAuth']['create']>>;
   try {
-    created = await client.cliAuth.create({
-      machineName: normalizeMachineName(options.machineName ?? hostname()),
-      codeChallenge: challenge,
-    });
+    created = await awaitAbortable(
+      client.cliAuth.create({
+        machineName: normalizeMachineName(options.machineName ?? hostname()),
+        codeChallenge: challenge,
+      }),
+      options.signal
+    );
   } catch (error) {
+    if (error instanceof AuthError) throw error;
+    if (options.signal?.aborted) throw new AuthError('Login cancelled.');
     throw new AuthError('Could not contact Parchment to start login.', error);
   }
   if (!created.response.ok || created.error || !created.data) {
@@ -173,14 +248,19 @@ export async function performDeviceLogin(options: DeviceLoginOptions): Promise<S
     if (Date.now() >= expiresAtMs) {
       throw new AuthError('Login request expired. Run `purvey auth login` to try again.');
     }
+    if (options.signal?.aborted) throw new AuthError('Login cancelled.');
 
     let exchanged: Awaited<ReturnType<CliAuthClient['cliAuth']['exchange']>>;
     try {
-      exchanged = await client.cliAuth.exchange({
-        requestToken,
-        codeVerifier: verifier,
-      });
+      exchanged = await awaitExchangeSettlement(
+        client.cliAuth.exchange({
+          requestToken,
+          codeVerifier: verifier,
+        }),
+        options
+      );
     } catch (error) {
+      if (error instanceof AuthError) throw error;
       if (options.signal?.aborted) throw new AuthError('Login cancelled.');
       throw new AuthError('Could not contact Parchment while waiting for approval.', error);
     }
@@ -212,7 +292,14 @@ async function login(headless: boolean): Promise<void> {
   const spinner = ora({ text: 'Waiting for browser approval...', stream: process.stderr });
 
   try {
-    const credentialsPromise = performDeviceLogin({ headless, signal: controller.signal });
+    const credentialsPromise = performDeviceLogin({
+      headless,
+      signal: controller.signal,
+      onExchangeCancellationWait: () => {
+        spinner.text =
+          'Cancellation requested; waiting up to 30s for the one-time exchange to settle safely. Press Ctrl-C again to force exit.';
+      },
+    });
     spinner.start();
     const credentials = await credentialsPromise;
     await writeCredentials(credentials);

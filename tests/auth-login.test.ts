@@ -209,6 +209,23 @@ describe('Parchment device authorization', () => {
     expect(client.cliAuth.exchange).not.toHaveBeenCalled();
   });
 
+  it('cancels promptly while the initial request is in flight', async () => {
+    const client = createClient([]);
+    client.cliAuth.create.mockImplementationOnce(() => new Promise(() => undefined));
+    const controller = new AbortController();
+
+    const login = performDeviceLogin({
+      headless: true,
+      client: client as never,
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(client.cliAuth.create).toHaveBeenCalledOnce());
+    controller.abort();
+
+    await expect(login).rejects.toThrow(/cancelled/);
+    expect(client.cliAuth.exchange).not.toHaveBeenCalled();
+  });
+
   it('keeps a successful one-time exchange when cancellation arrives in flight', async () => {
     let resolveExchange!: (value: unknown) => void;
     const client = createClient([]);
@@ -283,6 +300,28 @@ describe('Parchment device authorization', () => {
     rejectExchange(new Error('socket closed'));
 
     await expect(login).rejects.toThrow(/cancelled/);
+  });
+
+  it('bounds cancellation when an in-flight exchange never settles', async () => {
+    const client = createClient([]);
+    client.cliAuth.exchange.mockImplementationOnce(() => new Promise(() => undefined));
+    const controller = new AbortController();
+    const onExchangeCancellationWait = vi.fn();
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    const login = performDeviceLogin({
+      headless: true,
+      client: client as never,
+      sleep: vi.fn().mockResolvedValue(undefined),
+      signal: controller.signal,
+      exchangeCancellationTimeoutMs: 5,
+      onExchangeCancellationWait,
+    });
+    await vi.waitFor(() => expect(client.cliAuth.exchange).toHaveBeenCalledOnce());
+    controller.abort();
+
+    await expect(login).rejects.toThrow(/cancellation timed out/);
+    expect(onExchangeCancellationWait).toHaveBeenCalledOnce();
   });
 
   it('caps sleep to the remaining TTL and does not exchange after expiry', async () => {
