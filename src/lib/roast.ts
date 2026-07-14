@@ -290,7 +290,7 @@ export function defaultBatchName(coffeeName: string, dateIso: string): string {
   return `${coffeeName} ${dateIso}`;
 }
 
-// NOTE: The legacy direct-to-Supabase importer `importRoastFromFile` was
+// NOTE: The legacy direct-to-Parchment importer `importRoastFromFile` was
 // removed once `purvey roast import` and `purvey roast watch` both moved to the
 // canonical Parchment API (`client.roasts.import`), which parses the raw `.alog`
 // and persists the curve + events server-side. The pure helpers below

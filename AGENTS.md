@@ -101,7 +101,7 @@ tests/                Vitest coverage
 
 Command files:
 
-- `auth.ts`: browser OAuth with pasted-callback fallback, headless OAuth, status, logout
+- `auth.ts`: Parchment device authorization for browser/headless login, status, logout
 - `catalog.ts`: catalog search, fetch, stats, premium ranking, supplier aggregates, similar-bean lookup
 - `price-index.ts`: SDK-backed Parchment Price Index read command
 - `procurement.ts`: SDK-backed procurement brief read commands
@@ -123,8 +123,8 @@ Command files:
 - `auth`, `config`, `context`, and `manifest` do not require pre-existing credentials.
 - `catalog`, `inventory`, `roast`, `sales`, and `tasting` require authentication.
 - Keep docs aligned with actual handler behavior. If auth requirements change, update README, help text, and context in the same PR.
-- Preserve both supported login paths: browser OAuth with localhost callback capture plus pasted-callback fallback, and `auth login --headless` for agents, CI, SSH sessions, and remote hosts.
-- The browser-login pasted-callback fallback must ignore invalid callback URLs and keep waiting so users can retry while the localhost callback listener remains active.
+- Preserve both supported login paths: browser approval with automatic polling, and `auth login --headless` for agents, CI, SSH sessions, and remote hosts. Neither path uses a localhost callback or pasted URL.
+- Device authorization secrets are memory-only. Never persist the signed request token or PKCE verifier.
 - Exit code `3` is returned on any auth failure (not logged in, revoked or invalid stored key, or insufficient role).
 
 ### Machine contract and exports
@@ -205,7 +205,7 @@ When doing a docs-only refresh, confirm these before opening a PR:
 
 - README command reference matches `src/commands/*` and `src/lib/manifest.ts`.
 - Auth and role claims match the actual boundary: catalog is viewer, with `catalog search` structured processing filters elevated to member; market has unauthenticated public teaser slices and Parchment Intelligence-gated filtered slices; price-index, procurement, inventory, roast, sales, and tasting require a valid scoped key and the corresponding server-side entitlement; auth, config, context, and manifest do not require pre-existing credentials.
-- Headless OAuth remains documented as first-class, not as a fallback.
+- Headless device authorization remains documented as first-class, not as a fallback.
 - `purvey manifest` is documented as the preferred shell contract; `purvey context --json` is documented as compatibility.
 - `@purveyors/cli/manifest` and package subpath exports are documented as supported in-process contracts.
 - Live docs links point to `/docs/cli/overview` and `/docs/api/overview`.

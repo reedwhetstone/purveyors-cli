@@ -108,9 +108,9 @@ describe('SDK-backed roast and sales data planes', () => {
     } as never);
     const getSession = vi
       .fn()
-      .mockResolvedValueOnce({ data: { session: { access_token: 'fresh-1' } } })
-      .mockResolvedValueOnce({ data: { session: { access_token: 'fresh-2' } } });
-    const importer = createWatchRoastImporter({ auth: { getSession } } as never);
+      .mockResolvedValueOnce({ data: { session: { apiKey: 'fresh-1' } } })
+      .mockResolvedValueOnce({ data: { session: { apiKey: 'fresh-2' } } });
+    const importer = createWatchRoastImporter({ getSession } as never);
     const args = {
       fileContent: '{}',
       fileName: 'r.alog',
@@ -129,12 +129,12 @@ describe('SDK-backed roast and sales data planes', () => {
     vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { create } } as never);
     const getSession = vi
       .fn()
-      .mockResolvedValueOnce({ data: { session: { access_token: 'form-token-before-rotation' } } })
-      .mockResolvedValueOnce({ data: { session: { access_token: 'form-token-after-rotation' } } });
-    const supabase = { auth: { getSession } } as never;
+      .mockResolvedValueOnce({ data: { session: { apiKey: 'form-token-before-rotation' } } })
+      .mockResolvedValueOnce({ data: { session: { apiKey: 'form-token-after-rotation' } } });
+    const credentialContext = { getSession } as never;
 
-    await createInteractiveRoast(supabase, { coffeeId: 7, batchName: 'First' });
-    await createInteractiveRoast(supabase, { coffeeId: 7, batchName: 'Second' });
+    await createInteractiveRoast(credentialContext, { coffeeId: 7, batchName: 'First' });
+    await createInteractiveRoast(credentialContext, { coffeeId: 7, batchName: 'Second' });
 
     expect(createParchmentClient).toHaveBeenNthCalledWith(
       1,
@@ -188,8 +188,8 @@ describe('SDK-backed roast and sales data planes', () => {
     } as never);
     const getSession = vi
       .fn()
-      .mockResolvedValueOnce({ data: { session: { access_token: 'selection-token' } } })
-      .mockResolvedValueOnce({ data: { session: { access_token: 'fresh-write-token' } } });
+      .mockResolvedValueOnce({ data: { session: { apiKey: 'selection-token' } } })
+      .mockResolvedValueOnce({ data: { session: { apiKey: 'fresh-write-token' } } });
     const selectRoast = vi.fn().mockImplementation(async () => {
       order.push('select');
       return { id: 9, batchName: 'Batch A' };
@@ -197,7 +197,7 @@ describe('SDK-backed roast and sales data planes', () => {
     const onWriteStart = vi.fn(() => order.push('spinner'));
 
     await recordInteractiveSale(
-      { auth: { getSession } },
+      { getSession },
       { oz: 12, price: 18, sellDate: '2026-07-12' },
       selectRoast,
       onWriteStart
@@ -213,12 +213,12 @@ describe('SDK-backed roast and sales data planes', () => {
   it('does not write when the session expires during interactive sale selection', async () => {
     const getSession = vi
       .fn()
-      .mockResolvedValueOnce({ data: { session: { access_token: 'selection-token' } } })
+      .mockResolvedValueOnce({ data: { session: { apiKey: 'selection-token' } } })
       .mockResolvedValueOnce({ data: { session: null } });
     const selectRoast = vi.fn().mockResolvedValue({ id: 9, batchName: 'Batch A' });
 
     await expect(
-      recordInteractiveSale({ auth: { getSession } }, { oz: 12, price: 18 }, selectRoast)
+      recordInteractiveSale({ getSession }, { oz: 12, price: 18 }, selectRoast)
     ).rejects.toMatchObject({ code: 'AUTH_ERROR' });
 
     expect(selectRoast).toHaveBeenCalledWith('selection-token');

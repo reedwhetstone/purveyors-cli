@@ -152,7 +152,7 @@ Required flags: --catalog-id, --qty
           opts.form ||
           (!(opts.catalogId && opts.qty) && (await getConfigValue('form-mode')) === 'true');
         if (formMode) {
-          const { supabase } = await requireAuth('member');
+          const { credentialContext } = await requireAuth('member');
           p.intro('Add Bean to Inventory');
 
           const catalogItem = await pickCatalogItem();
@@ -197,8 +197,8 @@ Required flags: --catalog-id, --qty
           spin.start('Adding bean to inventory...');
           const {
             data: { session: formSession },
-          } = await supabase.auth.getSession();
-          if (!formSession?.access_token) {
+          } = await credentialContext.getSession();
+          if (!formSession?.apiKey) {
             throw new AuthError('Session expired mid-form. Run `purvey auth login` and retry.');
           }
           const data = await addInventory(
@@ -209,7 +209,7 @@ Required flags: --catalog-id, --qty
               notes,
               purchaseDate: todayIso(),
             },
-            formSession.access_token
+            formSession.apiKey
           );
           spin.stop('Done');
 

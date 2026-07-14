@@ -14,7 +14,7 @@ vi.mock('../src/lib/config.js', () => ({
   readCredentials: readCredentialsMock,
 }));
 
-import { createAuthenticatedClient } from '../src/lib/auth-client.js';
+import { createCredentialContext } from '../src/lib/auth-client.js';
 
 const credentials = {
   apiKey: 'pk_live_stored',
@@ -23,7 +23,7 @@ const credentials = {
   user: { id: 'stored-user', email: 'user@example.com', role: 'viewer' },
 };
 
-describe('createAuthenticatedClient', () => {
+describe('createCredentialContext', () => {
   afterEach(() => {
     createParchmentClientMock.mockReset();
     readCredentialsMock.mockReset();
@@ -43,12 +43,12 @@ describe('createAuthenticatedClient', () => {
       }),
     });
 
-    const client = await createAuthenticatedClient();
+    const client = await createCredentialContext();
 
-    await expect(client.auth.getSession()).resolves.toEqual({
+    await expect(client.getSession()).resolves.toEqual({
       data: {
         session: {
-          access_token: 'pk_live_stored',
+          apiKey: 'pk_live_stored',
           user: { id: 'live-user', email: 'user@example.com', role: 'member' },
         },
       },
@@ -65,6 +65,6 @@ describe('createAuthenticatedClient', () => {
       }),
     });
 
-    await expect(createAuthenticatedClient()).rejects.toBeInstanceOf(AuthError);
+    await expect(createCredentialContext()).rejects.toBeInstanceOf(AuthError);
   });
 });

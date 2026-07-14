@@ -84,11 +84,7 @@ function getFixtureGuardrailSteps(tempRepo: string) {
     cwd: tempRepo,
     encoding: 'utf8' as const,
     maxBuffer: 10 * 1024 * 1024,
-    env: {
-      ...process.env,
-      PURVEYORS_SUPABASE_URL: 'https://placeholder.supabase.co',
-      PURVEYORS_SUPABASE_ANON_KEY: 'placeholder-anon-key',
-    },
+    env: process.env,
   };
 
   return [

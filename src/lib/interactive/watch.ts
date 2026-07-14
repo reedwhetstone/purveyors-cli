@@ -10,7 +10,7 @@ import { watch, type FSWatcher } from 'fs';
 import { readFile, access, writeFile, mkdir } from 'fs/promises';
 import { join, extname } from 'path';
 import { constants } from 'fs';
-import type { AuthClient } from '../auth-client.js';
+import type { CredentialContext } from '../auth-client.js';
 import type { ImportRoastResult } from '../roast.js';
 import type { MilestoneData, ProcessedRoastData } from '../artisan/types.js';
 import { CONFIG_DIR } from '../config.js';
@@ -405,14 +405,14 @@ function printVerificationTableAutoMatch(imports: ImportRecord[]): void {
  * Start watching a directory for new .alog files.
  * Blocks until SIGINT (Ctrl+C), then prints a summary table and resolves.
  *
- * @param supabase  Authenticated Supabase client
+ * @param credentialContext  Authenticated Parchment client
  * @param userId    Authenticated user ID
  * @param directory Absolute or relative path to watch
  * @param opts      Watch options
  * @returns         The final WatchSession (all imports recorded)
  */
 export async function startWatch(
-  supabase: AuthClient,
+  credentialContext: CredentialContext,
   userId: string,
   directory: string,
   opts: StartWatchOpts,
@@ -435,11 +435,11 @@ export async function startWatch(
     (async () => {
       const {
         data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) {
+      } = await credentialContext.getSession();
+      if (!session?.apiKey) {
         throw new AuthError('Session expired mid-watch. Run `purvey auth login` and retry.');
       }
-      return session.access_token;
+      return session.apiKey;
     });
   const inventoryLister = runtime.inventoryLister ?? listInventory;
 
@@ -647,7 +647,7 @@ export async function startWatch(
     let aiResult: Awaited<ReturnType<typeof runAutoMatch>> | undefined;
     if (opts.autoMatch && !opts.promptEach) {
       aiResult = await runAutoMatch(
-        supabase,
+        credentialContext,
         userId,
         filename,
         fileContent,
@@ -889,7 +889,7 @@ interface AutoMatchResult {
  * Returns skip=true if confidence < 50 or if the AI call fails.
  */
 async function runAutoMatch(
-  supabase: AuthClient,
+  credentialContext: CredentialContext,
   userId: string,
   filename: string,
   fileContent: string,
@@ -964,7 +964,10 @@ async function runAutoMatch(
       ...alogMetadata,
       filename,
     };
-    const result = await classifyRoast(supabase, { alogMetadata: enrichedMetadata, inventory });
+    const result = await classifyRoast(credentialContext, {
+      alogMetadata: enrichedMetadata,
+      inventory,
+    });
 
     if (!result.match) {
       return { skip: true, reason: 'AI returned no match' };

@@ -128,25 +128,21 @@ describe('classifyRoast SDK contract', () => {
 
   function authenticatedClient() {
     return {
-      auth: {
-        getSession: vi.fn().mockResolvedValue({
-          data: { session: { access_token: 'mock-token' } },
-        }),
-      },
+      getSession: vi.fn().mockResolvedValue({
+        data: { session: { apiKey: 'mock-token' } },
+      }),
     };
   }
 
   it('preserves the unauthenticated-session error', async () => {
     const { classifyRoast } = await import('../src/lib/ai.js');
 
-    const mockSupabase = {
-      auth: {
-        getSession: vi.fn().mockResolvedValue({ data: { session: null } }),
-      },
+    const mockCredentialContext = {
+      getSession: vi.fn().mockResolvedValue({ data: { session: null } }),
     } as unknown as Parameters<typeof classifyRoast>[0];
 
     await expect(
-      classifyRoast(mockSupabase, {
+      classifyRoast(mockCredentialContext, {
         alogMetadata: { title: 'Test' },
         inventory: [],
       })

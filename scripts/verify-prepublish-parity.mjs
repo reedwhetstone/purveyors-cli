@@ -540,13 +540,7 @@ function runPackedSelfImportExports(packFixture) {
       '-e',
       `const specifiers = ${JSON.stringify(specifiers)};\nconst loaded = [];\nfor (const { specifier, requiredKeys } of specifiers) {\n  const moduleNamespace = await import(specifier);\n  loaded.push({ specifier, requiredKeys, keys: Object.keys(moduleNamespace).sort() });\n}\nconsole.log(JSON.stringify(loaded));`,
     ],
-    {
-      cwd: packFixture.packageDir,
-      env: {
-        PURVEYORS_SUPABASE_URL: 'https://placeholder.supabase.co',
-        PURVEYORS_SUPABASE_ANON_KEY: 'placeholder-anon-key',
-      },
-    }
+    { cwd: packFixture.packageDir }
   );
 }
 

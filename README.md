@@ -69,7 +69,7 @@ purvey auth login
 # For agents, CI, or remote machines, use headless flow:
 # purvey auth login --headless
 
-# If automatic browser callback handling fails or you paste a bad URL, paste the full callback URL back into the terminal. The CLI keeps waiting until a valid callback is received.
+# Headless login prints an approval URL. Approve it in any browser; the CLI completes automatically.
 
 # 2. Confirm the stored API key and role
 purvey auth status
@@ -158,12 +158,12 @@ Headless login for agents, CI, and remote machines:
 
 ```bash
 purvey auth login --headless
-# CLI prints a Google OAuth URL
-# Open it in any browser and sign in
-# Paste the full callback URL back into the terminal
+# CLI prints a purveyors.io approval URL
+# Open it in any browser, sign in, and approve access
+# The CLI completes automatically
 ```
 
-If the browser cannot return to the CLI during interactive login, paste the full callback URL back into the terminal. Invalid pasted URLs are ignored, and the CLI keeps waiting until a valid callback is received. Use `purvey auth login --headless` when you need the CLI to print the OAuth URL for another browser.
+Both modes use Parchment's short-lived device authorization flow. The CLI keeps its PKCE verifier in memory, receives a scoped Parchment API key after browser approval, and never runs a localhost callback server or asks you to paste a callback URL. If browser launch fails, the interactive command prints the approval URL and keeps waiting.
 
 Status:
 
@@ -293,8 +293,8 @@ purvey auth logout
 
 Notes:
 
-- `auth login` uses browser-based Google OAuth, listens for the localhost callback, and also accepts a pasted callback URL if the browser cannot return to the CLI. Invalid pasted callback URLs are ignored so you can paste again while the CLI keeps waiting.
-- `auth login --headless` prints an OAuth URL and accepts a pasted callback URL.
+- `auth login` opens a short-lived purveyors.io approval request and completes automatically after approval. If browser launch fails, it prints the same URL and keeps polling.
+- `auth login --headless` prints the approval URL without trying to open a local browser. Approve it from any browser; nothing is pasted back.
 - `auth status --json` is the safest mode for scripts.
 - `auth status --csv` is supported for spreadsheet-style checks, but JSON remains the better integration format.
 
@@ -883,7 +883,6 @@ Use the right ID for the right command.
 
 ## Environment variables
 
-- `PURVEYORS_SUPABASE_URL`: override the Supabase Auth issuer used only for OAuth bootstrap
 - `PURVEYORS_BASE_URL`: override the Purveyors web base URL
 - `PURVEYORS_API_KEY`: explicit API-key override for canonical Parchment commands
 - `PARCHMENT_API_KEY`: preferred API-key variable for SDK-backed Parchment commands; also accepted for API-backed proof and paid-tier similarity paths
@@ -906,7 +905,7 @@ Why this CLI works well for agents:
 
 - stable command names
 - structured stdout by default
-- browser auth with pasted-callback fallback and headless auth
+- browser approval with automatic polling and a first-class headless mode
 - documented exit codes and role boundaries
 - dedicated machine-readable manifest command
 - dedicated dense human-readable reference command
@@ -920,7 +919,7 @@ Agent integration rules of thumb:
 
 - Discover first with `purvey manifest`, then call the narrowest command or package subpath that fits the job.
 - Use `purvey context` when a human-readable operator summary is useful before tool selection.
-- Use `purvey auth login` for normal user workflows. OAuth is used only to bootstrap a machine-scoped Parchment API key; the CLI does not retain Supabase session or refresh tokens. Environment `PURVEYORS_API_KEY` or `PARCHMENT_API_KEY` values remain available for explicit automation overrides.
+- Use `purvey auth login` for normal user workflows. Parchment coordinates browser approval and returns a machine-scoped API key; the CLI stores no web session, request token, or PKCE verifier. Environment `PURVEYORS_API_KEY` or `PARCHMENT_API_KEY` values remain available for explicit automation overrides.
 - Treat `--include-proof` as API output, not a local scoring feature. If a filter cannot round-trip through `/v1/catalog?include=proof`, the CLI rejects that invocation instead of returning misleading proof data.
 - Treat `catalog similar` as the canonical `/v1/catalog/{id}/similar` contract. Preserve the distinction between `canonical_candidates` and `similar_recommendations`; do not flatten or re-sort grouped results unless you have a specific downstream reason.
 - Treat `market`, `price-index`, and `procurement` as SDK-backed canonical API reads. Do not add procurement create/write behavior to this command group until the Phase 2 write contract ships.
