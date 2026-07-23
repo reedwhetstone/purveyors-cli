@@ -931,6 +931,8 @@ const SUPPLIER_STOP_WORDS = new Set([
   'roasters',
 ]);
 
+const INVENTORY_PAGE_SIZE = 100;
+
 function meaningfulTokens(value: string): string[] {
   return value
     .toLowerCase()
@@ -1006,21 +1008,28 @@ async function runAutoMatch(
   }> = [];
 
   try {
-    const rows = await inventoryLister(
-      { stocked_only: true, limit: 100 },
-      await sessionTokenProvider()
-    );
+    const token = await sessionTokenProvider();
+    for (let offset = 0; ; offset += INVENTORY_PAGE_SIZE) {
+      const rows = await inventoryLister(
+        { stocked_only: true, limit: INVENTORY_PAGE_SIZE, offset },
+        token
+      );
 
-    inventory = rows.map((row) => {
-      const catalog = row.coffee_catalog;
-      return {
-        id: row.id,
-        coffee_name: catalog?.name ?? `Bean #${row.id}`,
-        origin: catalog?.country ?? undefined,
-        processing: catalog?.processing ?? undefined,
-        supplier: catalog?.source ?? undefined,
-      };
-    });
+      inventory.push(
+        ...rows.map((row) => {
+          const catalog = row.coffee_catalog;
+          return {
+            id: row.id,
+            coffee_name: catalog?.name ?? `Bean #${row.id}`,
+            origin: catalog?.country ?? undefined,
+            processing: catalog?.processing ?? undefined,
+            supplier: catalog?.source ?? undefined,
+          };
+        })
+      );
+
+      if (rows.length < INVENTORY_PAGE_SIZE) break;
+    }
   } catch (err) {
     const reason = `Failed to fetch inventory: ${err instanceof Error ? err.message : String(err)}`;
     process.stderr.write(`⚠ Auto-match skipped for ${filename}: ${reason}\n`);

@@ -676,6 +676,71 @@ describe('startWatch', () => {
     await rm(watchDir, { recursive: true, force: true });
   });
 
+  it('checks later inventory pages before trusting supplier uniqueness', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-supplier-pagination-'));
+    const runtime = createRuntime();
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: 1000 + index,
+      coffee_catalog: {
+        name: index === 0 ? 'Kenya First Showroom' : `Bean ${index}`,
+        source: index === 0 ? 'Showroom Coffee' : 'Other Coffee',
+      },
+    }));
+    const secondPage = [
+      {
+        id: 1100,
+        coffee_catalog: { name: 'Kenya Second Showroom', source: 'Showroom Coffee' },
+      },
+    ];
+    const inventoryLister = vi
+      .fn()
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce(secondPage);
+    runtime.runtime.inventoryLister = inventoryLister;
+    classifyRoastMock.mockResolvedValue({ match: null });
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-supplier-pagination',
+      watchDir,
+      {
+        coffeeId: 0,
+        coffeeName: 'auto-match',
+        batchPrefix: 'Roast',
+        commitMode: 'batch',
+        autoMatch: true,
+      },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    await writeFile(join(watchDir, 'showroom_kenya_20260722.alog'), 'supplier content');
+    runtime.emitFileEvent('showroom_kenya_20260722.alog');
+    await sleep(10);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(inventoryLister).toHaveBeenCalledTimes(2);
+    expect(inventoryLister).toHaveBeenNthCalledWith(
+      1,
+      { stocked_only: true, limit: 100, offset: 0 },
+      'session-token'
+    );
+    expect(inventoryLister).toHaveBeenNthCalledWith(
+      2,
+      { stocked_only: true, limit: 100, offset: 100 },
+      'session-token'
+    );
+    expect(classifyRoastMock).toHaveBeenCalledOnce();
+    expect(runtime.roastImporter).not.toHaveBeenCalled();
+    expect(session.imports[0]).toMatchObject({
+      status: 'needs-review',
+      error: 'AI returned no match',
+    });
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
   it('falls back to AI when a filename supplier has multiple stocked coffees', async () => {
     const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-supplier-ambiguous-'));
     const runtime = createRuntime();
