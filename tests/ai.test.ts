@@ -149,7 +149,7 @@ describe('classifyRoast SDK contract', () => {
     ).rejects.toThrow('Not authenticated');
   });
 
-  it('posts the unchanged input to the canonical SDK URL with the session bearer token', async () => {
+  it('posts normalized input to the canonical SDK URL with the session bearer token', async () => {
     const { classifyRoast } = await import('../src/lib/ai.js');
     process.env.PARCHMENT_API_BASE_URL = 'https://parchment.example.test/';
     const expectedResult: ClassifyRoastResult = {
@@ -185,6 +185,55 @@ describe('classifyRoast SDK contract', () => {
     expect(request.headers.get('content-type')).toContain('application/json');
     await expect(request.clone().json()).resolves.toEqual(input);
     expect(result).toEqual(expectedResult);
+  });
+
+  it('normalizes blank Artisan fields and malformed optional metadata before classification', async () => {
+    const { classifyRoast } = await import('../src/lib/ai.js');
+    process.env.PARCHMENT_API_BASE_URL = 'https://parchment.example.test/';
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ match: null }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', mockFetch);
+
+    await classifyRoast(authenticatedClient() as unknown as Parameters<typeof classifyRoast>[0], {
+      alogMetadata: {
+        title: '   ',
+        filename: ' pineapple_20260722.alog ',
+        roastertype: '',
+        beans: '  ',
+        roastingnotes: '',
+        weight: [500, 430, ''] as [number, number, string],
+      },
+      inventory: [
+        { id: 7, coffee_name: ' Pineapple Co-Ferment ', origin: '', processing: ' Natural ' },
+      ],
+    });
+
+    const request = mockFetch.mock.calls[0][0] as Request;
+    await expect(request.clone().json()).resolves.toEqual({
+      alogMetadata: {
+        title: 'pineapple_20260722.alog',
+        filename: 'pineapple_20260722.alog',
+      },
+      inventory: [{ id: 7, coffee_name: 'Pineapple Co-Ferment', processing: 'Natural' }],
+    });
+  });
+
+  it('rejects a blank title locally when no filename fallback is available', async () => {
+    const { classifyRoast } = await import('../src/lib/ai.js');
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+
+    await expect(
+      classifyRoast(authenticatedClient() as unknown as Parameters<typeof classifyRoast>[0], {
+        alogMetadata: { title: '  ' },
+        inventory: [{ id: 1, coffee_name: 'Coffee' }],
+      })
+    ).rejects.toThrow('alogMetadata.title and filename cannot both be blank');
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -40,6 +40,86 @@ export interface LegacyClassifyAuthFacade {
   };
 }
 
+const CLASSIFICATION_STRING_LIMIT = 500;
+const CLASSIFICATION_NOTES_LIMIT = 2_000;
+const CLASSIFICATION_WEIGHT_UNIT_LIMIT = 16;
+const CLASSIFICATION_INVENTORY_LIMIT = 100;
+
+function normalizeOptionalString(value: string | undefined, maxLength: number): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  return normalized ? normalized.slice(0, maxLength) : undefined;
+}
+
+function normalizeWeight(value: unknown): [number, number, string] | undefined {
+  if (!Array.isArray(value) || value.length !== 3) return undefined;
+  const [input, output, rawUnit] = value;
+  const unit = normalizeOptionalString(
+    typeof rawUnit === 'string' ? rawUnit : undefined,
+    CLASSIFICATION_WEIGHT_UNIT_LIMIT
+  );
+  if (
+    typeof input !== 'number' ||
+    !Number.isFinite(input) ||
+    input < 0 ||
+    typeof output !== 'number' ||
+    !Number.isFinite(output) ||
+    output < 0 ||
+    !unit
+  ) {
+    return undefined;
+  }
+  return [input, output, unit];
+}
+
+function normalizeClassificationInput(input: ClassifyRoastInput): ClassifyRoastInput {
+  const filename = normalizeOptionalString(
+    input.alogMetadata.filename,
+    CLASSIFICATION_STRING_LIMIT
+  );
+  const title =
+    normalizeOptionalString(input.alogMetadata.title, CLASSIFICATION_STRING_LIMIT) ?? filename;
+  if (!title) {
+    throw new Error(
+      'Invalid roast classification input: alogMetadata.title and filename cannot both be blank.'
+    );
+  }
+
+  const inventory = input.inventory.slice(0, CLASSIFICATION_INVENTORY_LIMIT).map((item, index) => {
+    if (!Number.isInteger(item.id) || item.id <= 0) {
+      throw new Error(
+        `Invalid roast classification input: inventory[${index}].id must be a positive integer.`
+      );
+    }
+    const coffeeName =
+      normalizeOptionalString(item.coffee_name, CLASSIFICATION_STRING_LIMIT) ?? `Bean #${item.id}`;
+    return {
+      id: item.id,
+      coffee_name: coffeeName,
+      origin: normalizeOptionalString(item.origin, CLASSIFICATION_STRING_LIMIT),
+      processing: normalizeOptionalString(item.processing, CLASSIFICATION_STRING_LIMIT),
+    };
+  });
+
+  return {
+    alogMetadata: {
+      title,
+      filename,
+      roastertype: normalizeOptionalString(
+        input.alogMetadata.roastertype,
+        CLASSIFICATION_STRING_LIMIT
+      ),
+      beans: normalizeOptionalString(input.alogMetadata.beans, CLASSIFICATION_STRING_LIMIT),
+      roastingnotes: normalizeOptionalString(
+        input.alogMetadata.roastingnotes,
+        CLASSIFICATION_NOTES_LIMIT
+      ),
+      weight: normalizeWeight(input.alogMetadata.weight),
+    },
+    inventory,
+  };
+}
+
 async function resolveClassificationApiKey(
   source: CredentialContext | LegacyClassifyAuthFacade
 ): Promise<string | undefined> {
@@ -75,7 +155,10 @@ export async function classifyRoast(
   }
 
   const client = await createParchmentClient('member', apiKey);
-  const data = unwrapParchment(await client.roasts.classify(input), 'AI roast classification');
+  const data = unwrapParchment(
+    await client.roasts.classify(normalizeClassificationInput(input)),
+    'AI roast classification'
+  );
 
   // Keep the historical library contract tolerant of an omitted match.
   return {
