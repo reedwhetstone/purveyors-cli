@@ -149,7 +149,7 @@ describe('classifyRoast SDK contract', () => {
     ).rejects.toThrow('Not authenticated');
   });
 
-  it('posts the unchanged input to the canonical SDK URL with the session bearer token', async () => {
+  it('posts normalized input to the canonical SDK URL with the session bearer token', async () => {
     const { classifyRoast } = await import('../src/lib/ai.js');
     process.env.PARCHMENT_API_BASE_URL = 'https://parchment.example.test/';
     const expectedResult: ClassifyRoastResult = {
@@ -185,6 +185,97 @@ describe('classifyRoast SDK contract', () => {
     expect(request.headers.get('content-type')).toContain('application/json');
     await expect(request.clone().json()).resolves.toEqual(input);
     expect(result).toEqual(expectedResult);
+  });
+
+  it('normalizes blank Artisan fields and malformed optional metadata before classification', async () => {
+    const { classifyRoast } = await import('../src/lib/ai.js');
+    process.env.PARCHMENT_API_BASE_URL = 'https://parchment.example.test/';
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ match: null }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', mockFetch);
+
+    await classifyRoast(authenticatedClient() as unknown as Parameters<typeof classifyRoast>[0], {
+      alogMetadata: {
+        title: '   ',
+        filename: ' pineapple_20260722.alog ',
+        roastertype: '',
+        beans: '  ',
+        roastingnotes: '',
+        weight: [500, 430, ''] as [number, number, string],
+      },
+      inventory: [
+        { id: 7, coffee_name: ' Pineapple Co-Ferment ', origin: '', processing: ' Natural ' },
+      ],
+    });
+
+    const request = mockFetch.mock.calls[0][0] as Request;
+    await expect(request.clone().json()).resolves.toEqual({
+      alogMetadata: {
+        title: 'pineapple_20260722.alog',
+        filename: 'pineapple_20260722.alog',
+      },
+      inventory: [{ id: 7, coffee_name: 'Pineapple Co-Ferment', processing: 'Natural' }],
+    });
+  });
+
+  it('rejects a blank title locally when no filename fallback is available', async () => {
+    const { classifyRoast } = await import('../src/lib/ai.js');
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+
+    await expect(
+      classifyRoast(authenticatedClient() as unknown as Parameters<typeof classifyRoast>[0], {
+        alogMetadata: { title: '  ' },
+        inventory: [{ id: 1, coffee_name: 'Coffee' }],
+      })
+    ).rejects.toThrow('alogMetadata.title and filename cannot both be blank');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('caps prompt-facing strings and inventory while omitting non-finite weight values', async () => {
+    const { classifyRoast } = await import('../src/lib/ai.js');
+    process.env.PARCHMENT_API_BASE_URL = 'https://parchment.example.test/';
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ match: null }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', mockFetch);
+
+    await classifyRoast(authenticatedClient() as unknown as Parameters<typeof classifyRoast>[0], {
+      alogMetadata: {
+        title: 't'.repeat(501),
+        filename: 'f'.repeat(501),
+        roastertype: 'r'.repeat(501),
+        beans: 'b'.repeat(501),
+        roastingnotes: 'n'.repeat(2_001),
+        weight: [Number.NaN, 430, 'grams'] as [number, number, string],
+      },
+      inventory: Array.from({ length: 101 }, (_, index) => ({
+        id: index + 1,
+        coffee_name: 'c'.repeat(501),
+        origin: 'o'.repeat(501),
+        processing: 'p'.repeat(501),
+      })),
+    });
+
+    const request = mockFetch.mock.calls[0][0] as Request;
+    const body = (await request.clone().json()) as ClassifyRoastInput;
+    expect(body.alogMetadata.title).toHaveLength(500);
+    expect(body.alogMetadata.filename).toHaveLength(500);
+    expect(body.alogMetadata.roastertype).toHaveLength(500);
+    expect(body.alogMetadata.beans).toHaveLength(500);
+    expect(body.alogMetadata.roastingnotes).toHaveLength(2_000);
+    expect(body.alogMetadata).not.toHaveProperty('weight');
+    expect(body.inventory).toHaveLength(100);
+    expect(body.inventory[0].coffee_name).toHaveLength(500);
+    expect(body.inventory[0].origin).toHaveLength(500);
+    expect(body.inventory[0].processing).toHaveLength(500);
   });
 
   it.each([
