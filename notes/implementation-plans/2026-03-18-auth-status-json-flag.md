@@ -1,7 +1,7 @@
 # Implementation Plan: `purvey auth status` JSON-by-default behavior
 
 **Date:** 2026-03-18
-**Status:** Ready for implementation
+**Status:** Completed; retained as historical implementation context
 **Complexity:** Small (1 file, ~10 lines changed)
 **Risk:** Low
 

@@ -141,7 +141,7 @@ Examples:
   $ purvey context --json > cli-manifest.json
 
 CLI docs:            https://purveyors.io/docs/cli/overview
-API docs:            https://purveyors.io/docs/api/overview
+API reference:       https://api.purveyors.io/docs
 Repository:          https://github.com/reedwhetstone/purveyors-cli
 npm package:         https://www.npmjs.com/package/@purveyors/cli
 Quick discovery:  purvey --help

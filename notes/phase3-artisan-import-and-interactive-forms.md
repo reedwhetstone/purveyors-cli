@@ -1,7 +1,14 @@
 # Phase 3: Artisan Import, Interactive Forms, and Data Integrity
 
-_Last updated: 2026-03-15_
-_Status: Approved — ready for implementation_
+_Last updated: 2026-07-22_
+_Status: Historical plan; partially shipped and architecturally superseded_
+
+> Current disposition: Artisan import and watch workflows shipped, but the shared
+> architecture in this plan is no longer current. Coffee-app does not import CLI
+> functions, roast classification now runs through Parchment and `@purveyors/sdk`,
+> and the CLI stores a scoped Parchment API key rather than a Supabase session. Use
+> `README.md`, `AGENTS.md`, `docs/CLI_STRATEGY.md`, and `docs/ADR-INDEX.md` for the
+> maintained contract.
 
 ## Decisions (confirmed with Reed)
 

@@ -1,7 +1,14 @@
-# ADR-001: CLI Subpath Exports for Chat Agent Consumption
+# Historical Decision H-001: CLI Subpath Exports for Chat Agent Consumption
 
-**Status:** Accepted
+**Status:** Superseded by the Parchment API and `@purveyors/sdk` boundary
 **Date:** 2026-03-14 (approximate)
+
+> Historical record: coffee-app used this architecture during the initial GenUI
+> build. It no longer imports `@purveyors/cli`. Today the CLI and coffee-app consume
+> `@purveyors/sdk` independently, and the SDK consumes Parchment's OpenAPI contract.
+> The exported CLI subpaths remain supported for agents and Node.js callers that
+> intentionally want CLI behavior, but they are not the website's business-logic
+> layer.
 
 ## Context
 
@@ -45,7 +52,7 @@ These exported functions are treated as an agent-first product contract. Naming,
 arguments, validation, error semantics, and docs should optimize for reliable
 machine use first, with human terminal affordances layered on top.
 
-## Consequences
+## Historical consequences
 
 - New data operations added to the CLI are immediately available to the chat agent.
 - A single set of types, validation logic, and error handling covers all surfaces.
@@ -58,3 +65,11 @@ machine use first, with human terminal affordances layered on top.
 - Shared workflow changes should be dogfooded through the CLI or exported function
   directly, not only through the website wrapper.
 - Revisit if the CLI and app diverge significantly in auth model or data shape.
+
+## Current disposition
+
+The revisit condition occurred. Parchment now owns shared data behavior and the
+OpenAPI contract. `@purveyors/sdk` provides typed endpoint access. Coffee-app builds
+session-aware web and chat adapters on that SDK, while the CLI adds terminal-specific
+authentication, flags, file workflows, output envelopes, and exit codes on the same
+SDK. The SDK does not use CLI functions.

@@ -15,7 +15,8 @@ Use this file as the single maintained guide for humans and agents. `CLAUDE.md` 
 - Package contract source of truth: `package.json` `exports` plus `src/lib/manifest.ts`
 - In-process product exports: `@purveyors/cli/catalog`, `/market`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, and `/ai`
 - In-process manifest export: `@purveyors/cli/manifest` via package export `./manifest`
-- Live docs: `/docs/cli/*` and `/docs/api/*` on `https://purveyors.io`
+- Live CLI guides: `/docs/cli/*` on `https://purveyors.io`
+- Canonical API reference: `https://api.purveyors.io/docs`
 
 ## Canonical Agent Docs Policy
 
@@ -77,13 +78,14 @@ When documentation changes, verify against these files first:
 - `src/program.ts` for global help text and docs links
 - `src/lib/manifest.ts` for the machine-readable contract, rendered context text, package export list, ID guidance, and workflow examples
 - `package.json` for package metadata, Node engine, scripts, binary entrypoint, and exported subpaths
+- `docs/ADR-INDEX.md` for the canonical architecture decision registry
 - `README.md` for GitHub and npm landing-page coverage
 - `docs/CLI_STRATEGY.md` for historical architecture context that still needs to stay factually correct
 
 Docs links should prefer the current site structure:
 
 - CLI docs: `https://purveyors.io/docs/cli/overview`
-- API docs: `https://purveyors.io/docs/api/overview`
+- API reference: `https://api.purveyors.io/docs`
 
 Avoid stale references to the old generic `https://purveyors.io/docs` root when a more specific docs target exists.
 
@@ -94,7 +96,7 @@ src/
   index.ts            executable entrypoint
   program.ts          top-level program, global options, command registration
   commands/           Commander command trees and help text
-  lib/                Parchment SDK access, output, auth guards, business logic
+  lib/                Parchment SDK access, output, auth guards, CLI adapters
   types/              shared TypeScript types
 tests/                Vitest coverage
 ```
@@ -130,8 +132,9 @@ Command files:
 ### Machine contract and exports
 
 - Treat the CLI binary, exported subpaths, manifest payload, context text, stdout/stderr behavior, and exit codes as one product contract.
-- `coffee-app` and agent runtimes import exported functions directly; do not treat package exports as internal implementation details.
-- Prefer narrow subpath imports in app and agent code, for example `@purveyors/cli/catalog` instead of the package root for catalog workflows.
+- `@purveyors/cli` consumes `@purveyors/sdk`; the SDK never consumes CLI functions.
+- `coffee-app` consumes `@purveyors/sdk` directly and does not depend on this package. Shared cross-surface data behavior belongs in Parchment and its OpenAPI contract.
+- Agent runtimes may import exported CLI functions when they intentionally need CLI semantics. Prefer narrow imports such as `@purveyors/cli/catalog` instead of the package root.
 - When package exports change, update `package.json`, `README.md`, `AGENTS.md`, `docs/CLI_STRATEGY.md`, `src/lib/manifest.ts`, and dist parity validation in the same PR.
 - `purvey manifest` is the primary shell-level machine contract. `@purveyors/cli/manifest` is the primary in-process machine contract.
 
@@ -207,8 +210,8 @@ When doing a docs-only refresh, confirm these before opening a PR:
 - Auth and role claims match the actual boundary: catalog is viewer, with `catalog search` structured processing filters elevated to member; market has unauthenticated public teaser slices and Parchment Intelligence-gated filtered slices; price-index, procurement, inventory, roast, sales, and tasting require a valid scoped key and the corresponding server-side entitlement; auth, config, context, and manifest do not require pre-existing credentials.
 - Headless device authorization remains documented as first-class, not as a fallback.
 - `purvey manifest` is documented as the preferred shell contract; `purvey context --json` is documented as compatibility.
-- `@purveyors/cli/manifest` and package subpath exports are documented as supported in-process contracts.
-- Live docs links point to `/docs/cli/overview` and `/docs/api/overview`.
+- `@purveyors/cli/manifest` and package subpath exports are documented as supported in-process CLI contracts, not as coffee-app dependencies.
+- Live docs links point to `https://purveyors.io/docs/cli/overview` and `https://api.purveyors.io/docs`.
 
 ## PR Checklist
 

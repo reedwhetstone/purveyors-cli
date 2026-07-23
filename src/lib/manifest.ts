@@ -127,7 +127,7 @@ const legacyMachineSurfaces: CliManifest['machineSurfaces'] = {
 
 const docs: CliDocLink[] = [
   { label: 'CLI docs', url: 'https://purveyors.io/docs/cli/overview' },
-  { label: 'API docs', url: 'https://purveyors.io/docs/api/overview' },
+  { label: 'API reference', url: 'https://api.purveyors.io/docs' },
   { label: 'Repository', url: 'https://github.com/reedwhetstone/purveyors-cli' },
   { label: 'npm package', url: 'https://www.npmjs.com/package/@purveyors/cli' },
 ];
