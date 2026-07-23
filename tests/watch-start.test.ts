@@ -611,6 +611,262 @@ describe('startWatch', () => {
     await rm(watchDir, { recursive: true, force: true });
   });
 
+  it('matches a filename supplier when it identifies exactly one stocked coffee', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-supplier-match-'));
+    const runtime = createRuntime();
+    runtime.runtime.inventoryLister = vi.fn().mockResolvedValue([
+      {
+        id: 71,
+        coffee_catalog: {
+          name: 'Kenya Nyeri AA',
+          source: 'Showroom Coffee',
+          country: 'Kenya',
+          processing: 'Washed',
+        },
+      },
+      {
+        id: 72,
+        coffee_catalog: {
+          name: 'Honduras Pineapple',
+          source: 'Genuine Origin',
+          country: 'Honduras',
+          processing: 'Co-ferment',
+        },
+      },
+    ]);
+    runtime.roastImporter.mockResolvedValue(createImportResult(711));
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-supplier',
+      watchDir,
+      {
+        coffeeId: 0,
+        coffeeName: 'auto-match',
+        batchPrefix: 'Roast',
+        commitMode: 'batch',
+        autoMatch: true,
+      },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    await writeFile(join(watchDir, 'showroom_kenya_20260722.alog'), 'supplier content');
+    runtime.emitFileEvent('showroom_kenya_20260722.alog');
+    await sleep(10);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(classifyRoastMock).not.toHaveBeenCalled();
+    expect(runtime.roastImporter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileName: 'showroom_kenya_20260722.alog',
+        coffeeId: 71,
+      })
+    );
+    expect(session.imports[0]).toMatchObject({
+      status: 'success',
+      selectedCoffeeId: 71,
+      selectedCoffeeName: 'Kenya Nyeri AA',
+      matchMethod: 'inventory',
+      aiMatch: { confidence: 100 },
+    });
+    expect(stderrOutput.join('')).toContain('Inventory matched: showroom_kenya_20260722.alog');
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('checks later inventory pages before trusting supplier uniqueness', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-supplier-pagination-'));
+    const runtime = createRuntime();
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: 1000 + index,
+      coffee_catalog: {
+        name: index === 0 ? 'Kenya First Showroom' : `Bean ${index}`,
+        source: index === 0 ? 'Showroom Coffee' : 'Other Coffee',
+      },
+    }));
+    const secondPage = [
+      {
+        id: 1100,
+        coffee_catalog: { name: 'Kenya Second Showroom', source: 'Showroom Coffee' },
+      },
+    ];
+    const inventoryLister = vi
+      .fn()
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce(secondPage);
+    runtime.runtime.inventoryLister = inventoryLister;
+    classifyRoastMock.mockResolvedValue({ match: null });
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-supplier-pagination',
+      watchDir,
+      {
+        coffeeId: 0,
+        coffeeName: 'auto-match',
+        batchPrefix: 'Roast',
+        commitMode: 'batch',
+        autoMatch: true,
+      },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    await writeFile(join(watchDir, 'showroom_kenya_20260722.alog'), 'supplier content');
+    runtime.emitFileEvent('showroom_kenya_20260722.alog');
+    await sleep(10);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(inventoryLister).toHaveBeenCalledTimes(2);
+    expect(inventoryLister).toHaveBeenNthCalledWith(
+      1,
+      { stocked_only: true, limit: 100, offset: 0 },
+      'session-token'
+    );
+    expect(inventoryLister).toHaveBeenNthCalledWith(
+      2,
+      { stocked_only: true, limit: 100, offset: 100 },
+      'session-token'
+    );
+    expect(classifyRoastMock).toHaveBeenCalledOnce();
+    expect(runtime.roastImporter).not.toHaveBeenCalled();
+    expect(session.imports[0]).toMatchObject({
+      status: 'needs-review',
+      error: 'AI returned no match',
+    });
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('falls back to AI when a filename supplier has multiple stocked coffees', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-supplier-ambiguous-'));
+    const runtime = createRuntime();
+    runtime.runtime.inventoryLister = vi.fn().mockResolvedValue([
+      { id: 71, coffee_catalog: { name: 'Kenya AA', source: 'Showroom Coffee' } },
+      { id: 73, coffee_catalog: { name: 'Kenya Peaberry', source: 'Showroom Coffee' } },
+    ]);
+    classifyRoastMock.mockResolvedValue({ match: null });
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-supplier',
+      watchDir,
+      {
+        coffeeId: 0,
+        coffeeName: 'auto-match',
+        batchPrefix: 'Roast',
+        commitMode: 'batch',
+        autoMatch: true,
+      },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    await writeFile(join(watchDir, 'showroom_kenya.alog'), 'supplier content');
+    runtime.emitFileEvent('showroom_kenya.alog');
+    await sleep(10);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(classifyRoastMock).toHaveBeenCalledOnce();
+    expect(session.imports[0]).toMatchObject({
+      status: 'needs-review',
+      error: 'AI returned no match',
+    });
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('continues --form recovery with a stocked-inventory picker', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-form-recovery-'));
+    const runtime = createRuntime();
+    classifyRoastMock.mockResolvedValue({ match: null });
+    pickBeanMock.mockResolvedValue({ id: 71, name: 'Kenya Nyeri AA' });
+    runtime.roastImporter.mockResolvedValue(createImportResult(712));
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-form',
+      watchDir,
+      {
+        coffeeId: 0,
+        coffeeName: 'auto-match',
+        batchPrefix: 'Newstart',
+        commitMode: 'batch',
+        autoMatch: true,
+        interactiveRecovery: true,
+        ozIn: 15,
+        roastNotes: 'Early drop',
+        roastTargets: 'Light',
+      },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    await writeFile(join(watchDir, 'unmatched.alog'), 'unmatched content');
+    runtime.emitFileEvent('unmatched.alog');
+    await sleep(10);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(pickBeanMock).toHaveBeenCalledWith('session-token', { allowCancel: true });
+    expect(runtime.roastImporter).toHaveBeenCalledWith({
+      fileContent: 'unmatched content',
+      fileName: 'unmatched.alog',
+      coffeeId: 71,
+      batchName: 'Newstart #1',
+      ozIn: 15,
+      roastNotes: 'Early drop',
+      roastTargets: 'Light',
+    });
+    expect(session.imports[0]).toMatchObject({
+      status: 'success',
+      selectedCoffeeId: 71,
+      selectedCoffeeName: 'Kenya Nyeri AA',
+    });
+    expect(stderrOutput.join('')).not.toContain('manual bean assignment');
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('keeps the manual fallback when --form recovery is cancelled', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-form-cancel-'));
+    const runtime = createRuntime();
+    classifyRoastMock.mockResolvedValue({ match: null });
+    pickBeanMock.mockResolvedValue(null);
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-form',
+      watchDir,
+      {
+        coffeeId: 0,
+        coffeeName: 'auto-match',
+        batchPrefix: 'Roast',
+        commitMode: 'batch',
+        autoMatch: true,
+        interactiveRecovery: true,
+      },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    await writeFile(join(watchDir, 'unmatched.alog'), 'unmatched content');
+    runtime.emitFileEvent('unmatched.alog');
+    await sleep(10);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.roastImporter).not.toHaveBeenCalled();
+    expect(session.imports[0]?.status).toBe('needs-review');
+    expect(stderrOutput.join('')).toContain('manual bean assignment');
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
   it('restores prompt-each behavior for new files after resume', async () => {
     const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-prompt-resume-'));
     const runtime = createRuntime();

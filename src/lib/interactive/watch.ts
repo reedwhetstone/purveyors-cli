@@ -50,6 +50,7 @@ export interface WatchSession {
   batchPrefix: string;
   promptEach?: boolean;
   autoMatch?: boolean;
+  interactiveRecovery?: boolean;
   commitMode?: 'batch' | 'individual';
   ozIn?: number;
   roastNotes?: string;
@@ -75,6 +76,7 @@ export interface ImportRecord {
     confidence: number;
     reasoning: string;
   };
+  matchMethod?: 'inventory' | 'ai';
 }
 
 interface StartWatchOpts {
@@ -86,6 +88,7 @@ interface StartWatchOpts {
   resumeImports?: ImportRecord[];
   promptEach?: boolean;
   autoMatch?: boolean;
+  interactiveRecovery?: boolean;
   ozIn?: number;
   roastNotes?: string;
   roastTargets?: string;
@@ -474,6 +477,7 @@ export async function startWatch(
     batchPrefix: opts.batchPrefix,
     promptEach: opts.promptEach ?? false,
     autoMatch: opts.autoMatch ?? false,
+    interactiveRecovery: opts.interactiveRecovery ?? false,
     commitMode,
     ...(opts.ozIn !== undefined ? { ozIn: opts.ozIn } : {}),
     ...(opts.roastNotes !== undefined ? { roastNotes: opts.roastNotes } : {}),
@@ -676,7 +680,7 @@ export async function startWatch(
       effectiveCoffeeId = aiResult.coffeeId!;
       effectiveCoffeeName = aiResult.coffeeName!;
       process.stderr.write(
-        `🤖 AI matched: ${filename} → ${effectiveCoffeeName} (${aiResult.aiMatch!.confidence}% confidence)\n` +
+        `${aiResult.matchMethod === 'inventory' ? '✓ Inventory matched' : '🤖 AI matched'}: ${filename} → ${effectiveCoffeeName} (${aiResult.aiMatch!.confidence}% confidence)\n` +
           `   Reasoning: ${aiResult.aiMatch!.reasoning}\n`
       );
     }
@@ -693,6 +697,7 @@ export async function startWatch(
       selectedCoffeeId: effectiveCoffeeId,
       selectedCoffeeName: effectiveCoffeeName,
       ...(aiMatchField !== undefined ? { aiMatch: aiMatchField } : {}),
+      ...(aiResult?.matchMethod !== undefined ? { matchMethod: aiResult.matchMethod } : {}),
     };
     session.imports.push(record);
 
@@ -825,9 +830,39 @@ export async function startWatch(
             printVerificationTable(session, opts.autoMatch);
           }
 
-          // Point at manual recovery for any files left needing review
-          // (auto-match low confidence, or cancelled prompt-each selections)
-          const needsReview = session.imports.filter((r) => r.status === 'needs-review');
+          let needsReview = session.imports.filter((r) => r.status === 'needs-review');
+          if (opts.interactiveRecovery && needsReview.length > 0) {
+            const { pickBean } = await import('./forms.js');
+            process.stderr.write(
+              `🔎 Assign ${needsReview.length} unmatched roast${needsReview.length !== 1 ? 's' : ''} from stocked inventory:\n`
+            );
+            for (const record of needsReview) {
+              process.stderr.write(`\n${record.fileName}\n`);
+              try {
+                const bean = await pickBean(await sessionTokenProvider(), { allowCancel: true });
+                if (!bean) continue;
+                record.status = 'pending';
+                record.error = undefined;
+                record.selectedCoffeeId = bean.id;
+                record.selectedCoffeeName = bean.name;
+                await saveSession(session);
+                await commitQueuedImport({
+                  record,
+                  coffeeId: bean.id,
+                  coffeeName: bean.name,
+                });
+              } catch (err) {
+                record.error = `Bean selection failed: ${err instanceof Error ? err.message : String(err)}`;
+                await saveSession(session);
+                process.stderr.write(`⚠ ${record.fileName}: ${record.error}\n`);
+              }
+            }
+            process.stderr.write('\n');
+            printVerificationTable(session, opts.autoMatch);
+            needsReview = session.imports.filter((r) => r.status === 'needs-review');
+          }
+
+          // Keep the command fallback for flag mode and cancelled form recovery.
           if (needsReview.length > 0) {
             process.stderr.write(
               `⚠  ${needsReview.length} file${needsReview.length !== 1 ? 's need' : ' needs'} manual bean assignment:\n`
@@ -882,6 +917,47 @@ interface AutoMatchResult {
     confidence: number;
     reasoning: string;
   };
+  matchMethod?: 'inventory' | 'ai';
+}
+
+const SUPPLIER_STOP_WORDS = new Set([
+  'coffee',
+  'co',
+  'company',
+  'green',
+  'import',
+  'imports',
+  'roaster',
+  'roasters',
+]);
+
+const INVENTORY_PAGE_SIZE = 100;
+
+function meaningfulTokens(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/\.[^.]+$/, '')
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 3 && !SUPPLIER_STOP_WORDS.has(token));
+}
+
+function uniqueSupplierMatch(
+  filename: string,
+  inventory: Array<{ id: number; coffee_name: string; supplier?: string }>
+): { id: number; coffeeName: string; supplier: string } | undefined {
+  const filenameTokens = new Set(meaningfulTokens(filename));
+  const candidates = inventory.filter((item) => {
+    if (!item.supplier) return false;
+    const supplierTokens = meaningfulTokens(item.supplier);
+    return supplierTokens.length > 0 && supplierTokens.every((token) => filenameTokens.has(token));
+  });
+  if (candidates.length !== 1) return undefined;
+  const candidate = candidates[0]!;
+  return {
+    id: candidate.id,
+    coffeeName: candidate.coffee_name,
+    supplier: candidate.supplier!,
+  };
 }
 
 /**
@@ -928,23 +1004,32 @@ async function runAutoMatch(
     coffee_name: string;
     origin?: string;
     processing?: string;
+    supplier?: string;
   }> = [];
 
   try {
-    const rows = await inventoryLister(
-      { stocked_only: true, limit: 100 },
-      await sessionTokenProvider()
-    );
+    const token = await sessionTokenProvider();
+    for (let offset = 0; ; offset += INVENTORY_PAGE_SIZE) {
+      const rows = await inventoryLister(
+        { stocked_only: true, limit: INVENTORY_PAGE_SIZE, offset },
+        token
+      );
 
-    inventory = rows.map((row) => {
-      const catalog = row.coffee_catalog;
-      return {
-        id: row.id,
-        coffee_name: catalog?.name ?? `Bean #${row.id}`,
-        origin: catalog?.country ?? undefined,
-        processing: catalog?.processing ?? undefined,
-      };
-    });
+      inventory.push(
+        ...rows.map((row) => {
+          const catalog = row.coffee_catalog;
+          return {
+            id: row.id,
+            coffee_name: catalog?.name ?? `Bean #${row.id}`,
+            origin: catalog?.country ?? undefined,
+            processing: catalog?.processing ?? undefined,
+            supplier: catalog?.source ?? undefined,
+          };
+        })
+      );
+
+      if (rows.length < INVENTORY_PAGE_SIZE) break;
+    }
   } catch (err) {
     const reason = `Failed to fetch inventory: ${err instanceof Error ? err.message : String(err)}`;
     process.stderr.write(`⚠ Auto-match skipped for ${filename}: ${reason}\n`);
@@ -953,6 +1038,22 @@ async function runAutoMatch(
 
   if (inventory.length === 0) {
     return { skip: true, reason: 'No stocked inventory items found' };
+  }
+
+  const supplierMatch = uniqueSupplierMatch(filename, inventory);
+  if (supplierMatch) {
+    const reasoning = `Filename identifies supplier ${supplierMatch.supplier}, which has exactly one stocked coffee.`;
+    return {
+      skip: false,
+      coffeeId: supplierMatch.id,
+      coffeeName: supplierMatch.coffeeName,
+      aiMatch: {
+        coffeeName: supplierMatch.coffeeName,
+        confidence: 100,
+        reasoning,
+      },
+      matchMethod: 'inventory',
+    };
   }
 
   // Call the AI classifier
@@ -999,6 +1100,7 @@ async function runAutoMatch(
       coffeeId: inventoryId,
       coffeeName,
       aiMatch,
+      matchMethod: 'ai',
     };
   } catch (err) {
     const reason = `AI classification error: ${err instanceof Error ? err.message : String(err)}`;

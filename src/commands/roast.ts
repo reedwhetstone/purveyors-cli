@@ -910,6 +910,7 @@ Notes:
               batchPrefix: saved.batchPrefix,
               promptEach: Boolean(saved.promptEach),
               autoMatch: Boolean(saved.autoMatch),
+              interactiveRecovery: Boolean(saved.interactiveRecovery),
               commitMode: saved.commitMode ?? 'batch',
               startedAt: saved.startedAt,
               resumeImports: saved.imports,
@@ -1043,6 +1044,7 @@ Notes:
               commitMode,
               promptEach: useAutoMatch ? false : Boolean(promptEachRaw),
               autoMatch: useAutoMatch,
+              interactiveRecovery: true,
               ozIn: parseOptionalPositiveNumber(ozInRaw, 'green weight'),
               roastTargets:
                 String(roastTargetsRaw).trim() !== '' ? String(roastTargetsRaw).trim() : undefined,
