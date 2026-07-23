@@ -236,6 +236,48 @@ describe('classifyRoast SDK contract', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it('caps prompt-facing strings and inventory while omitting non-finite weight values', async () => {
+    const { classifyRoast } = await import('../src/lib/ai.js');
+    process.env.PARCHMENT_API_BASE_URL = 'https://parchment.example.test/';
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ match: null }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', mockFetch);
+
+    await classifyRoast(authenticatedClient() as unknown as Parameters<typeof classifyRoast>[0], {
+      alogMetadata: {
+        title: 't'.repeat(501),
+        filename: 'f'.repeat(501),
+        roastertype: 'r'.repeat(501),
+        beans: 'b'.repeat(501),
+        roastingnotes: 'n'.repeat(2_001),
+        weight: [Number.NaN, 430, 'grams'] as [number, number, string],
+      },
+      inventory: Array.from({ length: 101 }, (_, index) => ({
+        id: index + 1,
+        coffee_name: 'c'.repeat(501),
+        origin: 'o'.repeat(501),
+        processing: 'p'.repeat(501),
+      })),
+    });
+
+    const request = mockFetch.mock.calls[0][0] as Request;
+    const body = (await request.clone().json()) as ClassifyRoastInput;
+    expect(body.alogMetadata.title).toHaveLength(500);
+    expect(body.alogMetadata.filename).toHaveLength(500);
+    expect(body.alogMetadata.roastertype).toHaveLength(500);
+    expect(body.alogMetadata.beans).toHaveLength(500);
+    expect(body.alogMetadata.roastingnotes).toHaveLength(2_000);
+    expect(body.alogMetadata).not.toHaveProperty('weight');
+    expect(body.inventory).toHaveLength(100);
+    expect(body.inventory[0].coffee_name).toHaveLength(500);
+    expect(body.inventory[0].origin).toHaveLength(500);
+    expect(body.inventory[0].processing).toHaveLength(500);
+  });
+
   it.each([
     [403, 'Roast classification requires a member account or a paid API plan'],
     [429, 'Roast classification rate limit exceeded'],
