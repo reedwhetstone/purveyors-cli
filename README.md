@@ -41,7 +41,8 @@ purvey --version
 | Surface                                          | Use it for                                                |
 | ------------------------------------------------ | --------------------------------------------------------- |
 | <https://purveyors.io/docs/cli/overview>         | Live CLI docs                                             |
-| <https://purveyors.io/docs/api/overview>         | Live API docs                                             |
+| <https://api.purveyors.io/docs>                  | Canonical generated API reference                         |
+| [docs/ADR-INDEX.md](./docs/ADR-INDEX.md)         | Canonical CLI architecture decision registry              |
 | [AGENTS.md](./AGENTS.md)                         | Canonical contributor and agent guidance                  |
 | [docs/CLI_STRATEGY.md](./docs/CLI_STRATEGY.md)   | Historical architecture and shipped-surface retrospective |
 | <https://github.com/reedwhetstone/purveyors-cli> | Repository, issues, and source                            |
@@ -56,7 +57,7 @@ Use this hierarchy when references disagree:
 1. `src/program.ts`, `src/commands/*`, and `src/lib/manifest.ts` define the shipped command surface, help text, auth requirements, output modes, ID guidance, and manifest payload.
 2. `package.json` defines the package version, Node engine, binary entrypoint, scripts, and exported subpaths.
 3. `README.md`, `AGENTS.md`, and `docs/CLI_STRATEGY.md` explain the repo-specific contract for users, contributors, and agents.
-4. `https://purveyors.io/docs/cli/overview` and `https://purveyors.io/docs/api/overview` are the primary live product docs for external readers.
+4. `https://purveyors.io/docs/cli/overview` is the primary CLI guide. `https://api.purveyors.io/docs` is the canonical generated API reference.
 
 The CLI is an agent-first product surface. Treat the binary, exported functions, `purvey manifest`, `purvey context`, stdout/stderr behavior, and role-gated command boundaries as one contract.
 
@@ -105,9 +106,11 @@ Use the right reference surface for the job:
 - `purvey context --json` and `purvey context --pretty` emit the same JSON payload as `purvey manifest`, but exist mainly for compatibility with tooling that already shells out to `context`.
 - `@purveyors/cli/manifest` exposes the same contract in-process for Node.js and agent runtimes.
 
-## Package exports and shared product surface
+## Package exports and integration boundary
 
-The npm package is both a binary and a shared TypeScript product surface. `coffee-app` and agent runtimes import CLI business functions directly, so exported subpaths are part of the supported machine contract.
+The npm package is both a binary and a reusable TypeScript surface for Node.js callers that specifically want CLI behavior. The CLI itself consumes `@purveyors/sdk`, which is the typed client for the canonical Parchment API. The SDK does not call or embed CLI functions.
+
+`coffee-app` also consumes `@purveyors/sdk` directly. It does not depend on `@purveyors/cli`; the website chat tools and the CLI are separate adapters over the same API contract. Shared data behavior belongs in Parchment and its OpenAPI contract, while terminal concerns such as local credentials, flags, output modes, exit codes, Artisan file handling, and watch mode belong in this package.
 
 | Import path                | Use it for                                                                           |
 | -------------------------- | ------------------------------------------------------------------------------------ |
@@ -122,14 +125,14 @@ The npm package is both a binary and a shared TypeScript product surface. `coffe
 | `@purveyors/cli/manifest`  | Stable machine-readable CLI manifest                                                 |
 | `@purveyors/cli/ai`        | AI helper surface used by CLI workflows                                              |
 
-Shell integrations should usually start with `purvey manifest`. In-process agent and website integrations should import the smallest relevant subpath instead of shelling out when they are already running in Node.js.
+Shell integrations should usually start with `purvey manifest`. Node.js agents that specifically need CLI semantics may import the smallest relevant CLI subpath instead of shelling out. Application integrations should normally use `@purveyors/sdk` directly so the API contract, rather than the CLI package, remains the cross-surface boundary.
 
 Export discipline:
 
 - Add or remove subpaths only when the package contract intentionally changes.
 - Keep `package.json`, `README.md`, `AGENTS.md`, `docs/CLI_STRATEGY.md`, `src/lib/manifest.ts`, and dist parity checks aligned in the same PR.
-- Prefer the narrowest import path for application and agent code. For example, use `@purveyors/cli/catalog` for catalog operations instead of importing the package root.
-- Treat export-shape changes as product changes because coffee-app and agent runtimes import these functions directly.
+- Prefer the narrowest import path for agent code that intentionally consumes CLI semantics. For example, use `@purveyors/cli/catalog` instead of importing the package root.
+- Treat export-shape changes as product changes for supported CLI-package consumers. They do not define the coffee-app integration contract.
 
 ## Authentication and access model
 
@@ -988,7 +991,7 @@ Key files:
 - `src/index.ts`: executable entrypoint
 - `src/program.ts`: top-level CLI registration and global options
 - `src/commands/`: command definitions and help text
-- `src/lib/`: business logic and Parchment SDK integration
+- `src/lib/`: CLI adapters, local workflow behavior, and Parchment SDK integration
 - `src/commands/context.ts`: dense human-readable agent reference
 - `src/commands/manifest.ts`: machine-readable CLI manifest command
 - `src/lib/manifest.ts`: shared manifest contract, package export list, command metadata, ID guidance, and context renderer
@@ -999,7 +1002,7 @@ Key files:
 Live documentation:
 
 - <https://purveyors.io/docs/cli/overview>
-- <https://purveyors.io/docs/api/overview>
+- <https://api.purveyors.io/docs>
 
 ## License
 

@@ -1,7 +1,7 @@
 # Purveyors CLI Architecture Retrospective
 
 _Created: 2026-03-14_
-_Refreshed: 2026-04-28_
+_Refreshed: 2026-07-22_
 _Status: Historical architecture note for the shipped `purvey` CLI_
 
 ## Why this file exists
@@ -13,9 +13,9 @@ This document preserves the intent behind the original CLI strategy work, while 
 The repository now ships a TypeScript CLI named `purvey`, published as `@purveyors/cli`.
 
 The product stance needs to stay explicit: this CLI is not just a developer utility.
-It is a core agent surface. The website, chat tooling, and internal automation all
-depend on the same exported functions and machine-readable contract, so CLI clarity
-and reliability are product requirements, not optional DX polish.
+It is a core agent surface. CLI clarity and reliability are product requirements,
+not optional DX polish. The CLI and coffee-app are separate consumers of
+`@purveyors/sdk`; the website does not import CLI functions.
 
 Current command groups:
 
@@ -41,10 +41,11 @@ The shipped CLI should be judged by these rules:
 1. **Agents are primary users of the machine surface.** Human terminal use matters,
    but command naming, argument clarity, manifest metadata, error envelopes, and
    output semantics should optimize first for reliable machine use.
-2. **The website is downstream from the same functions.** If the CLI is awkward or
-   ambiguous for an agent, that weakness leaks into the shared product layer.
-3. **Shared workflow changes should be dogfooded through the CLI directly.** Do not
-   treat web-only validation as sufficient for code that flows through `@purveyors/cli`.
+2. **The API contract is the shared boundary.** Parchment owns shared data behavior
+   and the OpenAPI contract. The SDK turns that contract into typed calls for both
+   the CLI and coffee-app without coupling either consumer to the other.
+3. **CLI workflow changes should be dogfooded through the CLI directly.** Web-only
+   validation does not prove that CLI flags, output, auth, or local workflows work.
 4. **Human ergonomics are layered on top of a machine-clear contract.** Pretty output,
    prompts, and reference text should complement, not replace, explicit and stable
    machine behavior.
@@ -71,7 +72,7 @@ Authority order for the shipped contract:
 1. `src/program.ts`, `src/commands/*.ts`, and `src/lib/manifest.ts` define behavior, help text, command metadata, ID guidance, and rendered context.
 2. `package.json` defines versioning, scripts, the binary entrypoint, Node engine, and package exports.
 3. `README.md`, `AGENTS.md`, and this file explain how to use and maintain the contract.
-4. Live product docs on purveyors.io are the external reference surface.
+4. CLI guides on purveyors.io and the generated API reference at `https://api.purveyors.io/docs` are the external reference surfaces.
 
 When documentation or help text needs verification, use these files first:
 
@@ -141,9 +142,9 @@ Reference surfaces:
 - `purvey context` is the dense human-readable reference.
 - `purvey context --json` emits the same JSON as `purvey manifest`, but is maintained for compatibility with existing wrappers and parity checks.
 - `@purveyors/cli/manifest` exposes the same contract in-process for Node.js consumers.
-- `@purveyors/cli/catalog`, `/market`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, and `/ai` expose the shared function layer used by agents and the website.
+- `@purveyors/cli/catalog`, `/market`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, and `/ai` expose reusable CLI-package functions for intentional in-process consumers. Coffee-app uses `@purveyors/sdk` directly.
 
-Package export changes are product changes. They need the same care as CLI command changes because coffee-app and agent runtimes consume those paths directly.
+Package export changes are product changes for supported CLI-package consumers. They do not define the coffee-app integration contract.
 
 ### Data and ID boundaries
 
@@ -175,8 +176,8 @@ It provides:
 - reusable in-process exports for catalog, inventory, roast, sales, tasting, shared library helpers, manifest, and AI workflows
 - a first-class headless device-authorization path for agents, CI, SSH sessions, and remote containers
 - compiled artifact checks that keep the published package aligned with source
-- a shared execution layer whose ergonomics directly affect the website and agent
-  product surfaces
+- reusable in-process CLI functions for agents and Node.js callers that intentionally
+  want CLI semantics
 
 In other words, the product value came from a disciplined CLI contract, not from the specific `pvrs` naming or dynamic-discovery ideas proposed early on.
 
@@ -194,8 +195,9 @@ When the command surface, output behavior, auth model, IDs, or docs links change
 8. help text in `src/program.ts` and affected command files
 9. compiled artifact validation after `npm run build`
 
-For shared workflow changes, also test the CLI or exported function directly instead
-of relying only on website flows. The CLI is part of the core product contract.
+For CLI workflow changes, test the CLI or exported function directly instead of
+relying only on website flows. The CLI is a core product surface, but not the
+website's implementation layer.
 
 Docs refreshes should keep headless auth, manifest-first machine discovery, context as readable operator reference, and exported subpaths legible as one system rather than separate conveniences.
 
@@ -204,6 +206,6 @@ Docs refreshes should keep headless auth, manifest-first machine discovery, cont
 When pointing users to live documentation, prefer the specific purveyors.io docs surfaces:
 
 - CLI docs: <https://purveyors.io/docs/cli/overview>
-- API docs: <https://purveyors.io/docs/api/overview>
+- API reference: <https://api.purveyors.io/docs>
 
 Use GitHub for repository context, issues, and source, not as the primary live product documentation link.
