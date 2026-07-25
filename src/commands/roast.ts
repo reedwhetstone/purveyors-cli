@@ -27,6 +27,7 @@ import {
 import type { components } from '@purveyors/sdk';
 import type { OutputOptions } from '../types/index.js';
 import { getInventory } from '../lib/inventory.js';
+import { parseStrictFiniteNumber } from '../lib/strict-number.js';
 
 /** Canonical `POST /v1/roasts/imports` response payload. */
 type RoastImportPayload = components['schemas']['RoastImportResponse'];
@@ -376,8 +377,8 @@ Required flags: --coffee-id (green_coffee_inv.id)
             placeholder: 'optional',
             validate: (v) => {
               if (!v || v.trim() === '') return;
-              const n = parseFloat(v);
-              if (isNaN(n) || n <= 0) return 'Must be a positive number.';
+              const n = parseStrictFiniteNumber(v);
+              if (!Number.isFinite(n) || n <= 0) return 'Must be a positive number.';
             },
           });
           guardCancel(ozInRaw);
@@ -403,7 +404,7 @@ Required flags: --coffee-id (green_coffee_inv.id)
           }
 
           const ozInStr = String(ozInRaw).trim();
-          const ozIn = ozInStr !== '' ? parseFloat(ozInStr) : undefined;
+          const ozIn = ozInStr !== '' ? parseStrictFiniteNumber(ozInStr) : undefined;
 
           const notesStr = String(notesRaw).trim();
           const targetsStr = String(targetsRaw).trim();
@@ -442,15 +443,15 @@ Required flags: --coffee-id (green_coffee_inv.id)
 
         let ozIn: number | undefined;
         if (opts.ozIn !== undefined) {
-          ozIn = parseFloat(opts.ozIn as string);
-          if (isNaN(ozIn) || ozIn <= 0)
+          ozIn = parseStrictFiniteNumber(opts.ozIn as string);
+          if (!Number.isFinite(ozIn) || ozIn <= 0)
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --oz-in: "${opts.ozIn}".`);
         }
 
         let ozOut: number | undefined;
         if (opts.ozOut !== undefined) {
-          ozOut = parseFloat(opts.ozOut as string);
-          if (isNaN(ozOut) || ozOut <= 0)
+          ozOut = parseStrictFiniteNumber(opts.ozOut as string);
+          if (!Number.isFinite(ozOut) || ozOut <= 0)
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --oz-out: "${opts.ozOut}".`);
         }
 
@@ -503,8 +504,8 @@ Notes:
 
         let ozOut: number | undefined;
         if (opts.ozOut !== undefined) {
-          ozOut = parseFloat(opts.ozOut as string);
-          if (isNaN(ozOut) || ozOut <= 0)
+          ozOut = parseStrictFiniteNumber(opts.ozOut as string);
+          if (!Number.isFinite(ozOut) || ozOut <= 0)
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --oz-out: "${opts.ozOut}".`);
         }
 
@@ -650,8 +651,8 @@ Required: <file> path and --coffee-id (unless using --form)
               placeholder: 'optional — extracted from .alog if omitted',
               validate: (v) => {
                 if (!v || v.trim() === '') return;
-                const n = parseFloat(v);
-                if (isNaN(n) || n <= 0) return 'Must be a positive number.';
+                const n = parseStrictFiniteNumber(v);
+                if (!Number.isFinite(n) || n <= 0) return 'Must be a positive number.';
               },
             });
             guardCancel(ozInRaw);
@@ -680,7 +681,7 @@ Required: <file> path and --coffee-id (unless using --form)
             const fileName = basename(filePath);
 
             const ozInStr = String(ozInRaw).trim();
-            const ozIn = ozInStr !== '' ? parseFloat(ozInStr) : undefined;
+            const ozIn = ozInStr !== '' ? parseStrictFiniteNumber(ozInStr) : undefined;
             const batchName = String(batchNameRaw).trim() || defaultBatch;
             const notesStr = String(roastNotesRaw).trim();
             const targetsStr = String(roastTargetsRaw).trim();
@@ -762,8 +763,8 @@ Required: <file> path and --coffee-id (unless using --form)
           // 4. Parse --oz-in if provided
           let ozIn: number | undefined;
           if (opts.ozIn !== undefined) {
-            ozIn = parseFloat(opts.ozIn as string);
-            if (isNaN(ozIn) || ozIn <= 0) {
+            ozIn = parseStrictFiniteNumber(opts.ozIn as string);
+            if (!Number.isFinite(ozIn) || ozIn <= 0) {
               throw new PrvrsError('INVALID_ARGUMENT', `Invalid --oz-in: "${opts.ozIn}".`);
             }
           }
@@ -883,8 +884,8 @@ Notes:
             return undefined;
           }
 
-          const parsed = parseFloat(String(value));
-          if (isNaN(parsed) || parsed <= 0) {
+          const parsed = parseStrictFiniteNumber(String(value));
+          if (!Number.isFinite(parsed) || parsed <= 0) {
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid ${flagName}: "${value}".`);
           }
 
@@ -1015,8 +1016,8 @@ Notes:
             placeholder: 'optional',
             validate: (v) => {
               if (!v || v.trim() === '') return;
-              const n = parseFloat(v);
-              if (isNaN(n) || n <= 0) return 'Must be a positive number.';
+              const n = parseStrictFiniteNumber(v);
+              if (!Number.isFinite(n) || n <= 0) return 'Must be a positive number.';
             },
           });
           guardCancel(ozInRaw);

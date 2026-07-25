@@ -128,7 +128,7 @@ The CLI is designed for both humans and automation:
 
 Catalog intelligence boundaries:
 
-- `catalog search --include-proof` consumes the canonical `/v1/catalog?include=proof` summary. The CLI does not compute proof scores locally.
+- `catalog search --include-proof` consumes row-level proof summaries returned by the canonical `/v1/catalog` contract. The CLI does not compute proof scores locally and reports a configuration error when the endpoint does not return proof fields.
 - The proof path should reject CLI-only filters that `/v1/catalog` cannot preserve exactly, rather than implying the proof payload was generated from a different query contract.
 - `catalog similar <id>` consumes the beta canonical `/v1/catalog/{id}/similar` contract, not the legacy direct RPC path, and requires member access or a paid API tier.
 - Similarity output must keep `canonical_candidates` separate from `similar_recommendations` and preserve blocker, proof, pricing, score-dimension, `classification_version`, and `query_strategy` metadata for agents.

@@ -802,7 +802,7 @@ describe('catalog command auth and structured filter parsing', () => {
   it('uses API-key catalog proof reads without session auth when an API key env is set', async () => {
     process.env.PARCHMENT_API_KEY = 'parchment-key';
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ data: [makeItem()] }), {
+      new Response(JSON.stringify({ data: [makeItem({ proof: makeProof() })] }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       })
@@ -1142,13 +1142,16 @@ describe('searchCatalog', () => {
     const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
     expect(requestUrl.origin).toBe('https://example.test');
     expect(requestUrl.pathname).toBe('/v1/catalog');
-    expect(requestUrl.searchParams.get('include')).toBe('proof');
+    expect(requestUrl.searchParams.get('include')).toBeNull();
     expect(requestUrl.searchParams.get('origin')).toBe('Ethiopia');
     expect(requestUrl.searchParams.get('processing_base_method')).toBe('Natural');
-    expect(requestUrl.searchParams.get('price_per_lb_min')).toBe('5');
+    expect(requestUrl.searchParams.get('pricePerLbMin')).toBe('5');
+    expect(requestUrl.searchParams.get('price_per_lb_min')).toBeNull();
     expect(requestUrl.searchParams.get('stocked')).toBe('true');
-    expect(requestUrl.searchParams.get('sortField')).toBe('price_per_lb');
-    expect(requestUrl.searchParams.get('sortDirection')).toBe('desc');
+    expect(requestUrl.searchParams.get('sort')).toBe('price_per_lb');
+    expect(requestUrl.searchParams.get('order')).toBe('desc');
+    expect(requestUrl.searchParams.get('sortField')).toBeNull();
+    expect(requestUrl.searchParams.get('sortDirection')).toBeNull();
     expect(requestUrl.searchParams.get('limit')).toBe('5');
     expect(fetchMock.mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({
@@ -1194,10 +1197,18 @@ describe('searchCatalog', () => {
     process.env.PARCHMENT_API_BASE_URL = 'https://example.test';
     process.env.PARCHMENT_API_KEY = 'parchment-key';
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ data: [makeItem({ id: 11 }), makeItem({ id: 12 })] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
+      new Response(
+        JSON.stringify({
+          data: [
+            makeItem({ id: 11, proof: makeProof() }),
+            makeItem({ id: 12, proof: makeProof() }),
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }
+      )
     );
     vi.stubGlobal('fetch', fetchMock);
     const data = await searchCatalog({
@@ -1208,7 +1219,8 @@ describe('searchCatalog', () => {
     });
 
     const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
-    expect(requestUrl.searchParams.getAll('ids')).toEqual(['11', '12']);
+    expect(requestUrl.searchParams.get('coffeeIds')).toBe('11,12');
+    expect(requestUrl.searchParams.get('ids')).toBeNull();
     expect(requestUrl.searchParams.get('page')).toBeNull();
     expect(requestUrl.searchParams.get('limit')).toBeNull();
     expect(data.map((item) => item.id)).toEqual([11, 12]);
@@ -1217,7 +1229,7 @@ describe('searchCatalog', () => {
   it('uses API key env when available for include-proof catalog reads', async () => {
     process.env.PARCHMENT_API_KEY = 'parchment-key';
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ data: [makeItem()] }), {
+      new Response(JSON.stringify({ data: [makeItem({ proof: makeProof() })] }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       })
@@ -1259,8 +1271,9 @@ describe('searchCatalog', () => {
     const data = await getCatalog(42, { includeProof: true });
 
     const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
-    expect(requestUrl.searchParams.get('include')).toBe('proof');
-    expect(requestUrl.searchParams.getAll('ids')).toEqual(['42']);
+    expect(requestUrl.searchParams.get('include')).toBeNull();
+    expect(requestUrl.searchParams.get('coffeeIds')).toBe('42');
+    expect(requestUrl.searchParams.get('ids')).toBeNull();
     expect(requestUrl.searchParams.get('limit')).toBeNull();
     expect(data.proof).toEqual(proof);
   });
@@ -1279,7 +1292,7 @@ describe('searchCatalog', () => {
     vi.stubGlobal('fetch', fetchMock);
     await expect(searchCatalog({ includeProof: true })).rejects.toMatchObject({
       code: 'INVALID_ARGUMENT',
-      message: expect.stringContaining('Catalog API rejected include=proof'),
+      message: expect.stringContaining('Catalog API rejected --include-proof'),
     });
   });
 });

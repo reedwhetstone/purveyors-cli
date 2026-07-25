@@ -901,7 +901,6 @@ function buildCatalogApiUrl(parsed: z.infer<typeof searchCatalogSchema>): URL {
   const url = new URL('/v1/catalog', getParchmentBaseUrl());
   const params = url.searchParams;
 
-  params.set('include', 'proof');
   params.set('stocked', parsed.stocked ? 'true' : 'all');
 
   appendSearchParam(params, 'origin', parsed.origin);
@@ -911,20 +910,20 @@ function buildCatalogApiUrl(parsed: z.infer<typeof searchCatalogSchema>): URL {
   appendSearchParam(params, 'process_additive', parsed.processAdditive);
   appendSearchParam(params, 'processing_disclosure_level', parsed.processingDisclosureLevel);
   appendSearchParam(params, 'processing_confidence_min', parsed.processingConfidenceMin);
-  appendSearchParam(params, 'price_per_lb_min', parsed.priceMin);
-  appendSearchParam(params, 'price_per_lb_max', parsed.priceMax);
+  appendSearchParam(params, 'pricePerLbMin', parsed.priceMin);
+  appendSearchParam(params, 'pricePerLbMax', parsed.priceMax);
   appendSearchParam(params, 'name', parsed.name);
-  appendSearchParam(params, 'cultivar_detail', parsed.variety);
-  appendSearchParam(params, 'stocked_days', parsed.stockedDays);
+  appendSearchParam(params, 'variety', parsed.variety);
+  appendSearchParam(params, 'stockedDays', parsed.stockedDays);
 
-  for (const id of parsed.ids ?? []) {
-    params.append('ids', String(id));
+  if (parsed.ids && parsed.ids.length > 0) {
+    params.set('coffeeIds', parsed.ids.join(','));
   }
 
   const sort = parsed.sort ? CATALOG_API_SORT_MAP[parsed.sort] : undefined;
   if (sort) {
-    params.set('sortField', sort.field);
-    params.set('sortDirection', sort.direction);
+    params.set('sort', sort.field);
+    params.set('order', sort.direction);
   }
 
   if (!hasCatalogIdFilter(parsed)) {
@@ -941,7 +940,7 @@ function buildCatalogApiUrl(parsed: z.infer<typeof searchCatalogSchema>): URL {
 
 async function parseCatalogApiError(
   response: Response,
-  context = 'include=proof'
+  context = '--include-proof'
 ): Promise<PrvrsError> {
   let body: CatalogApiEnvelope | undefined;
   try {
@@ -965,7 +964,7 @@ async function parseCatalogApiError(
   if (response.status === 400) {
     return new PrvrsError(
       'INVALID_ARGUMENT',
-      `Catalog API rejected ${context}: ${serverMessage}. Verify the configured Purveyors API endpoint supports this canonical catalog contract.`,
+      `Catalog API rejected ${context}: ${serverMessage}. Verify the configured Purveyors API endpoint supports the current canonical catalog contract.`,
       details
     );
   }
@@ -1086,7 +1085,21 @@ async function fetchCatalogApiItems(
   if (!Array.isArray(envelope.data)) {
     throw new PrvrsError(
       'GENERAL_ERROR',
-      'Catalog API returned an unexpected response shape for include=proof; expected { data: [...] }.',
+      'Catalog API returned an unexpected response shape for --include-proof; expected { data: [...] }.',
+      { body: envelope }
+    );
+  }
+
+  if (
+    parsed.includeProof &&
+    envelope.data.some(
+      (item) =>
+        !item || typeof item !== 'object' || !Object.prototype.hasOwnProperty.call(item, 'proof')
+    )
+  ) {
+    throw new PrvrsError(
+      'CONFIG_ERROR',
+      'Catalog API did not return proof summaries for --include-proof. Use a Parchment deployment that exposes row-level catalog proof fields.',
       { body: envelope }
     );
   }

@@ -286,10 +286,10 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--limit <n>', defaultValue: 10 },
           {
             flags: '--include-proof',
-            description: 'Request canonical proof summaries from /v1/catalog?include=proof',
+            description: 'Request row-level catalog proof summaries from the canonical API',
             notes: [
               'Consumes the API proof summary; the CLI does not compute proof fields locally.',
-              'If the configured endpoint has not deployed include=proof, the CLI surfaces the structured API error.',
+              'If the configured endpoint does not return row-level proof fields, the CLI surfaces a structured configuration error.',
             ],
           },
         ],
@@ -299,7 +299,7 @@ const commandGroups: CliCommandGroupContract[] = [
           'Structured process filters require member access through the scoped API key created by `purvey auth login` or an explicit environment override.',
           '--ids fetches specific catalog items by ID, ignoring --limit and --offset.',
           '--offset + --limit enables pagination through large result sets.',
-          '--include-proof uses the canonical /v1/catalog proof summary include and preserves the default output shape when omitted.',
+          '--include-proof uses the current /v1/catalog query contract and preserves the default output shape when omitted.',
           '--include-proof rejects CLI-only filters that /v1/catalog cannot yet preserve exactly, including --flavor, --supplier, --drying-method, and --sort newest.',
           'PURVEYORS_API_KEY or PARCHMENT_API_KEY overrides the scoped API key stored by `purvey auth login`.',
         ],
@@ -329,7 +329,7 @@ const commandGroups: CliCommandGroupContract[] = [
         options: [
           {
             flags: '--include-proof',
-            description: 'Request the canonical proof summary from /v1/catalog?include=proof',
+            description: 'Request the row-level catalog proof summary from the canonical API',
             notes: [
               'Consumes the API proof summary; the CLI does not compute proof fields locally.',
             ],
