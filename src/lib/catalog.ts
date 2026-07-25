@@ -1099,7 +1099,7 @@ async function fetchCatalogApiItems(
   ) {
     throw new PrvrsError(
       'CONFIG_ERROR',
-      'Catalog API did not return proof summaries for --include-proof. Use a Parchment deployment that exposes row-level catalog proof fields.',
+      'Catalog API did not return proof summaries for --include-proof. No released Parchment API exposes row-level catalog proof on /v1/catalog; use the aggregate /v1/catalog/proof-coverage resource instead.',
       { body: envelope }
     );
   }

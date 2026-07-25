@@ -114,7 +114,10 @@ export function buildCatalogCommand(): Command {
     .option('--sort <field>', `Sort results by: ${catalogSortFields.join(', ')}`)
     .option('--offset <n>', 'Skip N results (for pagination)', '0')
     .option('--limit <n>', 'Maximum results to return', '10')
-    .option('--include-proof', 'Request row-level catalog proof summaries from the API')
+    .option(
+      '--include-proof',
+      '(unsupported) Request row-level catalog proof summaries; no current Parchment release serves them'
+    )
     .addHelpText(
       'after',
       `
@@ -162,9 +165,10 @@ Notes:
   --stocked-days N shows only coffees stocked within the last N days.
   --ids fetches specific catalog items by ID, ignoring --limit and --offset.
   --offset + --limit enables pagination through large result sets.
-  --include-proof uses the current canonical /v1/catalog query contract and does
-  not compute proof fields locally in the CLI. The configured API must return
-  row-level proof fields or the CLI reports a configuration error.
+  --include-proof is currently unsupported: the CLI never computes proof fields
+  locally, and no released Parchment API returns row-level proof on /v1/catalog
+  (only the aggregate /v1/catalog/proof-coverage resource). The flag fails fast
+  with a configuration error rather than returning proof-less rows.
   Requires an authenticated viewer session.
 `
     )
@@ -287,7 +291,10 @@ Notes:
   catalog
     .command('get <id>')
     .description('Fetch a single coffee by ID')
-    .option('--include-proof', 'Request the row-level catalog proof summary from the API')
+    .option(
+      '--include-proof',
+      '(unsupported) Request the row-level catalog proof summary; no current Parchment release serves it'
+    )
     .addHelpText(
       'after',
       `
@@ -300,9 +307,10 @@ Examples:
 Notes:
   <id> is the coffee_catalog.catalog_id (integer).
   Use 'purvey catalog search' to find IDs.
-  --include-proof uses the current canonical /v1/catalog query contract and does
-  not compute proof fields locally in the CLI. The configured API must return
-  a row-level proof field or the CLI reports a configuration error.
+  --include-proof is currently unsupported: no released Parchment API returns a
+  row-level proof field on /v1/catalog (only the aggregate
+  /v1/catalog/proof-coverage resource), so the flag fails fast with a
+  configuration error rather than returning a proof-less row.
   Requires an authenticated viewer session.
 `
     )

@@ -286,10 +286,11 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--limit <n>', defaultValue: 10 },
           {
             flags: '--include-proof',
-            description: 'Request row-level catalog proof summaries from the canonical API',
+            description:
+              '(unsupported) Request row-level catalog proof summaries; no current Parchment release serves them',
             notes: [
               'Consumes the API proof summary; the CLI does not compute proof fields locally.',
-              'If the configured endpoint does not return row-level proof fields, the CLI surfaces a structured configuration error.',
+              'No released Parchment API returns row-level proof on /v1/catalog (only the aggregate /v1/catalog/proof-coverage resource), so the CLI fails fast with a structured configuration error.',
             ],
           },
         ],
@@ -329,7 +330,8 @@ const commandGroups: CliCommandGroupContract[] = [
         options: [
           {
             flags: '--include-proof',
-            description: 'Request the row-level catalog proof summary from the canonical API',
+            description:
+              '(unsupported) Request the row-level catalog proof summary; no current Parchment release serves it',
             notes: [
               'Consumes the API proof summary; the CLI does not compute proof fields locally.',
             ],
