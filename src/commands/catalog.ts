@@ -139,7 +139,6 @@ Examples:
   purvey catalog search --variety "gesha" --stocked --pretty
   purvey catalog search --drying-method "sun" --origin "Ethiopia" --pretty
   purvey catalog search --stocked-days 30 --pretty
-  purvey catalog search --origin "Ethiopia" --include-proof --json
 
 Sort fields:
   price       cheapest first
@@ -300,7 +299,6 @@ Notes:
       `
 Examples:
   purvey catalog get 128 --pretty
-  purvey catalog get 128 --include-proof --json
   purvey catalog get 42 | jq '{name, origin, process, cost_lb}'
   purvey catalog get 77 --csv
 

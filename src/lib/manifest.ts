@@ -289,7 +289,6 @@ const commandGroups: CliCommandGroupContract[] = [
             description:
               '(unsupported) Request row-level catalog proof summaries; no current Parchment release serves them',
             notes: [
-              'Consumes the API proof summary; the CLI does not compute proof fields locally.',
               'No released Parchment API returns row-level proof on /v1/catalog (only the aggregate /v1/catalog/proof-coverage resource), so the CLI fails fast with a structured configuration error.',
             ],
           },
@@ -300,8 +299,7 @@ const commandGroups: CliCommandGroupContract[] = [
           'Structured process filters require member access through the scoped API key created by `purvey auth login` or an explicit environment override.',
           '--ids fetches specific catalog items by ID, ignoring --limit and --offset.',
           '--offset + --limit enables pagination through large result sets.',
-          '--include-proof uses the current /v1/catalog query contract and preserves the default output shape when omitted.',
-          '--include-proof rejects CLI-only filters that /v1/catalog cannot yet preserve exactly, including --flavor, --supplier, --drying-method, and --sort newest.',
+          '--include-proof is retained for compatibility but unsupported by current Parchment releases; it fails fast with a structured configuration error.',
           'PURVEYORS_API_KEY or PARCHMENT_API_KEY overrides the scoped API key stored by `purvey auth login`.',
         ],
         examples: [
@@ -311,7 +309,6 @@ const commandGroups: CliCommandGroupContract[] = [
           'purvey catalog search --variety "gesha" --stocked --pretty',
           'purvey catalog search --drying-method "sun" --origin "Ethiopia" --pretty',
           'purvey catalog search --stocked-days 30 --pretty',
-          'purvey catalog search --origin "Ethiopia" --include-proof --json',
         ],
       },
       {
@@ -333,14 +330,11 @@ const commandGroups: CliCommandGroupContract[] = [
             description:
               '(unsupported) Request the row-level catalog proof summary; no current Parchment release serves it',
             notes: [
-              'Consumes the API proof summary; the CLI does not compute proof fields locally.',
+              'No released Parchment API returns row-level proof on /v1/catalog, so the CLI fails fast with a structured configuration error.',
             ],
           },
         ],
-        examples: [
-          'purvey catalog get 128 --pretty',
-          'purvey catalog get 128 --include-proof --json',
-        ],
+        examples: ['purvey catalog get 128 --pretty'],
       },
       {
         name: 'stats',
@@ -1161,10 +1155,8 @@ const workflows: CliWorkflowContract[] = [
     ],
   },
   {
-    title: 'Catalog proof and similarity research',
+    title: 'Catalog similarity research',
     commands: [
-      'purvey catalog search --origin "Ethiopia" --include-proof --json',
-      'purvey catalog get 128 --include-proof --json',
       "purvey catalog similar 1182 --threshold 0.85 --stocked-only --json | jq '.data.groups'",
     ],
   },
@@ -1280,7 +1272,7 @@ export function getCliManifest(): CliManifest {
         'Use --json to request compact JSON explicitly.',
         'Use --pretty for indented JSON.',
         'Use --csv for array-shaped results that support CSV output.',
-        'Set PURVEYORS_API_KEY or PARCHMENT_API_KEY when intentionally using API-key backed catalog proof reads.',
+        'Set PURVEYORS_API_KEY or PARCHMENT_API_KEY for explicit API-key backed canonical API reads.',
         '`purvey context` prints dense human-readable operator reference text unless --json or --pretty is passed.',
         '`purvey manifest` is the preferred machine-readable contract and always emits it on stdout.',
         '`purvey context --json` stays available for compatibility parity with existing context-based callers.',

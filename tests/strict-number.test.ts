@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { parseStrictFiniteNumber } from '../src/lib/strict-number.js';
 
 describe('parseStrictFiniteNumber', () => {
-  it.each(['12.5abc', '10kg', 'Infinity', '', '   '])(
-    'rejects non-numeric or suffixed input %j',
+  it.each(['12.5abc', '10kg', 'Infinity', '0x10', '0b10', '0o10', '', '   '])(
+    'rejects non-decimal or suffixed input %j',
     (value) => {
       expect(Number.isFinite(parseStrictFiniteNumber(value))).toBe(false);
     }

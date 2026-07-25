@@ -8,6 +8,9 @@
 export function parseStrictFiniteNumber(value: string): number {
   const trimmed = value.trim();
   if (trimmed === '') return Number.NaN;
+  if (!/^[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[eE][+-]?\d+)?$/.test(trimmed)) {
+    return Number.NaN;
+  }
 
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : Number.NaN;

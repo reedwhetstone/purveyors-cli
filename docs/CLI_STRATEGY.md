@@ -128,8 +128,8 @@ The CLI is designed for both humans and automation:
 
 Catalog intelligence boundaries:
 
-- `catalog search --include-proof` consumes row-level proof summaries returned by the canonical `/v1/catalog` contract. The CLI does not compute proof scores locally and reports a configuration error when the endpoint does not return proof fields.
-- The proof path should reject CLI-only filters that `/v1/catalog` cannot preserve exactly, rather than implying the proof payload was generated from a different query contract.
+- `catalog search --include-proof` is retained for compatibility but unsupported by current Parchment releases. No released `/v1/catalog` endpoint returns row-level proof; the CLI fails fast with a configuration error, while aggregate proof coverage remains a separate API resource.
+- If row-level proof is re-enabled after an API contract change, the proof path must reject CLI-only filters that `/v1/catalog` cannot preserve exactly, rather than implying the proof payload was generated from a different query contract.
 - `catalog similar <id>` consumes the beta canonical `/v1/catalog/{id}/similar` contract, not the legacy direct RPC path, and requires member access or a paid API tier.
 - Similarity output must keep `canonical_candidates` separate from `similar_recommendations` and preserve blocker, proof, pricing, score-dimension, `classification_version`, and `query_strategy` metadata for agents.
 - Structured process filters map to canonical `/v1/catalog` query names and require member access through a valid scoped key.

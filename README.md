@@ -78,8 +78,8 @@ purvey auth status
 # 3. Search the catalog (viewer role for basic filters, member role for structured process filters)
 purvey catalog search --origin "Ethiopia" --stocked --pretty
 
-# Example with structured process filters and proof output
-purvey catalog search --origin "Ethiopia" --processing-base-method "Washed" --include-proof --pretty
+# Example with structured process filters
+purvey catalog search --origin "Ethiopia" --processing-base-method "Washed" --pretty
 
 # 4. Read a public Market Index teaser slice
 purvey market signals --summary --pretty
@@ -336,7 +336,7 @@ Notes:
 - `--sort <price|price-desc|name|origin|newest>`
 - `--offset <n>`; pagination offset
 - `--limit <n>`; default `10`
-- `--include-proof`; request row-level catalog proof summaries from the canonical API
+- `--include-proof`; retained for compatibility, but unsupported by current Parchment releases and fails with a configuration error
 
 `catalog similar <id>` options:
 
@@ -392,8 +392,6 @@ purvey catalog search --process-additive "hops" --processing-confidence-min 0.8 
 purvey catalog search --supplier "Royal Coffee" --stocked --pretty
 purvey catalog search --ids "1182,1183,1200"
 purvey catalog search --stocked --sort price --offset 10 --limit 10
-purvey catalog search --origin "Ethiopia" --include-proof --json
-PARCHMENT_API_KEY="$PURVEYORS_API_KEY" purvey catalog search --origin "Ethiopia" --include-proof --limit 5 --json
 purvey catalog similar 1182 --threshold 0.85 --stocked-only --pretty
 purvey catalog similar 1182 --json | jq '.data.groups.canonical_candidates'
 purvey catalog facets supplier --pretty
@@ -403,7 +401,6 @@ purvey catalog supplier-rank --country Ethiopia --non-wholesale-only --min-coffe
 purvey catalog supplier-detail "Royal Coffee" --pretty
 purvey catalog stats --pretty
 purvey catalog get 1182 --pretty
-purvey catalog get 1182 --include-proof --json
 ```
 
 Notes:
@@ -411,9 +408,7 @@ Notes:
 - Catalog commands require an authenticated `viewer` role by default.
 - Structured process filters on `catalog search` require an authenticated `member` role.
 - Structured process filters use the canonical `/v1/catalog` query contract names while preserving the legacy `--process` label filter.
-- `--include-proof` is an opt-in API-backed catalog read. It consumes row-level proof summaries returned by the canonical `/v1/catalog` contract; the CLI does not compute proof fields locally or duplicate web/API proof logic. If the endpoint does not return proof fields, the CLI reports a configuration error.
-- `--include-proof` rejects CLI-only filters that `/v1/catalog` cannot yet preserve exactly, such as `--flavor`, `--supplier`, `--drying-method`, and `--sort newest`.
-- If you want proof output against a specific API-key deployment, set `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY`. Otherwise the CLI uses the key created by `purvey auth login`.
+- `--include-proof` is retained for compatibility but unsupported by current Parchment releases. No released `/v1/catalog` endpoint returns row-level proof, so the CLI fails fast with a configuration error; aggregate proof coverage is a separate API resource.
 - `catalog get` and `catalog similar` both take `coffee_catalog.catalog_id`.
 - `catalog rank` and `catalog rank-premium` read `coffee_catalog.purveyor_score` as the canonical quality signal; the CLI does not recompute the upstream Purveyor Score model.
 - `catalog facets` and `catalog rank` are generic agent/client intelligence surfaces. Facet counts come from the canonical API across the selected stocked/all-visible scope; ranking responses include sample metadata so callers do not mistake sampled rarity for whole-catalog guarantees.
@@ -888,7 +883,7 @@ Use the right ID for the right command.
 
 - `PURVEYORS_BASE_URL`: override the Purveyors web base URL
 - `PURVEYORS_API_KEY`: explicit API-key override for canonical Parchment commands
-- `PARCHMENT_API_KEY`: preferred API-key variable for SDK-backed Parchment commands; also accepted for API-backed proof and paid-tier similarity paths
+- `PARCHMENT_API_KEY`: preferred API-key variable for SDK-backed Parchment commands; also accepted for canonical API reads and paid-tier similarity paths
 - `PARCHMENT_API_BASE_URL`: override the SDK-backed Parchment API base URL, including `market`, `price-index`, `procurement`, and roast auto-classification requests
 - `PURVEY_DEBUG`: enable verbose error output
 
@@ -923,7 +918,7 @@ Agent integration rules of thumb:
 - Discover first with `purvey manifest`, then call the narrowest command or package subpath that fits the job.
 - Use `purvey context` when a human-readable operator summary is useful before tool selection.
 - Use `purvey auth login` for normal user workflows. Parchment coordinates browser approval and returns a machine-scoped API key; the CLI stores no web session, request token, or PKCE verifier. Environment `PURVEYORS_API_KEY` or `PARCHMENT_API_KEY` values remain available for explicit automation overrides.
-- Treat `--include-proof` as API output, not a local scoring feature. If a filter cannot round-trip through the current `/v1/catalog` contract, or the response omits row-level proof, the CLI rejects that invocation instead of returning misleading proof data.
+- Treat `--include-proof` as an unsupported compatibility flag until the API exposes row-level proof on `/v1/catalog`; the CLI rejects that invocation instead of returning misleading proof data.
 - Treat `catalog similar` as the canonical `/v1/catalog/{id}/similar` contract. Preserve the distinction between `canonical_candidates` and `similar_recommendations`; do not flatten or re-sort grouped results unless you have a specific downstream reason.
 - Treat `market`, `price-index`, and `procurement` as SDK-backed canonical API reads. Do not add procurement create/write behavior to this command group until the Phase 2 write contract ships.
 
