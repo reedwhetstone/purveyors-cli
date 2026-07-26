@@ -1310,6 +1310,21 @@ describe('searchCatalog', () => {
       message: expect.stringContaining('did not return proof summaries'),
     });
   });
+
+  it('rejects null include-proof fields as unsupported', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [makeItem({ proof: null })] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(searchCatalog({ includeProof: true })).rejects.toMatchObject({
+      code: 'CONFIG_ERROR',
+      message: expect.stringContaining('did not return proof summaries'),
+    });
+  });
 });
 
 // ─── getCatalogSimilaritySchema ───────────────────────────────────────────────

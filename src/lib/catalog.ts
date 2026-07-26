@@ -845,6 +845,52 @@ interface CatalogApiEnvelope {
   code?: unknown;
 }
 
+function isCatalogProofSummary(value: unknown): value is CatalogProofSummary {
+  if (!value || typeof value !== 'object') return false;
+
+  const summary = value as Record<string, unknown>;
+  const overall = summary.overall;
+  const families = summary.families;
+  if (
+    typeof summary.version !== 'string' ||
+    summary.version.length === 0 ||
+    !overall ||
+    typeof overall !== 'object' ||
+    !families ||
+    typeof families !== 'object' ||
+    !Array.isArray(summary.limitations) ||
+    !summary.limitations.every((limitation) => typeof limitation === 'string')
+  ) {
+    return false;
+  }
+
+  const overallRecord = overall as Record<string, unknown>;
+  if (
+    typeof overallRecord.label !== 'string' ||
+    !Number.isInteger(overallRecord.families_with_signals) ||
+    (overallRecord.families_with_signals as number) < 0
+  ) {
+    return false;
+  }
+
+  return Object.values(families as Record<string, unknown>).every((family) => {
+    if (!family || typeof family !== 'object') return false;
+    const familyRecord = family as Record<string, unknown>;
+    const confidence = familyRecord.confidence;
+    return (
+      typeof familyRecord.label === 'string' &&
+      (confidence === null ||
+        (typeof confidence === 'number' &&
+          Number.isFinite(confidence) &&
+          confidence >= 0 &&
+          confidence <= 1)) &&
+      Array.isArray(familyRecord.signals) &&
+      familyRecord.signals.every((signal) => typeof signal === 'string') &&
+      typeof familyRecord.message === 'string'
+    );
+  });
+}
+
 const CATALOG_API_SORT_MAP: Partial<
   Record<CatalogSortField, { field: string; direction: 'asc' | 'desc' }>
 > = {
@@ -1095,7 +1141,9 @@ async function fetchCatalogApiItems(
     (envelope.data.length === 0 ||
       envelope.data.some(
         (item) =>
-          !item || typeof item !== 'object' || !Object.prototype.hasOwnProperty.call(item, 'proof')
+          !item ||
+          typeof item !== 'object' ||
+          !isCatalogProofSummary((item as Record<string, unknown>).proof)
       ))
   ) {
     throw new PrvrsError(
