@@ -41,6 +41,8 @@ import {
   getCatalogSimilarity,
   getCatalogSimilaritySchema,
   searchCatalogSchema,
+  catalogRankSchema,
+  catalogRankPremiumSchema,
   sanitizeFilterValue,
   findSimilarBeansSchema,
   findSimilarBeans,
@@ -725,6 +727,19 @@ describe('searchCatalogSchema', () => {
     expect(result.variety).toBe('heirloom');
     expect(result.stocked).toBe(true);
     expect(result.stockedDays).toBe(14);
+  });
+
+  it('rejects retired catalog filters instead of silently stripping them', () => {
+    expect(() => searchCatalogSchema.parse({ flavor: 'berry' })).toThrow();
+    expect(() => searchCatalogSchema.parse({ supplier: 'Royal Coffee' })).toThrow();
+    expect(() => searchCatalogSchema.parse({ dryingMethod: 'raised bed' })).toThrow();
+  });
+});
+
+describe('catalog ranking schemas', () => {
+  it('rejects retired supplier filters instead of silently stripping them', () => {
+    expect(() => catalogRankSchema.parse({ supplier: 'Royal Coffee' })).toThrow();
+    expect(() => catalogRankPremiumSchema.parse({ supplier: 'Royal Coffee' })).toThrow();
   });
 });
 

@@ -403,26 +403,28 @@ export interface CatalogRankingResponse {
 export const catalogSortFields = ['price', 'price-desc', 'name', 'origin'] as const;
 export type CatalogSortField = (typeof catalogSortFields)[number];
 
-export const searchCatalogSchema = z.object({
-  origin: z.string().optional(),
-  process: z.string().optional(),
-  priceMin: z.number().optional(),
-  priceMax: z.number().optional(),
-  stocked: z.boolean().optional(),
-  sort: z.enum(catalogSortFields).optional(),
-  offset: z.number().int().min(0).optional(),
-  limit: z.number().int().min(1).default(10),
-  name: z.string().optional(),
-  ids: z.array(z.number().int().positive()).max(100).optional(),
-  variety: z.string().optional(),
-  stockedDays: z.number().int().positive().optional(),
-  processingBaseMethod: z.string().optional(),
-  fermentationType: z.string().optional(),
-  processAdditive: z.string().optional(),
-  processingDisclosureLevel: z.string().optional(),
-  processingConfidenceMin: z.number().min(0).max(1).optional(),
-  includeProof: z.boolean().optional(),
-});
+export const searchCatalogSchema = z
+  .object({
+    origin: z.string().optional(),
+    process: z.string().optional(),
+    priceMin: z.number().optional(),
+    priceMax: z.number().optional(),
+    stocked: z.boolean().optional(),
+    sort: z.enum(catalogSortFields).optional(),
+    offset: z.number().int().min(0).optional(),
+    limit: z.number().int().min(1).default(10),
+    name: z.string().optional(),
+    ids: z.array(z.number().int().positive()).max(100).optional(),
+    variety: z.string().optional(),
+    stockedDays: z.number().int().positive().optional(),
+    processingBaseMethod: z.string().optional(),
+    fermentationType: z.string().optional(),
+    processAdditive: z.string().optional(),
+    processingDisclosureLevel: z.string().optional(),
+    processingConfidenceMin: z.number().min(0).max(1).optional(),
+    includeProof: z.boolean().optional(),
+  })
+  .strict();
 
 export type SearchCatalogInput = z.input<typeof searchCatalogSchema>;
 
@@ -441,22 +443,24 @@ const CATALOG_INTELLIGENCE_MAX_SAMPLE_SIZE = 5000;
 const CATALOG_PREMIUM_DEFAULT_SAMPLE_SIZE = 250;
 const SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE = CATALOG_INTELLIGENCE_MAX_SAMPLE_SIZE;
 
-export const catalogRankPremiumSchema = z.object({
-  origin: z.string().optional(),
-  process: z.string().optional(),
-  stocked: z.boolean().optional(),
-  priceMax: z.number().optional(),
-  minScore: z.number().optional(),
-  includeUnscored: z.boolean().default(false).optional(),
-  limit: z.number().int().min(1).max(50).default(10).optional(),
-  sampleSize: z
-    .number()
-    .int()
-    .min(1)
-    .max(CATALOG_INTELLIGENCE_MAX_SAMPLE_SIZE)
-    .default(CATALOG_PREMIUM_DEFAULT_SAMPLE_SIZE)
-    .optional(),
-});
+export const catalogRankPremiumSchema = z
+  .object({
+    origin: z.string().optional(),
+    process: z.string().optional(),
+    stocked: z.boolean().optional(),
+    priceMax: z.number().optional(),
+    minScore: z.number().optional(),
+    includeUnscored: z.boolean().default(false).optional(),
+    limit: z.number().int().min(1).max(50).default(10).optional(),
+    sampleSize: z
+      .number()
+      .int()
+      .min(1)
+      .max(CATALOG_INTELLIGENCE_MAX_SAMPLE_SIZE)
+      .default(CATALOG_PREMIUM_DEFAULT_SAMPLE_SIZE)
+      .optional(),
+  })
+  .strict();
 
 export type CatalogRankPremiumInput = z.input<typeof catalogRankPremiumSchema>;
 
@@ -499,23 +503,25 @@ export type CatalogFacetsInput = z.input<typeof catalogFacetsSchema>;
 
 export const catalogRankObjectives = ['premium', 'value', 'fresh_arrival', 'rare_origin'] as const;
 
-export const catalogRankSchema = z.object({
-  objective: z.enum(catalogRankObjectives).default('premium').optional(),
-  stockedOnly: z.boolean().default(true).optional(),
-  country: z.string().optional(),
-  process: z.string().optional(),
-  priceMax: z.number().optional(),
-  minScore: z.number().optional(),
-  nonWholesaleOnly: z.boolean().default(false).optional(),
-  limit: z.number().int().min(1).max(50).default(10).optional(),
-  sampleSize: z
-    .number()
-    .int()
-    .min(1)
-    .max(CATALOG_INTELLIGENCE_MAX_SAMPLE_SIZE)
-    .default(SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE)
-    .optional(),
-});
+export const catalogRankSchema = z
+  .object({
+    objective: z.enum(catalogRankObjectives).default('premium').optional(),
+    stockedOnly: z.boolean().default(true).optional(),
+    country: z.string().optional(),
+    process: z.string().optional(),
+    priceMax: z.number().optional(),
+    minScore: z.number().optional(),
+    nonWholesaleOnly: z.boolean().default(false).optional(),
+    limit: z.number().int().min(1).max(50).default(10).optional(),
+    sampleSize: z
+      .number()
+      .int()
+      .min(1)
+      .max(CATALOG_INTELLIGENCE_MAX_SAMPLE_SIZE)
+      .default(SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE)
+      .optional(),
+  })
+  .strict();
 
 export type CatalogRankInput = z.input<typeof catalogRankSchema>;
 
