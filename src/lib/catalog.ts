@@ -402,6 +402,7 @@ export interface CatalogRankingResponse {
 
 export const catalogSortFields = ['price', 'price-desc', 'name', 'origin'] as const;
 export type CatalogSortField = (typeof catalogSortFields)[number];
+export const CATALOG_SEARCH_MAX_LIMIT = 1000;
 
 export const searchCatalogSchema = z
   .object({
@@ -412,7 +413,7 @@ export const searchCatalogSchema = z
     stocked: z.boolean().optional(),
     sort: z.enum(catalogSortFields).optional(),
     offset: z.number().int().min(0).optional(),
-    limit: z.number().int().min(1).default(10),
+    limit: z.number().int().min(1).max(CATALOG_SEARCH_MAX_LIMIT).default(10),
     name: z.string().optional(),
     ids: z.array(z.number().int().positive()).max(100).optional(),
     variety: z.string().optional(),

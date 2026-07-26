@@ -15,6 +15,7 @@ import {
   computeCatalogStats,
   sanitizeFilterValue,
   catalogSortFields,
+  CATALOG_SEARCH_MAX_LIMIT,
   catalogFacetFields,
   catalogRankObjectives,
   catalogSimilarityModes,
@@ -247,7 +248,12 @@ Notes:
                 `Invalid --offset: "${opts.offset}". Must be a non-negative integer.`
               )
             : undefined;
-        const limit = parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 1000);
+        const limit = parseBoundedPositiveIntegerArg(
+          opts.limit as string,
+          '--limit',
+          1,
+          CATALOG_SEARCH_MAX_LIMIT
+        );
 
         const includeProof = opts.includeProof ? true : undefined;
         const data = await searchCatalog({
