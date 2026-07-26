@@ -142,6 +142,30 @@ describe('CLI manifest contract', () => {
     }
   });
 
+  it('publishes canonical numeric bounds for bounded endpoint options', () => {
+    const commands = flattenManifestCommands();
+    const expectedBounds = [
+      ['catalog search', '--limit', 1, 1000],
+      ['catalog supplier-rank', '--min-coffees', 1, 100],
+      ['market signals', '--limit', 1, 100],
+      ['price-index', '--limit', 1, 100],
+    ] as const;
+
+    for (const [commandName, flag, minimum, maximum] of expectedBounds) {
+      const option = commands
+        .get(commandName)
+        ?.options?.find((candidate) => longFlag(candidate.flags) === flag);
+
+      expect(option, `${commandName} ${flag} manifest metadata`).toEqual(
+        expect.objectContaining({
+          minimum,
+          maximum,
+          description: expect.stringContaining(`${minimum}-${maximum}`),
+        })
+      );
+    }
+  });
+
   it('describes the shared exit code and machine-mode error-envelope contracts', () => {
     const manifest = getCliManifest();
 

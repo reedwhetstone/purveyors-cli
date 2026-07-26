@@ -35,6 +35,8 @@ export interface CliOptionContract {
   flags: string;
   description?: string;
   defaultValue?: string | number | boolean;
+  minimum?: number;
+  maximum?: number;
   requiredInFlagMode?: boolean;
   notes?: string[];
 }
@@ -280,7 +282,13 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--stocked' },
           { flags: '--sort <field>' },
           { flags: '--offset <n>', defaultValue: 0 },
-          { flags: '--limit <n>', defaultValue: 10 },
+          {
+            flags: '--limit <n>',
+            description: 'Maximum results to return, 1-1000',
+            defaultValue: 10,
+            minimum: 1,
+            maximum: 1000,
+          },
           {
             flags: '--include-proof',
             description: 'Request canonical proof summaries from /v1/catalog?include=proof',
@@ -477,7 +485,13 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--country <country>' },
           { flags: '--stocked' },
           { flags: '--non-wholesale-only' },
-          { flags: '--min-coffees <n>', defaultValue: 1 },
+          {
+            flags: '--min-coffees <n>',
+            description: 'Minimum catalog rows required per supplier, 1-100',
+            defaultValue: 1,
+            minimum: 1,
+            maximum: 100,
+          },
           { flags: '--sample-size <n>', defaultValue: 5000 },
           { flags: '--limit <n>', defaultValue: 25 },
         ],
@@ -1000,7 +1014,12 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--min-discount <n>' },
           { flags: '--min-score <n>' },
           { flags: '--window <7d|30d>' },
-          { flags: '--limit <n>' },
+          {
+            flags: '--limit <n>',
+            description: 'Results per page, 1-100',
+            minimum: 1,
+            maximum: 100,
+          },
         ],
         notes: [
           'Backed by the canonical API GET /v1/market/signals via @purveyors/sdk against api.purveyors.io.',
@@ -1072,7 +1091,12 @@ const commandGroups: CliCommandGroupContract[] = [
         { flags: '--to <date>' },
         { flags: '--wholesale <true|false>' },
         { flags: '--page <n>' },
-        { flags: '--limit <n>' },
+        {
+          flags: '--limit <n>',
+          description: 'Results per page, 1-100',
+          minimum: 1,
+          maximum: 100,
+        },
       ],
       notes: [
         'Backed by the canonical API GET /v1/price-index via @purveyors/sdk against api.purveyors.io.',
