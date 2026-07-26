@@ -14,6 +14,7 @@ import {
 } from '../lib/inventory.js';
 import type { InventoryItem, DeleteInventoryResult } from '../lib/inventory.js';
 import { pickCatalogItem, guardCancel } from '../lib/interactive/forms.js';
+import { parseStrictFiniteNumber } from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
 
 // Re-export type for backwards compatibility
@@ -161,8 +162,8 @@ Required flags: --catalog-id, --qty
             message: 'Quantity (lbs)',
             placeholder: '5',
             validate: (v) => {
-              const n = parseFloat(String(v));
-              if (isNaN(n) || n <= 0) return 'Must be a positive number.';
+              const n = parseStrictFiniteNumber(String(v));
+              if (!Number.isFinite(n) || n <= 0) return 'Must be a positive number.';
             },
           });
           guardCancel(qtyRaw);
@@ -170,6 +171,11 @@ Required flags: --catalog-id, --qty
           const costRaw = await p.text({
             message: 'Cost per lb ($)',
             placeholder: 'optional',
+            validate: (v) => {
+              if (!v || v.trim() === '') return;
+              const n = parseStrictFiniteNumber(v);
+              if (!Number.isFinite(n)) return 'Must be a number.';
+            },
           });
           guardCancel(costRaw);
 
@@ -188,7 +194,7 @@ Required flags: --catalog-id, --qty
           }
 
           const costStr = String(costRaw).trim();
-          const cost = costStr !== '' ? parseFloat(costStr) : undefined;
+          const cost = costStr !== '' ? parseStrictFiniteNumber(costStr) : undefined;
           const notesStr = String(notesRaw).trim();
           const notes = notesStr !== '' ? notesStr : undefined;
           const qtyStr = String(qtyRaw);
@@ -204,7 +210,7 @@ Required flags: --catalog-id, --qty
           const data = await addInventory(
             {
               catalogId: catalogItem.id,
-              qty: parseFloat(qtyStr),
+              qty: parseStrictFiniteNumber(qtyStr),
               cost,
               notes,
               purchaseDate: todayIso(),
@@ -237,21 +243,23 @@ Required flags: --catalog-id, --qty
           throw new PrvrsError('INVALID_ARGUMENT', `Invalid --catalog-id: "${opts.catalogId}".`);
         }
 
-        const qty = parseFloat(opts.qty as string);
-        if (isNaN(qty) || qty <= 0) {
+        const qty = parseStrictFiniteNumber(opts.qty as string);
+        if (!Number.isFinite(qty) || qty <= 0) {
           throw new PrvrsError(
             'INVALID_ARGUMENT',
             `Invalid --qty: "${opts.qty}". Must be a positive number.`
           );
         }
 
-        const cost = opts.cost !== undefined ? parseFloat(opts.cost as string) : undefined;
-        if (cost !== undefined && isNaN(cost)) {
+        const cost =
+          opts.cost !== undefined ? parseStrictFiniteNumber(opts.cost as string) : undefined;
+        if (cost !== undefined && !Number.isFinite(cost)) {
           throw new PrvrsError('INVALID_ARGUMENT', `Invalid --cost: "${opts.cost}".`);
         }
 
-        const taxShip = opts.taxShip !== undefined ? parseFloat(opts.taxShip as string) : undefined;
-        if (taxShip !== undefined && isNaN(taxShip)) {
+        const taxShip =
+          opts.taxShip !== undefined ? parseStrictFiniteNumber(opts.taxShip as string) : undefined;
+        if (taxShip !== undefined && !Number.isFinite(taxShip)) {
           throw new PrvrsError('INVALID_ARGUMENT', `Invalid --tax-ship: "${opts.taxShip}".`);
         }
 
@@ -304,22 +312,22 @@ Notes:
         // Parse CLI strings into typed values
         let qty: number | undefined;
         if (opts.qty !== undefined) {
-          qty = parseFloat(opts.qty as string);
-          if (isNaN(qty) || qty <= 0)
+          qty = parseStrictFiniteNumber(opts.qty as string);
+          if (!Number.isFinite(qty) || qty <= 0)
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --qty: "${opts.qty}".`);
         }
 
         let cost: number | undefined;
         if (opts.cost !== undefined) {
-          cost = parseFloat(opts.cost as string);
-          if (isNaN(cost))
+          cost = parseStrictFiniteNumber(opts.cost as string);
+          if (!Number.isFinite(cost))
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --cost: "${opts.cost}".`);
         }
 
         let taxShip: number | undefined;
         if (opts.taxShip !== undefined) {
-          taxShip = parseFloat(opts.taxShip as string);
-          if (isNaN(taxShip))
+          taxShip = parseStrictFiniteNumber(opts.taxShip as string);
+          if (!Number.isFinite(taxShip))
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --tax-ship: "${opts.taxShip}".`);
         }
 

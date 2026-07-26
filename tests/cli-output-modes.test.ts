@@ -39,15 +39,16 @@ function writeConfigFixture(home: string, raw: string) {
 
 describe('CLI output modes', () => {
   it('emits JSON for auth status --json in non-interactive mode', () => {
-    const result = spawnSync(tsxBin, ['src/index.ts', 'auth', 'status', '--json'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      maxBuffer: 10 * 1024 * 1024,
-    });
+    const tempHome = mkdtempSync(join(tmpdir(), 'purvey-auth-status-output-'));
+    try {
+      const result = runCliWithHome(['auth', 'status', '--json'], tempHome);
 
-    expect(result.status).toBe(3);
-    expect(result.stdout).toContain('{"authenticated":false');
-    expect(result.stdout).toContain('Not logged in. Run `purvey auth login` to authenticate.');
+      expect(result.status).toBe(3);
+      expect(result.stdout).toContain('{"authenticated":false');
+      expect(result.stdout).toContain('Not logged in. Run `purvey auth login` to authenticate.');
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
   }, 15000);
 
   it('emits JSON for config list --json in non-interactive mode', () => {
@@ -403,22 +404,28 @@ describe('CLI output modes', () => {
   }, 15000);
 
   it('keeps auth status human-readable in a TTY when no explicit mode is passed', () => {
-    const result = spawnSync(
-      'script',
-      ['-e', '-q', '-c', 'CI=1 pnpm exec tsx src/index.ts auth status', '/dev/null'],
-      {
-        cwd: repoRoot,
-        encoding: 'utf8',
-        maxBuffer: 10 * 1024 * 1024,
-      }
-    );
+    const tempHome = mkdtempSync(join(tmpdir(), 'purvey-auth-status-tty-'));
+    try {
+      const result = spawnSync(
+        'script',
+        ['-e', '-q', '-c', 'CI=1 pnpm exec tsx src/index.ts auth status', '/dev/null'],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env: { ...process.env, HOME: tempHome },
+          maxBuffer: 10 * 1024 * 1024,
+        }
+      );
 
-    const output = stripAnsi(`${result.stdout}${result.stderr}`);
+      const output = stripAnsi(`${result.stdout}${result.stderr}`);
 
-    expect(result.status).toBe(3);
-    expect(output).toContain('Not logged in. Run `purvey auth login` to authenticate.');
-    expect(output).toContain('⚠');
-    expect(output).not.toContain('{"authenticated":false');
+      expect(result.status).toBe(3);
+      expect(output).toContain('Not logged in. Run `purvey auth login` to authenticate.');
+      expect(output).toContain('⚠');
+      expect(output).not.toContain('{"authenticated":false');
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
   }, 15000);
 
   it('keeps invalid sort errors human-readable in a TTY when no explicit mode is passed', () => {
@@ -502,21 +509,27 @@ describe('CLI output modes', () => {
   }, 15000);
 
   it('forces JSON for auth status --json even in a TTY', () => {
-    const result = spawnSync(
-      'script',
-      ['-e', '-q', '-c', 'CI=1 pnpm exec tsx src/index.ts auth status --json', '/dev/null'],
-      {
-        cwd: repoRoot,
-        encoding: 'utf8',
-        maxBuffer: 10 * 1024 * 1024,
-      }
-    );
+    const tempHome = mkdtempSync(join(tmpdir(), 'purvey-auth-status-json-tty-'));
+    try {
+      const result = spawnSync(
+        'script',
+        ['-e', '-q', '-c', 'CI=1 pnpm exec tsx src/index.ts auth status --json', '/dev/null'],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env: { ...process.env, HOME: tempHome },
+          maxBuffer: 10 * 1024 * 1024,
+        }
+      );
 
-    const output = stripAnsi(`${result.stdout}${result.stderr}`);
+      const output = stripAnsi(`${result.stdout}${result.stderr}`);
 
-    expect(result.status).toBe(3);
-    expect(output).toContain('{"authenticated":false');
-    expect(output).not.toContain('⚠ Not logged in. Run `purvey auth login` to authenticate.');
+      expect(result.status).toBe(3);
+      expect(output).toContain('{"authenticated":false');
+      expect(output).not.toContain('⚠ Not logged in. Run `purvey auth login` to authenticate.');
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
   }, 15000);
 
   it('emits JSON error envelopes when stderr is redirected from an interactive TTY', () => {
