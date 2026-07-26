@@ -325,15 +325,12 @@ Notes:
 - `--processing-confidence-min <n>`; minimum structured process confidence from `0` to `1`
 - `--price-min <n>`; minimum USD/lb
 - `--price-max <n>`; maximum USD/lb
-- `--flavor <keywords>`; comma-separated flavor terms
 - `--name <text>`; partial coffee name match
-- `--supplier <name>`; partial supplier match
 - `--ids <n,n,...>`; fetch specific catalog IDs, ignores limit and offset
 - `--variety <text>`; partial cultivar match
-- `--drying-method <text>`; partial drying method match
 - `--stocked-days <n>`; stocked within N days
 - `--stocked`; only currently stocked coffees
-- `--sort <price|price-desc|name|origin|newest>`
+- `--sort <price|price-desc|name|origin>`
 - `--offset <n>`; pagination offset
 - `--limit <n>`; default `10`
 - `--include-proof`; request canonical proof summaries from `/v1/catalog?include=proof`
@@ -356,7 +353,6 @@ Notes:
 - `--objective <premium|value|fresh_arrival|rare_origin>`; default `premium`
 - `--country <country>`; optional country filter
 - `--process <method>`; optional process filter
-- `--supplier <name>`; optional supplier filter
 - `--stocked`; only include currently stocked coffees. This is the default unless `--all` is passed.
 - `--all`; use all visible catalog rows instead of the default stocked-only scope
 - `--price-max <n>`; maximum USD/lb
@@ -369,7 +365,6 @@ Notes:
 
 - `--origin <origin>`; optional origin filter
 - `--process <method>`; optional process filter
-- `--supplier <name>`; optional supplier filter
 - `--stocked`; only include currently stocked coffees
 - `--price-max <n>`; maximum USD/lb
 - `--min-score <n>`; minimum Purveyor Score
@@ -389,7 +384,7 @@ Examples:
 purvey catalog search --origin "Ethiopia" --pretty
 purvey catalog search --processing-base-method "Natural" --fermentation-type "Anaerobic" --pretty
 purvey catalog search --process-additive "hops" --processing-confidence-min 0.8 --pretty
-purvey catalog search --supplier "Royal Coffee" --stocked --pretty
+purvey catalog search --name "Gesha" --stocked --pretty
 purvey catalog search --ids "1182,1183,1200"
 purvey catalog search --stocked --sort price --offset 10 --limit 10
 purvey catalog search --origin "Ethiopia" --include-proof --json
@@ -412,7 +407,6 @@ Notes:
 - Structured process filters on `catalog search` require an authenticated `member` role.
 - Structured process filters use the canonical `/v1/catalog` query contract names while preserving the legacy `--process` label filter.
 - `--include-proof` is an opt-in API-backed catalog read. It consumes the canonical proof summary returned by `/v1/catalog?include=proof`; the CLI does not compute proof fields locally or duplicate web/API proof logic.
-- `--include-proof` rejects CLI-only filters that `/v1/catalog` cannot yet preserve exactly, such as `--flavor`, `--supplier`, `--drying-method`, and `--sort newest`.
 - If you want proof output against a specific API-key deployment, set `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY`. Otherwise the CLI uses the key created by `purvey auth login`.
 - `catalog get` and `catalog similar` both take `coffee_catalog.catalog_id`.
 - `catalog rank` and `catalog rank-premium` read `coffee_catalog.purveyor_score` as the canonical quality signal; the CLI does not recompute the upstream Purveyor Score model.
@@ -923,7 +917,7 @@ Agent integration rules of thumb:
 - Discover first with `purvey manifest`, then call the narrowest command or package subpath that fits the job.
 - Use `purvey context` when a human-readable operator summary is useful before tool selection.
 - Use `purvey auth login` for normal user workflows. Parchment coordinates browser approval and returns a machine-scoped API key; the CLI stores no web session, request token, or PKCE verifier. Environment `PURVEYORS_API_KEY` or `PARCHMENT_API_KEY` values remain available for explicit automation overrides.
-- Treat `--include-proof` as API output, not a local scoring feature. If a filter cannot round-trip through `/v1/catalog?include=proof`, the CLI rejects that invocation instead of returning misleading proof data.
+- Treat `--include-proof` as API output, not a local scoring feature. Every `catalog search` filter round-trips through the canonical `/v1/catalog` query contract, so proof output always matches the same server-side result set.
 - Treat `catalog similar` as the canonical `/v1/catalog/{id}/similar` contract. Preserve the distinction between `canonical_candidates` and `similar_recommendations`; do not flatten or re-sort grouped results unless you have a specific downstream reason.
 - Treat `market`, `price-index`, and `procurement` as SDK-backed canonical API reads. Do not add procurement create/write behavior to this command group until the Phase 2 write contract ships.
 

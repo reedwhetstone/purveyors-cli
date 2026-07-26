@@ -41,6 +41,8 @@ import {
   getCatalogSimilarity,
   getCatalogSimilaritySchema,
   searchCatalogSchema,
+  catalogRankSchema,
+  catalogRankPremiumSchema,
   sanitizeFilterValue,
   findSimilarBeansSchema,
   findSimilarBeans,
@@ -62,7 +64,9 @@ beforeEach(() => {
     return 'session-token';
   });
   vi.mocked(createParchmentClient).mockImplementation(async (role = 'viewer') => {
-    await vi.mocked(requireAuth)(role);
+    if (!process.env.PARCHMENT_API_KEY && !process.env.PURVEYORS_API_KEY) {
+      await vi.mocked(requireAuth)(role);
+    }
     const ok = (data: unknown) => ({
       data,
       response: new Response(null, { status: 200 }),
@@ -611,11 +615,6 @@ describe('searchCatalogSchema', () => {
     expect(result.name).toBe('Guji');
   });
 
-  it('accepts supplier as optional string', () => {
-    const result = searchCatalogSchema.parse({ supplier: 'Royal Coffee' });
-    expect(result.supplier).toBe('Royal Coffee');
-  });
-
   it('accepts ids as array of positive integers', () => {
     const result = searchCatalogSchema.parse({ ids: [1, 2, 100] });
     expect(result.ids).toEqual([1, 2, 100]);
@@ -644,7 +643,6 @@ describe('searchCatalogSchema', () => {
   it('allows all new fields to be omitted', () => {
     const result = searchCatalogSchema.parse({});
     expect(result.name).toBeUndefined();
-    expect(result.supplier).toBeUndefined();
     expect(result.ids).toBeUndefined();
   });
 
@@ -652,12 +650,10 @@ describe('searchCatalogSchema', () => {
     const result = searchCatalogSchema.parse({
       origin: 'Ethiopia',
       name: 'Guji',
-      supplier: 'Royal',
       stocked: true,
     });
     expect(result.origin).toBe('Ethiopia');
     expect(result.name).toBe('Guji');
-    expect(result.supplier).toBe('Royal');
     expect(result.stocked).toBe(true);
   });
 
@@ -669,11 +665,6 @@ describe('searchCatalogSchema', () => {
   it('accepts variety as optional string', () => {
     const result = searchCatalogSchema.parse({ variety: 'gesha' });
     expect(result.variety).toBe('gesha');
-  });
-
-  it('accepts dryingMethod as optional string', () => {
-    const result = searchCatalogSchema.parse({ dryingMethod: 'sun dried' });
-    expect(result.dryingMethod).toBe('sun dried');
   });
 
   it('accepts stockedDays as positive integer', () => {
@@ -693,10 +684,9 @@ describe('searchCatalogSchema', () => {
     expect(() => searchCatalogSchema.parse({ stockedDays: 7.5 })).toThrow();
   });
 
-  it('allows variety, dryingMethod, and stockedDays to be omitted', () => {
+  it('allows variety and stockedDays to be omitted', () => {
     const result = searchCatalogSchema.parse({});
     expect(result.variety).toBeUndefined();
-    expect(result.dryingMethod).toBeUndefined();
     expect(result.stockedDays).toBeUndefined();
   });
 
@@ -726,19 +716,30 @@ describe('searchCatalogSchema', () => {
     expect(() => searchCatalogSchema.parse({ processingConfidenceMin: 1.1 })).toThrow();
   });
 
-  it('combines variety and dryingMethod with existing fields', () => {
+  it('combines variety and stockedDays with existing fields', () => {
     const result = searchCatalogSchema.parse({
       origin: 'Ethiopia',
       variety: 'heirloom',
-      dryingMethod: 'raised bed',
       stocked: true,
       stockedDays: 14,
     });
     expect(result.origin).toBe('Ethiopia');
     expect(result.variety).toBe('heirloom');
-    expect(result.dryingMethod).toBe('raised bed');
     expect(result.stocked).toBe(true);
     expect(result.stockedDays).toBe(14);
+  });
+
+  it('rejects retired catalog filters instead of silently stripping them', () => {
+    expect(() => searchCatalogSchema.parse({ flavor: 'berry' })).toThrow();
+    expect(() => searchCatalogSchema.parse({ supplier: 'Royal Coffee' })).toThrow();
+    expect(() => searchCatalogSchema.parse({ dryingMethod: 'raised bed' })).toThrow();
+  });
+});
+
+describe('catalog ranking schemas', () => {
+  it('rejects retired supplier filters instead of silently stripping them', () => {
+    expect(() => catalogRankSchema.parse({ supplier: 'Royal Coffee' })).toThrow();
+    expect(() => catalogRankPremiumSchema.parse({ supplier: 'Royal Coffee' })).toThrow();
   });
 });
 
@@ -801,22 +802,16 @@ describe('catalog command auth and structured filter parsing', () => {
 
   it('uses API-key catalog proof reads without session auth when an API key env is set', async () => {
     process.env.PARCHMENT_API_KEY = 'parchment-key';
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ data: [makeItem()] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
-    );
-    vi.stubGlobal('fetch', fetchMock);
+    const list = vi.fn().mockResolvedValue({
+      data: { data: [makeItem()], pagination: {}, meta: {} },
+      response: new Response(null, { status: 200 }),
+    });
+    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { list } } as never);
 
     await runCatalogCommand(['search', '--include-proof']);
 
     expect(requireAuth).not.toHaveBeenCalled();
-    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
-      expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: 'Bearer parchment-key' }),
-      })
-    );
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ include: 'proof' }));
   });
 
   it('uses API-key canonical similarity reads without session auth when an API key env is set', async () => {
@@ -1047,7 +1042,7 @@ describe('catalog command auth and structured filter parsing', () => {
 });
 
 describe('searchCatalog', () => {
-  it('maps CLI filters and offset pagination to the canonical SDK query', async () => {
+  it('maps supported CLI filters and offset pagination to the canonical SDK query', async () => {
     const list = vi.fn().mockResolvedValue({
       data: { data: [makeItem()], pagination: {}, meta: {} },
       response: new Response(null, { status: 200 }),
@@ -1059,8 +1054,6 @@ describe('searchCatalog', () => {
       processingBaseMethod: 'Natural',
       fermentationType: 'Anaerobic',
       processAdditive: 'hops',
-      flavor: 'berry, citrus',
-      supplier: 'Royal Coffee',
       sort: 'price-desc',
       offset: 20,
       limit: 10,
@@ -1073,8 +1066,6 @@ describe('searchCatalog', () => {
         processing_base_method: 'Natural',
         fermentation_type: 'Anaerobic',
         process_additive: 'hops',
-        flavorKeywords: ['berry', 'citrus'],
-        supplier: 'Royal Coffee',
         sort: 'price_per_lb',
         order: 'desc',
         page: 3,
@@ -1084,18 +1075,8 @@ describe('searchCatalog', () => {
     expect(data).toHaveLength(1);
   });
 
-  it('preserves newest ordering through the canonical last-updated field', async () => {
-    const list = vi.fn().mockResolvedValue({
-      data: { data: [makeItem()], pagination: {}, meta: {} },
-      response: new Response(null, { status: 200 }),
-    });
-    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { list } } as never);
-
-    await searchCatalog({ sort: 'newest' });
-
-    expect(list).toHaveBeenCalledWith(
-      expect.objectContaining({ sort: 'last_updated', order: 'desc' })
-    );
+  it('rejects the retired newest sort value', async () => {
+    await expect(searchCatalog({ sort: 'newest' as never })).rejects.toThrow('Invalid option');
   });
 
   it('rejects offsets that cannot be represented by canonical page pagination', async () => {
@@ -1106,8 +1087,7 @@ describe('searchCatalog', () => {
     expect(createParchmentClient).not.toHaveBeenCalled();
   });
 
-  it('uses /v1/catalog include=proof instead of direct Parchment reads when requested', async () => {
-    process.env.PARCHMENT_API_BASE_URL = 'https://example.test';
+  it('requests the SDK proof projection and returns its typed row summary', async () => {
     const proof = {
       version: 'proof-summary-v1',
       overall: { label: 'partial', families_with_signals: 2 },
@@ -1121,14 +1101,11 @@ describe('searchCatalog', () => {
       },
       limitations: ['not_certification'],
     };
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ data: [makeItem({ proof })] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
-    );
-    vi.stubGlobal('fetch', fetchMock);
-    const from = vi.fn();
+    const list = vi.fn().mockResolvedValue({
+      data: { data: [makeItem({ proof })], pagination: {}, meta: {} },
+      response: new Response(null, { status: 200 }),
+    });
+    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { list } } as never);
     const data = await searchCatalog({
       origin: 'Ethiopia',
       processingBaseMethod: 'Natural',
@@ -1139,67 +1116,66 @@ describe('searchCatalog', () => {
       includeProof: true,
     });
 
-    const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
-    expect(requestUrl.origin).toBe('https://example.test');
-    expect(requestUrl.pathname).toBe('/v1/catalog');
-    expect(requestUrl.searchParams.get('include')).toBe('proof');
-    expect(requestUrl.searchParams.get('origin')).toBe('Ethiopia');
-    expect(requestUrl.searchParams.get('processing_base_method')).toBe('Natural');
-    expect(requestUrl.searchParams.get('price_per_lb_min')).toBe('5');
-    expect(requestUrl.searchParams.get('stocked')).toBe('true');
-    expect(requestUrl.searchParams.get('sortField')).toBe('price_per_lb');
-    expect(requestUrl.searchParams.get('sortDirection')).toBe('desc');
-    expect(requestUrl.searchParams.get('limit')).toBe('5');
-    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+    expect(list).toHaveBeenCalledWith(
       expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: 'Bearer session-token' }),
+        include: 'proof',
+        origin: 'Ethiopia',
+        processing_base_method: 'Natural',
+        pricePerLbMin: 5,
+        stocked: 'true',
+        sort: 'price_per_lb',
+        order: 'desc',
+        limit: 5,
       })
     );
-    expect(from).not.toHaveBeenCalled();
     expect(data[0]?.proof).toEqual(proof);
   });
 
-  it('rejects include-proof searches that would silently drop CLI-only filters', async () => {
-    await expect(searchCatalog({ flavor: 'berry', includeProof: true })).rejects.toMatchObject({
-      code: 'INVALID_ARGUMENT',
-      message: expect.stringContaining('--flavor'),
-    });
-
-    await expect(searchCatalog({ dryingMethod: 'sun', includeProof: true })).rejects.toMatchObject({
-      code: 'INVALID_ARGUMENT',
-      message: expect.stringContaining('--drying-method'),
-    });
-
-    await expect(searchCatalog({ supplier: 'Royal', includeProof: true })).rejects.toMatchObject({
-      code: 'INVALID_ARGUMENT',
-      message: expect.stringContaining('--supplier'),
-    });
-
-    await expect(searchCatalog({ sort: 'newest', includeProof: true })).rejects.toMatchObject({
-      code: 'INVALID_ARGUMENT',
-      message: expect.stringContaining('--sort newest'),
-    });
+  it('rejects retired catalog flags as unknown Commander options', async () => {
+    for (const args of [
+      ['search', '--flavor', 'berry'],
+      ['search', '--supplier', 'Royal'],
+      ['search', '--drying-method', 'sun'],
+    ]) {
+      const errors: string[] = [];
+      const command = buildCatalogCommand();
+      command.exitOverride();
+      command.configureOutput({
+        writeOut: () => undefined,
+        writeErr: () => undefined,
+        outputError: (message) => errors.push(message),
+      });
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((
+        code?: number | string | null
+      ) => {
+        throw new Error(`process.exit:${code}`);
+      }) as never);
+      try {
+        await expect(
+          command.parseAsync(['node', 'catalog', ...args], { from: 'node' })
+        ).rejects.toThrow('process.exit:1');
+        expect(errors.join('')).toContain(`unknown option '${args[1]}'`);
+      } finally {
+        exitSpy.mockRestore();
+      }
+    }
   });
 
   it('rejects include-proof offsets that cannot be represented as /v1/catalog pages', async () => {
     await expect(searchCatalog({ offset: 5, limit: 10, includeProof: true })).rejects.toMatchObject(
       {
         code: 'INVALID_ARGUMENT',
-        message: expect.stringContaining('--offset must be a multiple of --limit'),
+        message: expect.stringContaining('Canonical catalog pagination requires --offset'),
       }
     );
   });
 
   it('ignores pagination flags for include-proof ID searches', async () => {
-    process.env.PARCHMENT_API_BASE_URL = 'https://example.test';
-    process.env.PARCHMENT_API_KEY = 'parchment-key';
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ data: [makeItem({ id: 11 }), makeItem({ id: 12 })] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
-    );
-    vi.stubGlobal('fetch', fetchMock);
+    const list = vi.fn().mockResolvedValue({
+      data: { data: [makeItem({ id: 11 }), makeItem({ id: 12 })], pagination: {}, meta: {} },
+      response: new Response(null, { status: 200 }),
+    });
+    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { list } } as never);
     const data = await searchCatalog({
       ids: [11, 12],
       offset: 5,
@@ -1207,35 +1183,13 @@ describe('searchCatalog', () => {
       includeProof: true,
     });
 
-    const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
-    expect(requestUrl.searchParams.getAll('ids')).toEqual(['11', '12']);
-    expect(requestUrl.searchParams.get('page')).toBeNull();
-    expect(requestUrl.searchParams.get('limit')).toBeNull();
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ include: 'proof', coffeeIds: '11,12', page: 1, limit: 2 })
+    );
     expect(data.map((item) => item.id)).toEqual([11, 12]);
   });
 
-  it('uses API key env when available for include-proof catalog reads', async () => {
-    process.env.PARCHMENT_API_KEY = 'parchment-key';
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ data: [makeItem()] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
-    );
-    vi.stubGlobal('fetch', fetchMock);
-    const getSession = vi.fn();
-    await searchCatalog({ includeProof: true });
-
-    expect(getSession).not.toHaveBeenCalled();
-    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
-      expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: 'Bearer parchment-key' }),
-      })
-    );
-  });
-
-  it('fetches a single proof-backed catalog item through /v1/catalog ids', async () => {
-    process.env.PARCHMENT_API_BASE_URL = 'https://example.test';
+  it('fetches a single proof-backed catalog item through the SDK list method', async () => {
     const proof = {
       version: 'proof-summary-v1',
       overall: { label: 'strong', families_with_signals: 4 },
@@ -1249,37 +1203,29 @@ describe('searchCatalog', () => {
       },
       limitations: ['not_certification'],
     };
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ data: [makeItem({ id: 42, proof })] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
-    );
-    vi.stubGlobal('fetch', fetchMock);
+    const list = vi.fn().mockResolvedValue({
+      data: { data: [makeItem({ id: 42, proof })], pagination: {}, meta: {} },
+      response: new Response(null, { status: 200 }),
+    });
+    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { list } } as never);
     const data = await getCatalog(42, { includeProof: true });
 
-    const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
-    expect(requestUrl.searchParams.get('include')).toBe('proof');
-    expect(requestUrl.searchParams.getAll('ids')).toEqual(['42']);
-    expect(requestUrl.searchParams.get('limit')).toBeNull();
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ include: 'proof', coffeeIds: '42', limit: 1 })
+    );
     expect(data.proof).toEqual(proof);
   });
 
   it('surfaces clear include-proof API support errors', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          error: 'Invalid catalog query',
-          message: 'Unsupported include value proof',
-          code: 'INVALID_QUERY',
-        }),
-        { status: 400, headers: { 'content-type': 'application/json' } }
-      )
-    );
-    vi.stubGlobal('fetch', fetchMock);
+    const list = vi.fn().mockResolvedValue({
+      data: undefined,
+      error: { message: 'Unsupported include value proof' },
+      response: new Response(null, { status: 400 }),
+    });
+    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { list } } as never);
     await expect(searchCatalog({ includeProof: true })).rejects.toMatchObject({
       code: 'INVALID_ARGUMENT',
-      message: expect.stringContaining('Catalog API rejected include=proof'),
+      message: 'Unsupported include value proof',
     });
   });
 });
