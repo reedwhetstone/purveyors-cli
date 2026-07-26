@@ -1153,7 +1153,15 @@ const commandGroups: CliCommandGroupContract[] = [
             required: true,
           },
         ],
-        options: [{ flags: '--page <n>' }, { flags: '--limit <n>' }],
+        options: [
+          { flags: '--page <n>' },
+          {
+            flags: '--limit <n>',
+            description: 'Matches per page, 1-100',
+            minimum: 1,
+            maximum: 100,
+          },
+        ],
         notes: [
           'Backed by the canonical API GET /v1/procurement/briefs/{id}/matches via @purveyors/sdk.',
           '--limit maxes at 100 (default 25); --page is 1-based (default 1).',

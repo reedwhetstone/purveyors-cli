@@ -149,6 +149,7 @@ describe('CLI manifest contract', () => {
       ['catalog supplier-rank', '--min-coffees', 1, 100],
       ['market signals', '--limit', 1, 100],
       ['price-index', '--limit', 1, 100],
+      ['procurement matches', '--limit', 1, 100],
     ] as const;
 
     for (const [commandName, flag, minimum, maximum] of expectedBounds) {
