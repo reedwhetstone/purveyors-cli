@@ -104,6 +104,24 @@ describe('strict numeric command input', () => {
     expect(error.message).toContain(flag);
   });
 
+  it.each([
+    ['catalog search limit', ['catalog', 'search', '--limit', '1001', '--json'], '--limit'],
+    [
+      'supplier rank minimum',
+      ['catalog', 'supplier-rank', '--min-coffees', '101', '--json'],
+      '--min-coffees',
+    ],
+    ['price-index limit', ['price-index', '--limit', '101', '--json'], '--limit'],
+    ['market signals limit', ['market', 'signals', '--limit', '101', '--json'], '--limit'],
+  ])('rejects max+1 for %s before auth or network', (_label, args, flag) => {
+    const result = runCli(args);
+    const error = parseError(result.stderr);
+
+    expect(result.status).toBe(2);
+    expect(error).toMatchObject({ code: 'INVALID_ARGUMENT', exitCode: 2 });
+    expect(error.message).toContain(flag);
+  });
+
   it('validates roast flags instead of auto-entering form mode when the required selector is present', () => {
     const result = runCli(['roast', 'create', '--coffee-id', '1', '--oz-in', '12oz', '--json'], {
       formMode: true,
@@ -113,5 +131,102 @@ describe('strict numeric command input', () => {
     expect(result.status).toBe(2);
     expect(error).toMatchObject({ code: 'INVALID_ARGUMENT', exitCode: 2 });
     expect(error.message).toContain('Invalid --oz-in: "12oz"');
+  });
+
+  it.each([false, true])(
+    'rejects a malformed tasting ID before auth when form-mode=%s',
+    (formMode) => {
+      const result = runCli(
+        [
+          'tasting',
+          'rate',
+          '7oops',
+          '--aroma',
+          '4',
+          '--body',
+          '3',
+          '--acidity',
+          '5',
+          '--sweetness',
+          '4',
+          '--aftertaste',
+          '4',
+          '--json',
+        ],
+        { formMode }
+      );
+      const error = parseError(result.stderr);
+
+      expect(result.status).toBe(2);
+      expect(error).toMatchObject({ code: 'INVALID_ARGUMENT', exitCode: 2 });
+      expect(error.message).toContain('Invalid bean ID: "7oops"');
+    }
+  );
+
+  it.each([false, true])(
+    'rejects a malformed tasting score before auth when form-mode=%s',
+    (formMode) => {
+      const result = runCli(
+        [
+          'tasting',
+          'rate',
+          '7',
+          '--aroma',
+          '4notes',
+          '--body',
+          '3',
+          '--acidity',
+          '5',
+          '--sweetness',
+          '4',
+          '--aftertaste',
+          '4',
+          '--json',
+        ],
+        { formMode }
+      );
+      const error = parseError(result.stderr);
+
+      expect(result.status).toBe(2);
+      expect(error).toMatchObject({ code: 'INVALID_ARGUMENT', exitCode: 2 });
+      expect(error.message).toContain('--aroma must be an integer');
+    }
+  );
+
+  it('keeps complete tasting flag input out of automatic form mode', () => {
+    const result = runCli(
+      [
+        'tasting',
+        'rate',
+        '7',
+        '--aroma',
+        '4',
+        '--body',
+        '3',
+        '--acidity',
+        '5',
+        '--sweetness',
+        '4',
+        '--aftertaste',
+        '4',
+        '--json',
+      ],
+      { formMode: true }
+    );
+    const error = parseError(result.stderr);
+
+    expect(result.status).toBe(3);
+    expect(error).toMatchObject({ code: 'AUTH_ERROR', exitCode: 3 });
+  });
+
+  it('does not replace an explicitly targeted tasting bean with a form selection', () => {
+    const result = runCli(['tasting', 'rate', '7', '--aroma', '4', '--body', '3', '--json'], {
+      formMode: true,
+    });
+    const error = parseError(result.stderr);
+
+    expect(result.status).toBe(2);
+    expect(error).toMatchObject({ code: 'INVALID_ARGUMENT', exitCode: 2 });
+    expect(error.message).toContain('Missing --acidity');
   });
 });

@@ -124,7 +124,7 @@ export function buildCatalogCommand(): Command {
     .option('--stocked', 'Only show currently stocked coffees')
     .option('--sort <field>', `Sort results by: ${catalogSortFields.join(', ')}`)
     .option('--offset <n>', 'Skip N results (for pagination)', '0')
-    .option('--limit <n>', 'Maximum results to return', '10')
+    .option('--limit <n>', 'Maximum results to return (1-1000)', '10')
     .option('--include-proof', 'Request canonical catalog proof summaries from /v1/catalog')
     .addHelpText(
       'after',
@@ -247,10 +247,7 @@ Notes:
                 `Invalid --offset: "${opts.offset}". Must be a non-negative integer.`
               )
             : undefined;
-        const limit = parsePositiveIntegerArg(
-          opts.limit as string,
-          `Invalid --limit: "${opts.limit}". Must be a positive integer.`
-        );
+        const limit = parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 1000);
 
         const includeProof = opts.includeProof ? true : undefined;
         const data = await searchCatalog({
@@ -636,7 +633,7 @@ Notes:
     .option('--country <country>', 'Filter by country')
     .option('--stocked', 'Only include currently stocked coffees')
     .option('--non-wholesale-only', 'Exclude wholesale listings before aggregation')
-    .option('--min-coffees <n>', 'Minimum catalog rows required per supplier', '1')
+    .option('--min-coffees <n>', 'Minimum catalog rows required per supplier (1-100)', '1')
     .option(
       '--sample-size <n>',
       'Catalog rows to fetch per page before aggregation (1-5000)',
@@ -662,9 +659,11 @@ Notes:
           country: opts.country as string | undefined,
           stocked: opts.stocked ? true : undefined,
           nonWholesaleOnly: opts.nonWholesaleOnly ? true : undefined,
-          minCoffees: parsePositiveIntegerArg(
+          minCoffees: parseBoundedPositiveIntegerArg(
             opts.minCoffees as string,
-            `Invalid --min-coffees: "${opts.minCoffees}". Must be a positive integer.`
+            '--min-coffees',
+            1,
+            100
           ),
           sampleSize: parseBoundedPositiveIntegerArg(
             opts.sampleSize as string,

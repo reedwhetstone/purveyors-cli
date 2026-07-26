@@ -21,6 +21,8 @@ export { isValidCuppingScore, parseCuppingScore };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const CUPPING_SCORE_FLAGS = ['aroma', 'body', 'acidity', 'sweetness', 'aftertaste'] as const;
+
 /** Prompt for a single cupping dimension score. */
 async function promptCuppingScore(dimension: string): Promise<number> {
   const raw = await p.text({
@@ -149,13 +151,16 @@ Required (flag mode): <bean-id> + all five score flags (--aroma, --body, --acidi
         async (beanId: string | undefined, opts: Record<string, unknown>, cmd: Command) => {
           const globalOpts = cmd.optsWithGlobals() as OutputOptions;
 
-          const { credentialContext } = await requireAuth('member');
-
           // ── Interactive form mode ────────────────────────────────────────
-          // Auto-enter form mode if config form-mode is true and required args are missing
+          // Automatic form mode is only safe when the caller supplied no
+          // explicit target or scores. Explicit --form always wins.
+          const hasExplicitRateInput =
+            beanId !== undefined || CUPPING_SCORE_FLAGS.some((flag) => opts[flag] !== undefined);
           const formMode =
-            opts.form || (!opts.id && (await getConfigValue('form-mode')) === 'true');
+            opts.form === true ||
+            (!hasExplicitRateInput && (await getConfigValue('form-mode')) === 'true');
           if (formMode) {
+            const { credentialContext } = await requireAuth('member');
             p.intro('Rate Coffee');
 
             const {
@@ -226,8 +231,7 @@ Required (flag mode): <bean-id> + all five score flags (--aroma, --body, --acidi
           const inventoryId = parseTastingId(beanId, 'bean ID');
 
           // Require all score flags in flag-based mode
-          const requiredFlags = ['aroma', 'body', 'acidity', 'sweetness', 'aftertaste'];
-          for (const flag of requiredFlags) {
+          for (const flag of CUPPING_SCORE_FLAGS) {
             if (opts[flag] === undefined) {
               throw new PrvrsError(
                 'INVALID_ARGUMENT',
@@ -243,6 +247,7 @@ Required (flag mode): <bean-id> + all five score flags (--aroma, --body, --acidi
           const sweetness = parseCuppingScore(opts.sweetness as string, 'sweetness');
           const aftertaste = parseCuppingScore(opts.aftertaste as string, 'aftertaste');
 
+          const { credentialContext } = await requireAuth('member');
           const {
             data: { session: writeSession },
           } = await credentialContext.getSession();

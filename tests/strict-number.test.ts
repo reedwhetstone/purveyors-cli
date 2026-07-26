@@ -52,4 +52,9 @@ describe('strict integer parsers', () => {
     expect(parseStrictPositiveCount('25', 25)).toBe(25);
     expect(Number.isFinite(parseStrictPositiveCount('26', 25))).toBe(false);
   });
+
+  it.each([100, 1000])('enforces an endpoint count maximum of %i', (max) => {
+    expect(parseStrictPositiveCount(String(max), max)).toBe(max);
+    expect(Number.isFinite(parseStrictPositiveCount(String(max + 1), max))).toBe(false);
+  });
 });

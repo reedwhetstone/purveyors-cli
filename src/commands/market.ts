@@ -12,12 +12,13 @@ const WINDOWS = ['7d', '30d'] as const;
 const DIMENSIONS = ['process', 'disclosure', 'score'] as const;
 const GRAINS = ['week', 'month'] as const;
 
-function parsePositiveInt(rawValue: string, flag: string): number {
-  const parsed = parseStrictPositiveCount(rawValue);
+function parsePositiveInt(rawValue: string, flag: string, max?: number): number {
+  const parsed = parseStrictPositiveCount(rawValue, max);
   if (!Number.isFinite(parsed)) {
+    const requirement = max ? `an integer between 1 and ${max}` : 'a positive integer';
     throw new PrvrsError(
       'INVALID_ARGUMENT',
-      `Invalid ${flag}: "${rawValue}". Must be a positive integer.`
+      `Invalid ${flag}: "${rawValue}". Must be ${requirement}.`
     );
   }
   return parsed;
@@ -109,7 +110,7 @@ export function buildMarketCommand(): Command {
     .option('--min-discount <n>', 'Minimum signal magnitude / discount percent')
     .option('--min-score <n>', 'Minimum score_value')
     .option('--window <7d|30d>', 'Trailing window')
-    .option('--limit <n>', 'Results per page')
+    .option('--limit <n>', 'Results per page (1-100)')
     .addHelpText(
       'after',
       `
@@ -141,7 +142,7 @@ Notes:
         if (opts.window !== undefined)
           query.window = parseEnum(opts.window as string, '--window', WINDOWS);
         if (opts.limit !== undefined)
-          query.limit = parsePositiveInt(opts.limit as string, '--limit');
+          query.limit = parsePositiveInt(opts.limit as string, '--limit', 100);
 
         const client = await createOptionalParchmentClient();
         const data = unwrapParchment(await client.market.signals(query), 'market signals');
