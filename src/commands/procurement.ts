@@ -3,14 +3,16 @@ import type { BriefMatchesQuery } from '@purveyors/sdk';
 import { outputData } from '../lib/output.js';
 import { withErrorHandling, PrvrsError } from '../lib/errors.js';
 import { createParchmentClient, unwrapParchment } from '../lib/parchment.js';
+import { parseStrictPositiveCount } from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
 
-function parsePositiveInt(rawValue: string, flag: string): number {
-  const parsed = Number(rawValue.trim());
-  if (!Number.isInteger(parsed) || parsed <= 0) {
+function parsePositiveInt(rawValue: string, flag: string, max?: number): number {
+  const parsed = parseStrictPositiveCount(rawValue, max);
+  if (!Number.isFinite(parsed)) {
+    const requirement = max ? `an integer between 1 and ${max}` : 'a positive integer';
     throw new PrvrsError(
       'INVALID_ARGUMENT',
-      `Invalid ${flag}: "${rawValue}". Must be a positive integer.`
+      `Invalid ${flag}: "${rawValue}". Must be ${requirement}.`
     );
   }
   return parsed;
@@ -87,7 +89,7 @@ Examples:
         const query: BriefMatchesQuery = {};
         if (opts.page !== undefined) query.page = parsePositiveInt(opts.page as string, '--page');
         if (opts.limit !== undefined)
-          query.limit = parsePositiveInt(opts.limit as string, '--limit');
+          query.limit = parsePositiveInt(opts.limit as string, '--limit', 100);
 
         const client = await createParchmentClient('member');
         const result = await client.procurement.briefs.matches(id, query);

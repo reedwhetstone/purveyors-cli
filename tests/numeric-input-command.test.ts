@@ -66,6 +66,44 @@ describe('strict numeric command input', () => {
     expect(error.message).toContain(message);
   });
 
+  it.each([
+    {
+      label: 'inventory delete ID',
+      args: ['inventory', 'delete', '7oops', '--yes', '--json'],
+      message: 'Invalid inventory ID: "7oops"',
+    },
+    {
+      label: 'sales delete ID',
+      args: ['sales', 'delete', '7oops', '--yes', '--json'],
+      message: 'Invalid sale ID: "7oops"',
+    },
+    {
+      label: 'roast delete ID',
+      args: ['roast', 'delete', '7oops', '--yes', '--json'],
+      message: 'Invalid roast ID: "7oops"',
+    },
+  ])('rejects a suffixed destructive $label before authentication', ({ args, message }) => {
+    const result = runCli(args);
+    const error = parseError(result.stderr);
+
+    expect(result.status).toBe(2);
+    expect(error).toMatchObject({ code: 'INVALID_ARGUMENT', exitCode: 2 });
+    expect(error.message).toContain(message);
+  });
+
+  it.each([
+    ['inventory', ['inventory', 'list', '--limit', '20rows', '--json'], '--limit'],
+    ['roast', ['roast', 'list', '--offset', '10rows', '--json'], '--offset'],
+    ['sales', ['sales', 'list', '--limit', '20rows', '--json'], '--limit'],
+  ])('rejects suffixed %s pagination before authentication', (_label, args, flag) => {
+    const result = runCli(args);
+    const error = parseError(result.stderr);
+
+    expect(result.status).toBe(2);
+    expect(error).toMatchObject({ code: 'INVALID_ARGUMENT', exitCode: 2 });
+    expect(error.message).toContain(flag);
+  });
+
   it('validates roast flags instead of auto-entering form mode when the required selector is present', () => {
     const result = runCli(['roast', 'create', '--coffee-id', '1', '--oz-in', '12oz', '--json'], {
       formMode: true,

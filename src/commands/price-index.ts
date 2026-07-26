@@ -3,11 +3,12 @@ import type { PriceIndexQuery } from '@purveyors/sdk';
 import { outputData } from '../lib/output.js';
 import { withErrorHandling, PrvrsError } from '../lib/errors.js';
 import { createParchmentClient, unwrapParchment } from '../lib/parchment.js';
+import { parseStrictPositiveCount } from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
 
 function parsePositiveInt(rawValue: string, flag: string): number {
-  const parsed = Number(rawValue.trim());
-  if (!Number.isInteger(parsed) || parsed <= 0) {
+  const parsed = parseStrictPositiveCount(rawValue);
+  if (!Number.isFinite(parsed)) {
     throw new PrvrsError(
       'INVALID_ARGUMENT',
       `Invalid ${flag}: "${rawValue}". Must be a positive integer.`

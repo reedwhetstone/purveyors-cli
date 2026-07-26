@@ -65,6 +65,15 @@ describe('price-index command', () => {
     expect(stderr.message).toContain('--page');
   }, 15000);
 
+  it('rejects a suffixed --limit before auth', () => {
+    const result = runCli(['price-index', '--limit', '25rows', '--json']);
+    const stderr = parseJson(result.stderr);
+
+    expect(result.status).toBe(2);
+    expect(stderr).toMatchObject({ error: true, code: 'INVALID_ARGUMENT', exitCode: 2 });
+    expect(stderr.message).toContain('--limit');
+  }, 15000);
+
   it('rejects an invalid --wholesale value before auth', () => {
     const result = runCli(['price-index', '--wholesale', 'maybe', '--json']);
     const stderr = parseJson(result.stderr);

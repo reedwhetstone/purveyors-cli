@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { PrvrsError } from './errors.js';
 import { getInventory, type InventoryItem } from './inventory.js';
 import { createParchmentClient, unwrapParchment } from './parchment.js';
+import { parseStrictInteger } from './strict-number.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -78,8 +79,8 @@ export function isValidCuppingScore(value: number): boolean {
 
 /** Parse and validate a cupping score flag value (for CLI use). */
 export function parseCuppingScore(raw: string, flag: string): number {
-  const n = parseInt(raw, 10);
-  if (isNaN(n) || !isValidCuppingScore(n)) {
+  const n = parseStrictInteger(raw, 1, 5);
+  if (!Number.isFinite(n) || !isValidCuppingScore(n)) {
     throw new PrvrsError(
       'INVALID_ARGUMENT',
       `--${flag} must be an integer between 1 and 5 (got "${raw}").`

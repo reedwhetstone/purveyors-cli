@@ -206,9 +206,9 @@ describe('parseCuppingScore', () => {
     expect(() => parseCuppingScore('', 'aftertaste')).toThrow(PrvrsError);
   });
 
-  it('accepts float strings by truncating (parseInt behavior)', () => {
-    // parseInt('3.5', 10) === 3 — valid, so no throw
-    expect(parseCuppingScore('3.5', 'aroma')).toBe(3);
+  it('rejects decimals and suffixed integer input', () => {
+    expect(() => parseCuppingScore('3.5', 'aroma')).toThrow(PrvrsError);
+    expect(() => parseCuppingScore('3notes', 'aroma')).toThrow(PrvrsError);
   });
 
   it('includes the flag name in the error message', () => {

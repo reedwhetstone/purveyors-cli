@@ -75,6 +75,17 @@ describe('procurement command', () => {
     expect(stderr.message).toContain('--limit');
   }, 15000);
 
+  it('rejects malformed and out-of-range --limit values before auth', () => {
+    for (const value of ['25rows', '101']) {
+      const result = runCli(['procurement', 'matches', 'some-id', '--limit', value, '--json']);
+      const stderr = parseJson(result.stderr);
+
+      expect(result.status).toBe(2);
+      expect(stderr).toMatchObject({ error: true, code: 'INVALID_ARGUMENT', exitCode: 2 });
+      expect(stderr.message).toContain('--limit');
+    }
+  }, 30000);
+
   it('requires a session or API key for list when none is configured', () => {
     const result = runCli(['procurement', 'list', '--json']);
     const stderr = parseJson(result.stderr);

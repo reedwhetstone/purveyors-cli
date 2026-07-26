@@ -12,6 +12,7 @@ import {
 import type { TastingFilter, TastingData, CuppingNotes } from '../lib/tasting.js';
 import { pickBean, guardCancel } from '../lib/interactive/forms.js';
 import { getConfigValue } from '../lib/config.js';
+import { parseStrictInt4Id, parseStrictInteger } from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
 
 // Re-export types and helpers for backwards compatibility
@@ -26,14 +27,25 @@ async function promptCuppingScore(dimension: string): Promise<number> {
     message: `${dimension} (1-5)`,
     placeholder: '3',
     validate: (v) => {
-      const n = parseInt(String(v), 10);
-      if (isNaN(n) || n < 1 || n > 5 || !Number.isInteger(n)) {
+      const n = parseStrictInteger(String(v), 1, 5);
+      if (!Number.isFinite(n)) {
         return `Must be an integer between 1 and 5.`;
       }
     },
   });
   guardCancel(raw);
-  return parseInt(String(raw), 10);
+  return parseStrictInteger(String(raw), 1, 5);
+}
+
+function parseTastingId(value: string, label: string): number {
+  const parsed = parseStrictInt4Id(value);
+  if (!Number.isFinite(parsed)) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `Invalid ${label}: "${value}". Must be an integer between 1 and 2147483647.`
+    );
+  }
+  return parsed;
 }
 
 // ─── Command builder ──────────────────────────────────────────────────────────
@@ -89,10 +101,7 @@ Notes:
           );
         }
 
-        const catalogId = parseInt(beanId, 10);
-        if (isNaN(catalogId)) {
-          throw new PrvrsError('INVALID_ARGUMENT', `Invalid bean ID: "${beanId}".`);
-        }
+        const catalogId = parseTastingId(beanId, 'bean ID');
 
         const result = await getTastingNotes(catalogId, filter);
 
@@ -214,13 +223,7 @@ Required (flag mode): <bean-id> + all five score flags (--aroma, --body, --acidi
             );
           }
 
-          const inventoryId = parseInt(beanId, 10);
-          if (isNaN(inventoryId)) {
-            throw new PrvrsError(
-              'INVALID_ARGUMENT',
-              `Invalid bean ID: "${beanId}". Pass a green_coffee_inv ID.`
-            );
-          }
+          const inventoryId = parseTastingId(beanId, 'bean ID');
 
           // Require all score flags in flag-based mode
           const requiredFlags = ['aroma', 'body', 'acidity', 'sweetness', 'aftertaste'];

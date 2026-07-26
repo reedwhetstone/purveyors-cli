@@ -20,6 +20,11 @@ import {
   catalogSimilarityModes,
 } from '../lib/catalog.js';
 import type { CatalogItem, CatalogStats, CatalogSortField } from '../lib/catalog.js';
+import {
+  parseStrictInt4Id,
+  parseStrictOffset,
+  parseStrictPositiveCount,
+} from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
 
 // Re-export types and helpers for backwards compatibility
@@ -41,8 +46,17 @@ function parseFiniteNumberArg(rawValue: string, message: string): number {
 }
 
 function parsePositiveIntegerArg(rawValue: string, message: string): number {
-  const parsed = parseFiniteNumberArg(rawValue, message);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
+  const parsed = parseStrictPositiveCount(rawValue);
+  if (!Number.isFinite(parsed)) {
+    throw new PrvrsError('INVALID_ARGUMENT', message);
+  }
+
+  return parsed;
+}
+
+function parseInt4IdArg(rawValue: string, message: string): number {
+  const parsed = parseStrictInt4Id(rawValue);
+  if (!Number.isFinite(parsed)) {
     throw new PrvrsError('INVALID_ARGUMENT', message);
   }
 
@@ -71,8 +85,8 @@ function parseBoundedPositiveIntegerArg(
 }
 
 function parseNonNegativeIntegerArg(rawValue: string, message: string): number {
-  const parsed = parseFiniteNumberArg(rawValue, message);
-  if (!Number.isInteger(parsed) || parsed < 0) {
+  const parsed = parseStrictOffset(rawValue);
+  if (!Number.isFinite(parsed)) {
     throw new PrvrsError('INVALID_ARGUMENT', message);
   }
 
@@ -180,7 +194,7 @@ Notes:
           const nums: number[] = [];
           for (const token of raw) {
             nums.push(
-              parsePositiveIntegerArg(
+              parseInt4IdArg(
                 token,
                 `Invalid --ids value: "${token}". Each ID must be a positive integer.`
               )
@@ -294,7 +308,7 @@ Notes:
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const catalogId = parsePositiveIntegerArg(
+        const catalogId = parseInt4IdArg(
           id,
           `Invalid ID: "${id}". Please provide a numeric coffee_catalog ID.`
         );
@@ -704,7 +718,7 @@ Notes:
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
 
-        const coffeeId = parsePositiveIntegerArg(
+        const coffeeId = parseInt4IdArg(
           id,
           `Invalid ID: "${id}". Please provide a numeric coffee_catalog ID.`
         );
@@ -713,10 +727,7 @@ Notes:
           opts.threshold as string,
           `Invalid --threshold: "${opts.threshold}". Must be a number between 0 and 1.`
         );
-        const limit = parsePositiveIntegerArg(
-          opts.limit as string,
-          `Invalid --limit: "${opts.limit}". Must be a positive integer.`
-        );
+        const limit = parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 25);
         if (threshold < 0.5 || threshold > 0.99) {
           throw new PrvrsError(
             'INVALID_ARGUMENT',

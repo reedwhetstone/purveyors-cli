@@ -8,6 +8,8 @@ import * as p from '@clack/prompts';
 import { listRoasts } from '../roast.js';
 import { listInventory } from '../inventory.js';
 import { searchCatalog } from '../catalog.js';
+import { PrvrsError } from '../errors.js';
+import { parseStrictInt4Id } from '../strict-number.js';
 
 // ─── Cancel guard ─────────────────────────────────────────────────────────────
 
@@ -17,6 +19,14 @@ export function guardCancel(result: unknown): void {
     p.cancel('Cancelled.');
     process.exit(0);
   }
+}
+
+function parseSelectedId(value: unknown): number {
+  const selectedId = parseStrictInt4Id(String(value));
+  if (!Number.isFinite(selectedId)) {
+    throw new PrvrsError('INVALID_ARGUMENT', 'The selected item did not contain a valid ID.');
+  }
+  return selectedId;
 }
 
 // ─── Pickers ──────────────────────────────────────────────────────────────────
@@ -64,7 +74,7 @@ export async function pickBean(
   }
   guardCancel(selected);
 
-  const selectedId = parseInt(selected as string, 10);
+  const selectedId = parseSelectedId(selected);
   const matchedRow = rows.find((r) => r.id === selectedId);
   const name = matchedRow?.coffee_catalog?.name ?? `Bean #${selectedId}`;
 
@@ -98,7 +108,7 @@ export async function pickRoast(
 
   guardCancel(selected);
 
-  const selectedId = parseInt(selected as string, 10);
+  const selectedId = parseSelectedId(selected);
   const matchedRow = rows.find((r) => r.roast_id === selectedId);
   const batchName = matchedRow?.batch_name ?? `Roast #${selectedId}`;
 
@@ -153,7 +163,7 @@ export async function pickCatalogItem(): Promise<{ id: number; name: string }> {
 
   guardCancel(selected);
 
-  const selectedId = parseInt(selected as string, 10);
+  const selectedId = parseSelectedId(selected);
   const matchedRow = rows.find((r) => r.id === selectedId);
   const name = matchedRow?.name ?? `Catalog #${selectedId}`;
 

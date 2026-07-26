@@ -3,6 +3,7 @@ import type { MarketSignalsQuery, PriceIndexStatsQuery, MetadataIndexQuery } fro
 import { outputData } from '../lib/output.js';
 import { withErrorHandling, PrvrsError } from '../lib/errors.js';
 import { createOptionalParchmentClient, unwrapParchment } from '../lib/parchment.js';
+import { parseStrictPositiveCount } from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
 
 const SIGNAL_TYPES = ['price_drop', 'below_market', 'value_quality'] as const;
@@ -12,8 +13,8 @@ const DIMENSIONS = ['process', 'disclosure', 'score'] as const;
 const GRAINS = ['week', 'month'] as const;
 
 function parsePositiveInt(rawValue: string, flag: string): number {
-  const parsed = Number(rawValue.trim());
-  if (!Number.isInteger(parsed) || parsed <= 0) {
+  const parsed = parseStrictPositiveCount(rawValue);
+  if (!Number.isFinite(parsed)) {
     throw new PrvrsError(
       'INVALID_ARGUMENT',
       `Invalid ${flag}: "${rawValue}". Must be a positive integer.`
