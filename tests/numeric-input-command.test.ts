@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { CLI_NUMERIC_BOUNDS } from '../src/lib/numeric-contracts.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -105,14 +106,56 @@ describe('strict numeric command input', () => {
   });
 
   it.each([
-    ['catalog search limit', ['catalog', 'search', '--limit', '1001', '--json'], '--limit'],
+    [
+      'catalog search limit',
+      [
+        'catalog',
+        'search',
+        '--limit',
+        String(CLI_NUMERIC_BOUNDS.catalogSearchLimit.maximum + 1),
+        '--json',
+      ],
+      '--limit',
+    ],
     [
       'supplier rank minimum',
-      ['catalog', 'supplier-rank', '--min-coffees', '101', '--json'],
+      [
+        'catalog',
+        'supplier-rank',
+        '--min-coffees',
+        String(CLI_NUMERIC_BOUNDS.supplierMinCoffees.maximum + 1),
+        '--json',
+      ],
       '--min-coffees',
     ],
-    ['price-index limit', ['price-index', '--limit', '101', '--json'], '--limit'],
-    ['market signals limit', ['market', 'signals', '--limit', '101', '--json'], '--limit'],
+    [
+      'price-index limit',
+      ['price-index', '--limit', String(CLI_NUMERIC_BOUNDS.priceIndexLimit.maximum + 1), '--json'],
+      '--limit',
+    ],
+    [
+      'market signals limit',
+      [
+        'market',
+        'signals',
+        '--limit',
+        String(CLI_NUMERIC_BOUNDS.marketSignalsLimit.maximum + 1),
+        '--json',
+      ],
+      '--limit',
+    ],
+    [
+      'procurement matches limit',
+      [
+        'procurement',
+        'matches',
+        'brief-id',
+        '--limit',
+        String(CLI_NUMERIC_BOUNDS.procurementMatchesLimit.maximum + 1),
+        '--json',
+      ],
+      '--limit',
+    ],
   ])('rejects max+1 for %s before auth or network', (_label, args, flag) => {
     const result = runCli(args);
     const error = parseError(result.stderr);

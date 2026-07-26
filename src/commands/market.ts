@@ -3,6 +3,7 @@ import type { MarketSignalsQuery, PriceIndexStatsQuery, MetadataIndexQuery } fro
 import { outputData } from '../lib/output.js';
 import { withErrorHandling, PrvrsError } from '../lib/errors.js';
 import { createOptionalParchmentClient, unwrapParchment } from '../lib/parchment.js';
+import { CLI_NUMERIC_BOUNDS } from '../lib/numeric-contracts.js';
 import { parseStrictPositiveCount } from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
 
@@ -110,7 +111,10 @@ export function buildMarketCommand(): Command {
     .option('--min-discount <n>', 'Minimum signal magnitude / discount percent')
     .option('--min-score <n>', 'Minimum score_value')
     .option('--window <7d|30d>', 'Trailing window')
-    .option('--limit <n>', 'Results per page (1-100)')
+    .option(
+      '--limit <n>',
+      `Results per page (${CLI_NUMERIC_BOUNDS.marketSignalsLimit.minimum}-${CLI_NUMERIC_BOUNDS.marketSignalsLimit.maximum})`
+    )
     .addHelpText(
       'after',
       `
@@ -142,7 +146,11 @@ Notes:
         if (opts.window !== undefined)
           query.window = parseEnum(opts.window as string, '--window', WINDOWS);
         if (opts.limit !== undefined)
-          query.limit = parsePositiveInt(opts.limit as string, '--limit', 100);
+          query.limit = parsePositiveInt(
+            opts.limit as string,
+            '--limit',
+            CLI_NUMERIC_BOUNDS.marketSignalsLimit.maximum
+          );
 
         const client = await createOptionalParchmentClient();
         const data = unwrapParchment(await client.market.signals(query), 'market signals');

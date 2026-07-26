@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { Command } from 'commander';
 import { EXIT_CODES } from '../src/lib/errors.js';
 import { getCliManifest, renderContextText } from '../src/lib/manifest.js';
+import { CLI_NUMERIC_BOUNDS } from '../src/lib/numeric-contracts.js';
 import { createProgram } from '../src/program.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -145,23 +146,23 @@ describe('CLI manifest contract', () => {
   it('publishes canonical numeric bounds for bounded endpoint options', () => {
     const commands = flattenManifestCommands();
     const expectedBounds = [
-      ['catalog search', '--limit', 1, 1000],
-      ['catalog supplier-rank', '--min-coffees', 1, 100],
-      ['market signals', '--limit', 1, 100],
-      ['price-index', '--limit', 1, 100],
-      ['procurement matches', '--limit', 1, 100],
+      ['catalog search', '--limit', CLI_NUMERIC_BOUNDS.catalogSearchLimit],
+      ['catalog supplier-rank', '--min-coffees', CLI_NUMERIC_BOUNDS.supplierMinCoffees],
+      ['market signals', '--limit', CLI_NUMERIC_BOUNDS.marketSignalsLimit],
+      ['price-index', '--limit', CLI_NUMERIC_BOUNDS.priceIndexLimit],
+      ['procurement matches', '--limit', CLI_NUMERIC_BOUNDS.procurementMatchesLimit],
     ] as const;
 
-    for (const [commandName, flag, minimum, maximum] of expectedBounds) {
+    for (const [commandName, flag, bounds] of expectedBounds) {
       const option = commands
         .get(commandName)
         ?.options?.find((candidate) => longFlag(candidate.flags) === flag);
 
       expect(option, `${commandName} ${flag} manifest metadata`).toEqual(
         expect.objectContaining({
-          minimum,
-          maximum,
-          description: expect.stringContaining(`${minimum}-${maximum}`),
+          minimum: bounds.minimum,
+          maximum: bounds.maximum,
+          description: expect.stringContaining(`${bounds.minimum}-${bounds.maximum}`),
         })
       );
     }

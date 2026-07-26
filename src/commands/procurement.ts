@@ -3,6 +3,7 @@ import type { BriefMatchesQuery } from '@purveyors/sdk';
 import { outputData } from '../lib/output.js';
 import { withErrorHandling, PrvrsError } from '../lib/errors.js';
 import { createParchmentClient, unwrapParchment } from '../lib/parchment.js';
+import { CLI_NUMERIC_BOUNDS } from '../lib/numeric-contracts.js';
 import { parseStrictPositiveCount } from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
 
@@ -74,7 +75,10 @@ Examples:
     .command('matches <id>')
     .description('Run a saved brief against the catalog and page through matches')
     .option('--page <n>', '1-based page number (default 1)')
-    .option('--limit <n>', 'Matches per page (max 100; default 25)')
+    .option(
+      '--limit <n>',
+      `Matches per page (${CLI_NUMERIC_BOUNDS.procurementMatchesLimit.minimum}-${CLI_NUMERIC_BOUNDS.procurementMatchesLimit.maximum}; default 25)`
+    )
     .addHelpText(
       'after',
       `
@@ -89,7 +93,11 @@ Examples:
         const query: BriefMatchesQuery = {};
         if (opts.page !== undefined) query.page = parsePositiveInt(opts.page as string, '--page');
         if (opts.limit !== undefined)
-          query.limit = parsePositiveInt(opts.limit as string, '--limit', 100);
+          query.limit = parsePositiveInt(
+            opts.limit as string,
+            '--limit',
+            CLI_NUMERIC_BOUNDS.procurementMatchesLimit.maximum
+          );
 
         const client = await createParchmentClient('member');
         const result = await client.procurement.briefs.matches(id, query);

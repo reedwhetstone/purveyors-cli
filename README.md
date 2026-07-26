@@ -509,7 +509,7 @@ Notes:
 `procurement matches <id>` options:
 
 - `--page <n>`; 1-based page number
-- `--limit <n>`; matches per page
+- `--limit <n>`; matches per page, min `1`, max `100`
 
 Examples:
 

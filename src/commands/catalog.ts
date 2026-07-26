@@ -22,6 +22,7 @@ import {
   catalogSimilarityModes,
 } from '../lib/catalog.js';
 import type { CatalogItem, CatalogStats, CatalogSortField } from '../lib/catalog.js';
+import { CLI_NUMERIC_BOUNDS } from '../lib/numeric-contracts.js';
 import {
   parseStrictInt4Id,
   parseStrictOffset,
@@ -126,7 +127,11 @@ export function buildCatalogCommand(): Command {
     .option('--stocked', 'Only show currently stocked coffees')
     .option('--sort <field>', `Sort results by: ${catalogSortFields.join(', ')}`)
     .option('--offset <n>', 'Skip N results (for pagination)', '0')
-    .option('--limit <n>', 'Maximum results to return (1-1000)', '10')
+    .option(
+      '--limit <n>',
+      `Maximum results to return (${CLI_NUMERIC_BOUNDS.catalogSearchLimit.minimum}-${CLI_NUMERIC_BOUNDS.catalogSearchLimit.maximum})`,
+      '10'
+    )
     .option('--include-proof', 'Request canonical catalog proof summaries from /v1/catalog')
     .addHelpText(
       'after',
@@ -252,7 +257,7 @@ Notes:
         const limit = parseBoundedPositiveIntegerArg(
           opts.limit as string,
           '--limit',
-          1,
+          CLI_NUMERIC_BOUNDS.catalogSearchLimit.minimum,
           CATALOG_SEARCH_MAX_LIMIT
         );
 
@@ -640,7 +645,11 @@ Notes:
     .option('--country <country>', 'Filter by country')
     .option('--stocked', 'Only include currently stocked coffees')
     .option('--non-wholesale-only', 'Exclude wholesale listings before aggregation')
-    .option('--min-coffees <n>', 'Minimum catalog rows required per supplier (1-100)', '1')
+    .option(
+      '--min-coffees <n>',
+      `Minimum catalog rows required per supplier (${CLI_NUMERIC_BOUNDS.supplierMinCoffees.minimum}-${CLI_NUMERIC_BOUNDS.supplierMinCoffees.maximum})`,
+      '1'
+    )
     .option(
       '--sample-size <n>',
       'Catalog rows to fetch per page before aggregation (1-5000)',
@@ -669,7 +678,7 @@ Notes:
           minCoffees: parseBoundedPositiveIntegerArg(
             opts.minCoffees as string,
             '--min-coffees',
-            1,
+            CLI_NUMERIC_BOUNDS.supplierMinCoffees.minimum,
             SUPPLIER_MIN_COFFEES_MAX
           ),
           sampleSize: parseBoundedPositiveIntegerArg(

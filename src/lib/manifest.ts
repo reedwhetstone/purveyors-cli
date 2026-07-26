@@ -1,4 +1,5 @@
 import { EXIT_CODES } from './errors.js';
+import { CLI_NUMERIC_BOUNDS } from './numeric-contracts.js';
 
 export type CliAuthRequirement = 'none' | 'viewer' | 'member';
 export type CliOutputMode = 'json' | 'pretty' | 'csv';
@@ -284,10 +285,10 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--offset <n>', defaultValue: 0 },
           {
             flags: '--limit <n>',
-            description: 'Maximum results to return, 1-1000',
+            description: `Maximum results to return, ${CLI_NUMERIC_BOUNDS.catalogSearchLimit.minimum}-${CLI_NUMERIC_BOUNDS.catalogSearchLimit.maximum}`,
             defaultValue: 10,
-            minimum: 1,
-            maximum: 1000,
+            minimum: CLI_NUMERIC_BOUNDS.catalogSearchLimit.minimum,
+            maximum: CLI_NUMERIC_BOUNDS.catalogSearchLimit.maximum,
           },
           {
             flags: '--include-proof',
@@ -487,10 +488,10 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--non-wholesale-only' },
           {
             flags: '--min-coffees <n>',
-            description: 'Minimum catalog rows required per supplier, 1-100',
+            description: `Minimum catalog rows required per supplier, ${CLI_NUMERIC_BOUNDS.supplierMinCoffees.minimum}-${CLI_NUMERIC_BOUNDS.supplierMinCoffees.maximum}`,
             defaultValue: 1,
-            minimum: 1,
-            maximum: 100,
+            minimum: CLI_NUMERIC_BOUNDS.supplierMinCoffees.minimum,
+            maximum: CLI_NUMERIC_BOUNDS.supplierMinCoffees.maximum,
           },
           { flags: '--sample-size <n>', defaultValue: 5000 },
           { flags: '--limit <n>', defaultValue: 25 },
@@ -1016,9 +1017,9 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--window <7d|30d>' },
           {
             flags: '--limit <n>',
-            description: 'Results per page, 1-100',
-            minimum: 1,
-            maximum: 100,
+            description: `Results per page, ${CLI_NUMERIC_BOUNDS.marketSignalsLimit.minimum}-${CLI_NUMERIC_BOUNDS.marketSignalsLimit.maximum}`,
+            minimum: CLI_NUMERIC_BOUNDS.marketSignalsLimit.minimum,
+            maximum: CLI_NUMERIC_BOUNDS.marketSignalsLimit.maximum,
           },
         ],
         notes: [
@@ -1093,9 +1094,9 @@ const commandGroups: CliCommandGroupContract[] = [
         { flags: '--page <n>' },
         {
           flags: '--limit <n>',
-          description: 'Results per page, 1-100',
-          minimum: 1,
-          maximum: 100,
+          description: `Results per page, ${CLI_NUMERIC_BOUNDS.priceIndexLimit.minimum}-${CLI_NUMERIC_BOUNDS.priceIndexLimit.maximum}`,
+          minimum: CLI_NUMERIC_BOUNDS.priceIndexLimit.minimum,
+          maximum: CLI_NUMERIC_BOUNDS.priceIndexLimit.maximum,
         },
       ],
       notes: [
@@ -1157,9 +1158,9 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--page <n>' },
           {
             flags: '--limit <n>',
-            description: 'Matches per page, 1-100',
-            minimum: 1,
-            maximum: 100,
+            description: `Matches per page, ${CLI_NUMERIC_BOUNDS.procurementMatchesLimit.minimum}-${CLI_NUMERIC_BOUNDS.procurementMatchesLimit.maximum}`,
+            minimum: CLI_NUMERIC_BOUNDS.procurementMatchesLimit.minimum,
+            maximum: CLI_NUMERIC_BOUNDS.procurementMatchesLimit.maximum,
           },
         ],
         notes: [
