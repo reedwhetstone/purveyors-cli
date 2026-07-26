@@ -15,11 +15,19 @@ import {
   computeCatalogStats,
   sanitizeFilterValue,
   catalogSortFields,
+  CATALOG_SEARCH_MAX_LIMIT,
+  SUPPLIER_MIN_COFFEES_MAX,
   catalogFacetFields,
   catalogRankObjectives,
   catalogSimilarityModes,
 } from '../lib/catalog.js';
 import type { CatalogItem, CatalogStats, CatalogSortField } from '../lib/catalog.js';
+import { CLI_NUMERIC_BOUNDS } from '../lib/numeric-contracts.js';
+import {
+  parseStrictInt4Id,
+  parseStrictOffset,
+  parseStrictPositiveCount,
+} from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
 
 // Re-export types and helpers for backwards compatibility
@@ -41,8 +49,17 @@ function parseFiniteNumberArg(rawValue: string, message: string): number {
 }
 
 function parsePositiveIntegerArg(rawValue: string, message: string): number {
-  const parsed = parseFiniteNumberArg(rawValue, message);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
+  const parsed = parseStrictPositiveCount(rawValue);
+  if (!Number.isFinite(parsed)) {
+    throw new PrvrsError('INVALID_ARGUMENT', message);
+  }
+
+  return parsed;
+}
+
+function parseInt4IdArg(rawValue: string, message: string): number {
+  const parsed = parseStrictInt4Id(rawValue);
+  if (!Number.isFinite(parsed)) {
     throw new PrvrsError('INVALID_ARGUMENT', message);
   }
 
@@ -71,8 +88,8 @@ function parseBoundedPositiveIntegerArg(
 }
 
 function parseNonNegativeIntegerArg(rawValue: string, message: string): number {
-  const parsed = parseFiniteNumberArg(rawValue, message);
-  if (!Number.isInteger(parsed) || parsed < 0) {
+  const parsed = parseStrictOffset(rawValue);
+  if (!Number.isFinite(parsed)) {
     throw new PrvrsError('INVALID_ARGUMENT', message);
   }
 
@@ -110,7 +127,11 @@ export function buildCatalogCommand(): Command {
     .option('--stocked', 'Only show currently stocked coffees')
     .option('--sort <field>', `Sort results by: ${catalogSortFields.join(', ')}`)
     .option('--offset <n>', 'Skip N results (for pagination)', '0')
-    .option('--limit <n>', 'Maximum results to return', '10')
+    .option(
+      '--limit <n>',
+      `Maximum results to return (${CLI_NUMERIC_BOUNDS.catalogSearchLimit.minimum}-${CLI_NUMERIC_BOUNDS.catalogSearchLimit.maximum})`,
+      '10'
+    )
     .option('--include-proof', 'Request canonical catalog proof summaries from /v1/catalog')
     .addHelpText(
       'after',
@@ -180,7 +201,7 @@ Notes:
           const nums: number[] = [];
           for (const token of raw) {
             nums.push(
-              parsePositiveIntegerArg(
+              parseInt4IdArg(
                 token,
                 `Invalid --ids value: "${token}". Each ID must be a positive integer.`
               )
@@ -233,9 +254,11 @@ Notes:
                 `Invalid --offset: "${opts.offset}". Must be a non-negative integer.`
               )
             : undefined;
-        const limit = parsePositiveIntegerArg(
+        const limit = parseBoundedPositiveIntegerArg(
           opts.limit as string,
-          `Invalid --limit: "${opts.limit}". Must be a positive integer.`
+          '--limit',
+          CLI_NUMERIC_BOUNDS.catalogSearchLimit.minimum,
+          CATALOG_SEARCH_MAX_LIMIT
         );
 
         const includeProof = opts.includeProof ? true : undefined;
@@ -294,7 +317,7 @@ Notes:
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const catalogId = parsePositiveIntegerArg(
+        const catalogId = parseInt4IdArg(
           id,
           `Invalid ID: "${id}". Please provide a numeric coffee_catalog ID.`
         );
@@ -622,7 +645,11 @@ Notes:
     .option('--country <country>', 'Filter by country')
     .option('--stocked', 'Only include currently stocked coffees')
     .option('--non-wholesale-only', 'Exclude wholesale listings before aggregation')
-    .option('--min-coffees <n>', 'Minimum catalog rows required per supplier', '1')
+    .option(
+      '--min-coffees <n>',
+      `Minimum catalog rows required per supplier (${CLI_NUMERIC_BOUNDS.supplierMinCoffees.minimum}-${CLI_NUMERIC_BOUNDS.supplierMinCoffees.maximum})`,
+      '1'
+    )
     .option(
       '--sample-size <n>',
       'Catalog rows to fetch per page before aggregation (1-5000)',
@@ -648,9 +675,11 @@ Notes:
           country: opts.country as string | undefined,
           stocked: opts.stocked ? true : undefined,
           nonWholesaleOnly: opts.nonWholesaleOnly ? true : undefined,
-          minCoffees: parsePositiveIntegerArg(
+          minCoffees: parseBoundedPositiveIntegerArg(
             opts.minCoffees as string,
-            `Invalid --min-coffees: "${opts.minCoffees}". Must be a positive integer.`
+            '--min-coffees',
+            CLI_NUMERIC_BOUNDS.supplierMinCoffees.minimum,
+            SUPPLIER_MIN_COFFEES_MAX
           ),
           sampleSize: parseBoundedPositiveIntegerArg(
             opts.sampleSize as string,
@@ -704,7 +733,7 @@ Notes:
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
 
-        const coffeeId = parsePositiveIntegerArg(
+        const coffeeId = parseInt4IdArg(
           id,
           `Invalid ID: "${id}". Please provide a numeric coffee_catalog ID.`
         );
@@ -713,10 +742,7 @@ Notes:
           opts.threshold as string,
           `Invalid --threshold: "${opts.threshold}". Must be a number between 0 and 1.`
         );
-        const limit = parsePositiveIntegerArg(
-          opts.limit as string,
-          `Invalid --limit: "${opts.limit}". Must be a positive integer.`
-        );
+        const limit = parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 25);
         if (threshold < 0.5 || threshold > 0.99) {
           throw new PrvrsError(
             'INVALID_ARGUMENT',

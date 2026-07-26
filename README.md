@@ -332,7 +332,7 @@ Notes:
 - `--stocked`; only currently stocked coffees
 - `--sort <price|price-desc|name|origin>`
 - `--offset <n>`; pagination offset
-- `--limit <n>`; default `10`
+- `--limit <n>`; default `10`, min `1`, max `1000`
 - `--include-proof`; request canonical proof summaries from `/v1/catalog?include=proof`
 
 `catalog similar <id>` options:
@@ -376,7 +376,7 @@ Notes:
 
 - `supplier-list`: `--country <country>`, `--stocked`, `--non-wholesale-only`, `--sample-size <n>` (catalog rows per fetch page, default `5000`, max `5000`), `--limit <n>`
 - `supplier-detail <supplier>`: `--country <country>`, `--stocked`, `--non-wholesale-only`, `--top-coffees <n>`, `--sample-size <n>` (catalog rows per fetch page, default `5000`, max `5000`)
-- `supplier-rank`: `--country <country>`, `--stocked`, `--non-wholesale-only`, `--min-coffees <n>`, `--sample-size <n>` (catalog rows per fetch page, default `5000`, max `5000`), `--limit <n>`
+- `supplier-rank`: `--country <country>`, `--stocked`, `--non-wholesale-only`, `--min-coffees <n>` (min `1`, max `100`), `--sample-size <n>` (catalog rows per fetch page, default `5000`, max `5000`), `--limit <n>`
 
 Examples:
 
@@ -432,7 +432,7 @@ Notes:
 - `--to <YYYY-MM-DD>`
 - `--wholesale <true|false>`
 - `--page <n>`; 1-based page number
-- `--limit <n>`; results per page
+- `--limit <n>`; results per page, min `1`, max `100`
 
 Examples:
 
@@ -464,7 +464,7 @@ Notes:
 - `--min-discount <n>`
 - `--min-score <n>`
 - `--window <7d|30d>`
-- `--limit <n>`
+- `--limit <n>`; min `1`, max `100`
 
 `market stats` filters:
 
@@ -509,7 +509,7 @@ Notes:
 `procurement matches <id>` options:
 
 - `--page <n>`; 1-based page number
-- `--limit <n>`; matches per page
+- `--limit <n>`; matches per page, min `1`, max `100`
 
 Examples:
 

@@ -8,7 +8,12 @@ import { listSales, recordSale, updateSale, deleteSale } from '../lib/sales.js';
 import type { Sale, RecordSaleInput } from '../lib/sales.js';
 import { pickRoast, guardCancel } from '../lib/interactive/forms.js';
 import { getConfigValue } from '../lib/config.js';
-import { parseStrictFiniteNumber } from '../lib/strict-number.js';
+import {
+  parseStrictFiniteNumber,
+  parseStrictInt4Id,
+  parseStrictOffset,
+  parseStrictPositiveCount,
+} from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
 
 // Re-export type for backwards compatibility
@@ -55,18 +60,23 @@ export async function recordInteractiveSale(
 }
 
 function parsePositiveIntegerOption(flag: string, value: string): number {
-  if (!/^\d+$/.test(value)) {
+  const parsed = parseStrictInt4Id(value);
+  if (!Number.isFinite(parsed)) {
     throw new PrvrsError(
       'INVALID_ARGUMENT',
-      `Invalid ${flag}: "${value}". Must be a positive integer.`
+      `Invalid ${flag}: "${value}". Must be an integer between 1 and 2147483647.`
     );
   }
+  return parsed;
+}
 
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
+function parseSalesListCount(value: string, flag: '--limit' | '--offset'): number {
+  const parsed = flag === '--offset' ? parseStrictOffset(value) : parseStrictPositiveCount(value);
+  if (!Number.isFinite(parsed)) {
+    const requirement = flag === '--offset' ? 'a non-negative integer' : 'a positive integer';
     throw new PrvrsError(
       'INVALID_ARGUMENT',
-      `Invalid ${flag}: "${value}". Must be a positive integer.`
+      `Invalid ${flag}: "${value}". Must be ${requirement}.`
     );
   }
   return parsed;
@@ -208,10 +218,9 @@ Notes:
           greenCoffeeInvId = parsePositiveIntegerOption('--coffee-id', opts.coffeeId as string);
         }
 
-        const offsetVal = parseInt(opts.offset as string, 10);
         const data = await listSales({
-          limit: Math.max(1, parseInt(opts.limit as string, 10)),
-          offset: isNaN(offsetVal) || offsetVal < 0 ? 0 : offsetVal,
+          limit: parseSalesListCount(opts.limit as string, '--limit'),
+          offset: parseSalesListCount(opts.offset as string, '--offset'),
           greenCoffeeInvId,
           dateStart: opts.dateStart as string | undefined,
           dateEnd: opts.dateEnd as string | undefined,
@@ -363,10 +372,7 @@ Notes:
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const saleId = parseInt(id, 10);
-        if (isNaN(saleId)) {
-          throw new PrvrsError('INVALID_ARGUMENT', `Invalid sale ID: "${id}".`);
-        }
+        const saleId = parsePositiveIntegerOption('sale ID', id);
 
         let oz: number | undefined;
         if (opts.oz !== undefined) {
@@ -426,10 +432,7 @@ Notes:
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         void cmd;
-        const saleId = parseInt(id, 10);
-        if (isNaN(saleId)) {
-          throw new PrvrsError('INVALID_ARGUMENT', `Invalid sale ID: "${id}".`);
-        }
+        const saleId = parsePositiveIntegerOption('sale ID', id);
 
         if (!opts.yes) {
           const ok = await confirm(`Delete sale #${saleId}?`);

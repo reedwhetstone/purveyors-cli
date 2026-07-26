@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { PrvrsError } from './errors.js';
 import { createParchmentClient, unwrapParchment } from './parchment.js';
+import { POSTGRES_INT4_MAX } from './strict-number.js';
 
 export interface Sale {
   id: number;
@@ -33,7 +34,7 @@ export const SALE_SELECT =
 export const listSalesSchema = z.object({
   limit: z.number().int().min(1).default(20),
   offset: z.number().int().min(0).optional(),
-  greenCoffeeInvId: z.number().int().positive().optional(),
+  greenCoffeeInvId: z.number().int().min(1).max(POSTGRES_INT4_MAX).optional(),
   dateStart: z.string().optional(),
   dateEnd: z.string().optional(),
   buyer: z.string().optional(),
@@ -41,8 +42,8 @@ export const listSalesSchema = z.object({
 export type ListSalesInput = z.input<typeof listSalesSchema>;
 
 const saleTargetFields = {
-  roastId: z.number().int().positive().optional(),
-  coffeeId: z.number().int().positive().optional(),
+  roastId: z.number().int().min(1).max(POSTGRES_INT4_MAX).optional(),
+  coffeeId: z.number().int().min(1).max(POSTGRES_INT4_MAX).optional(),
   batchName: z.string().trim().min(1).optional(),
 };
 
@@ -106,7 +107,9 @@ export const updateSaleSchema = z
   });
 export type UpdateSaleInput = z.input<typeof updateSaleSchema>;
 
-export const deleteSaleSchema = z.object({ id: z.number().int().positive() });
+export const deleteSaleSchema = z.object({
+  id: z.number().int().min(1).max(POSTGRES_INT4_MAX),
+});
 export type DeleteSaleInput = z.input<typeof deleteSaleSchema>;
 
 type SalesParchmentClient = Awaited<ReturnType<typeof createParchmentClient>>;

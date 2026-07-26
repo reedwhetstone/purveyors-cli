@@ -7,6 +7,8 @@ import {
   resolveParchmentToken,
   unwrapParchment,
 } from './parchment.js';
+import { CLI_NUMERIC_BOUNDS } from './numeric-contracts.js';
+import { POSTGRES_INT4_MAX } from './strict-number.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -402,6 +404,8 @@ export interface CatalogRankingResponse {
 
 export const catalogSortFields = ['price', 'price-desc', 'name', 'origin'] as const;
 export type CatalogSortField = (typeof catalogSortFields)[number];
+export const SUPPLIER_MIN_COFFEES_MAX = CLI_NUMERIC_BOUNDS.supplierMinCoffees.maximum;
+export const CATALOG_SEARCH_MAX_LIMIT = CLI_NUMERIC_BOUNDS.catalogSearchLimit.maximum;
 
 export const searchCatalogSchema = z
   .object({
@@ -412,9 +416,14 @@ export const searchCatalogSchema = z
     stocked: z.boolean().optional(),
     sort: z.enum(catalogSortFields).optional(),
     offset: z.number().int().min(0).optional(),
-    limit: z.number().int().min(1).default(10),
+    limit: z
+      .number()
+      .int()
+      .min(CLI_NUMERIC_BOUNDS.catalogSearchLimit.minimum)
+      .max(CATALOG_SEARCH_MAX_LIMIT)
+      .default(10),
     name: z.string().optional(),
-    ids: z.array(z.number().int().positive()).max(100).optional(),
+    ids: z.array(z.number().int().min(1).max(POSTGRES_INT4_MAX)).max(100).optional(),
     variety: z.string().optional(),
     stockedDays: z.number().int().positive().optional(),
     processingBaseMethod: z.string().optional(),
@@ -429,7 +438,7 @@ export const searchCatalogSchema = z
 export type SearchCatalogInput = z.input<typeof searchCatalogSchema>;
 
 export const getCatalogSchema = z.object({
-  id: z.number().int().positive(),
+  id: z.number().int().min(1).max(POSTGRES_INT4_MAX),
   includeProof: z.boolean().optional(),
 });
 
@@ -469,7 +478,13 @@ export const supplierAggregateSchema = z.object({
   country: z.string().optional(),
   stocked: z.boolean().optional(),
   nonWholesaleOnly: z.boolean().default(false).optional(),
-  minCoffees: z.number().int().min(1).default(1).optional(),
+  minCoffees: z
+    .number()
+    .int()
+    .min(CLI_NUMERIC_BOUNDS.supplierMinCoffees.minimum)
+    .max(SUPPLIER_MIN_COFFEES_MAX)
+    .default(1)
+    .optional(),
   topCoffees: z.number().int().min(1).max(25).default(5).optional(),
   limit: z.number().int().min(1).max(100).default(25).optional(),
   sampleSize: z
@@ -535,7 +550,8 @@ export const getCatalogSimilaritySchema = z.object({
   coffee_id: z
     .number()
     .int()
-    .positive()
+    .min(1)
+    .max(POSTGRES_INT4_MAX)
     .describe('The coffee_catalog ID to request canonical similarity for'),
   threshold: z
     .number()
@@ -566,7 +582,8 @@ export const findSimilarBeansSchema = z.object({
   coffee_id: z
     .number()
     .int()
-    .positive()
+    .min(1)
+    .max(POSTGRES_INT4_MAX)
     .describe('The coffee_catalog ID to find similar beans for'),
   threshold: z
     .number()

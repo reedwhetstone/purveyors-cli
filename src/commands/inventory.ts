@@ -14,11 +14,36 @@ import {
 } from '../lib/inventory.js';
 import type { InventoryItem, DeleteInventoryResult } from '../lib/inventory.js';
 import { pickCatalogItem, guardCancel } from '../lib/interactive/forms.js';
-import { parseStrictFiniteNumber } from '../lib/strict-number.js';
+import {
+  parseStrictFiniteNumber,
+  parseStrictInt4Id,
+  parseStrictOffset,
+  parseStrictPositiveCount,
+} from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
 
 // Re-export type for backwards compatibility
 export type { InventoryItem };
+
+function parseInventoryId(value: string, label: string): number {
+  const parsed = parseStrictInt4Id(value);
+  if (!Number.isFinite(parsed)) {
+    throw new PrvrsError('INVALID_ARGUMENT', `Invalid ${label}: "${value}".`);
+  }
+  return parsed;
+}
+
+function parseListCount(value: string, flag: '--limit' | '--offset'): number {
+  const parsed = flag === '--offset' ? parseStrictOffset(value) : parseStrictPositiveCount(value);
+  if (!Number.isFinite(parsed)) {
+    const requirement = flag === '--offset' ? 'a non-negative integer' : 'a positive integer';
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `Invalid ${flag}: "${value}". Must be ${requirement}.`
+    );
+  }
+  return parsed;
+}
 
 // ─── Command builder ──────────────────────────────────────────────────────────
 
@@ -67,17 +92,13 @@ Notes:
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
         let catalogId: number | undefined;
         if (opts.catalogId !== undefined) {
-          catalogId = parseInt(opts.catalogId as string, 10);
-          if (isNaN(catalogId)) {
-            throw new PrvrsError('INVALID_ARGUMENT', `Invalid --catalog-id: "${opts.catalogId}".`);
-          }
+          catalogId = parseInventoryId(opts.catalogId as string, '--catalog-id');
         }
 
-        const offsetVal = parseInt(opts.offset as string, 10);
         const data = await listInventory({
           stocked_only: opts.stocked ? true : undefined,
-          limit: Math.max(1, parseInt(opts.limit as string, 10)),
-          offset: isNaN(offsetVal) || offsetVal < 0 ? 0 : offsetVal,
+          limit: parseListCount(opts.limit as string, '--limit'),
+          offset: parseListCount(opts.offset as string, '--offset'),
           catalogId,
           purchaseDateStart: opts.purchaseDateStart as string | undefined,
           purchaseDateEnd: opts.purchaseDateEnd as string | undefined,
@@ -113,7 +134,7 @@ Notes:
     .action(
       withErrorHandling(async (id: string, _opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const data = await getInventory(parseInt(id, 10));
+        const data = await getInventory(parseInventoryId(id, 'inventory ID'));
         outputData(data, globalOpts);
       })
     );
@@ -238,10 +259,7 @@ Required flags: --catalog-id, --qty
           );
         }
 
-        const catalogId = parseInt(opts.catalogId as string, 10);
-        if (isNaN(catalogId)) {
-          throw new PrvrsError('INVALID_ARGUMENT', `Invalid --catalog-id: "${opts.catalogId}".`);
-        }
+        const catalogId = parseInventoryId(opts.catalogId as string, '--catalog-id');
 
         const qty = parseStrictFiniteNumber(opts.qty as string);
         if (!Number.isFinite(qty) || qty <= 0) {
@@ -304,10 +322,7 @@ Notes:
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const itemId = parseInt(id, 10);
-        if (isNaN(itemId)) {
-          throw new PrvrsError('INVALID_ARGUMENT', `Invalid inventory ID: "${id}".`);
-        }
+        const itemId = parseInventoryId(id, 'inventory ID');
 
         // Parse CLI strings into typed values
         let qty: number | undefined;
@@ -389,10 +404,7 @@ Notes:
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const itemId = parseInt(id, 10);
-        if (isNaN(itemId)) {
-          throw new PrvrsError('INVALID_ARGUMENT', `Invalid inventory ID: "${id}".`);
-        }
+        const itemId = parseInventoryId(id, 'inventory ID');
 
         if (!opts.yes) {
           const ok = await confirm(`Delete inventory item ${itemId}?`);

@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { PrvrsError } from './errors.js';
-import { getInventory, type InventoryItem } from './inventory.js';
+import { getInventory, getInventorySchema, type InventoryItem } from './inventory.js';
 import { createParchmentClient, unwrapParchment } from './parchment.js';
+import { POSTGRES_INT4_MAX, parseStrictInteger } from './strict-number.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -49,7 +50,7 @@ export interface CuppingNotes {
 export const tastingFilterSchema = z.enum(['user', 'supplier', 'both']);
 
 export const getTastingNotesSchema = z.object({
-  bean_id: z.number().int().positive().describe('Required coffee bean ID'),
+  bean_id: z.number().int().min(1).max(POSTGRES_INT4_MAX).describe('Required coffee bean ID'),
   filter: tastingFilterSchema.default('both'),
 });
 
@@ -78,8 +79,8 @@ export function isValidCuppingScore(value: number): boolean {
 
 /** Parse and validate a cupping score flag value (for CLI use). */
 export function parseCuppingScore(raw: string, flag: string): number {
-  const n = parseInt(raw, 10);
-  if (isNaN(n) || !isValidCuppingScore(n)) {
+  const n = parseStrictInteger(raw, 1, 5);
+  if (!Number.isFinite(n) || !isValidCuppingScore(n)) {
     throw new PrvrsError(
       'INVALID_ARGUMENT',
       `--${flag} must be an integer between 1 and 5 (got "${raw}").`
@@ -115,6 +116,7 @@ export async function rateCoffee(
   input: RateCoffeeInput,
   tokenOverride?: string
 ): Promise<InventoryItem> {
+  getInventorySchema.parse({ id });
   const parsed = rateCoffeeSchema.parse(input);
   const client = await createParchmentClient('member', tokenOverride);
   unwrapParchment(await client.tasting.rate(id, parsed), 'Tasting rate');

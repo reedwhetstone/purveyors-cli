@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { createParchmentClient, unwrapParchment } from './parchment.js';
 import type { MilestoneData, ProcessedRoastData } from './artisan/types.js';
+import { POSTGRES_INT4_MAX } from './strict-number.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -66,8 +67,20 @@ export interface RoastEventEntry {
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 export const listRoastsSchema = z.object({
-  coffee_id: z.number().int().positive().optional().describe('Filter by green coffee inventory ID'),
-  roast_id: z.number().int().positive().optional().describe('Filter by roast profile ID'),
+  coffee_id: z
+    .number()
+    .int()
+    .min(1)
+    .max(POSTGRES_INT4_MAX)
+    .optional()
+    .describe('Filter by green coffee inventory ID'),
+  roast_id: z
+    .number()
+    .int()
+    .min(1)
+    .max(POSTGRES_INT4_MAX)
+    .optional()
+    .describe('Filter by roast profile ID'),
   batch_name: z
     .string()
     .optional()
@@ -90,7 +103,8 @@ export const listRoastsSchema = z.object({
   catalog_id: z
     .number()
     .int()
-    .positive()
+    .min(1)
+    .max(POSTGRES_INT4_MAX)
     .optional()
     .describe('Filter by coffee_catalog ID (cross-reference from catalog search)'),
   limit: z.number().int().min(1).default(20).describe('Maximum results to return'),
@@ -100,7 +114,7 @@ export const listRoastsSchema = z.object({
 export type ListRoastsInput = z.input<typeof listRoastsSchema>;
 
 export const getRoastSchema = z.object({
-  id: z.number().int().positive(),
+  id: z.number().int().min(1).max(POSTGRES_INT4_MAX),
   includeTemps: z.boolean().optional(),
   includeEvents: z.boolean().optional(),
 });
@@ -108,7 +122,7 @@ export const getRoastSchema = z.object({
 export type GetRoastInput = z.input<typeof getRoastSchema>;
 
 export const createRoastSchema = z.object({
-  coffeeId: z.number().int().positive(),
+  coffeeId: z.number().int().min(1).max(POSTGRES_INT4_MAX),
   batchName: z.string().optional(),
   ozIn: z.number().positive().optional(),
   ozOut: z.number().positive().optional(),
@@ -119,7 +133,7 @@ export const createRoastSchema = z.object({
 export type CreateRoastInput = z.input<typeof createRoastSchema>;
 
 export const deleteRoastSchema = z.object({
-  id: z.number().int().positive(),
+  id: z.number().int().min(1).max(POSTGRES_INT4_MAX),
 });
 
 export type DeleteRoastInput = z.input<typeof deleteRoastSchema>;
@@ -223,7 +237,7 @@ export async function clearRoastArtisanImport(
 export const importRoastSchema = z.object({
   fileContent: z.string().min(1),
   fileName: z.string().min(1),
-  coffeeId: z.number().int().positive(),
+  coffeeId: z.number().int().min(1).max(POSTGRES_INT4_MAX),
   batchName: z.string().optional(),
   ozIn: z.number().positive().optional(),
   roastNotes: z.string().optional(),

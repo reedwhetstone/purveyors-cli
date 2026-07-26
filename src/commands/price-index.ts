@@ -3,14 +3,17 @@ import type { PriceIndexQuery } from '@purveyors/sdk';
 import { outputData } from '../lib/output.js';
 import { withErrorHandling, PrvrsError } from '../lib/errors.js';
 import { createParchmentClient, unwrapParchment } from '../lib/parchment.js';
+import { CLI_NUMERIC_BOUNDS } from '../lib/numeric-contracts.js';
+import { parseStrictPositiveCount } from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
 
-function parsePositiveInt(rawValue: string, flag: string): number {
-  const parsed = Number(rawValue.trim());
-  if (!Number.isInteger(parsed) || parsed <= 0) {
+function parsePositiveInt(rawValue: string, flag: string, max?: number): number {
+  const parsed = parseStrictPositiveCount(rawValue, max);
+  if (!Number.isFinite(parsed)) {
+    const requirement = max ? `an integer between 1 and ${max}` : 'a positive integer';
     throw new PrvrsError(
       'INVALID_ARGUMENT',
-      `Invalid ${flag}: "${rawValue}". Must be a positive integer.`
+      `Invalid ${flag}: "${rawValue}". Must be ${requirement}.`
     );
   }
   return parsed;
@@ -40,7 +43,10 @@ export function buildPriceIndexCommand(): Command {
     .option('--to <date>', 'Include snapshots on/before this ISO date (YYYY-MM-DD)')
     .option('--wholesale <true|false>', 'Filter by wholesale pricing scope')
     .option('--page <n>', '1-based page number')
-    .option('--limit <n>', 'Results per page')
+    .option(
+      '--limit <n>',
+      `Results per page (${CLI_NUMERIC_BOUNDS.priceIndexLimit.minimum}-${CLI_NUMERIC_BOUNDS.priceIndexLimit.maximum})`
+    )
     .addHelpText(
       'after',
       `
@@ -68,7 +74,11 @@ Notes:
           query.wholesale = parseWholesale(opts.wholesale as string);
         if (opts.page !== undefined) query.page = parsePositiveInt(opts.page as string, '--page');
         if (opts.limit !== undefined)
-          query.limit = parsePositiveInt(opts.limit as string, '--limit');
+          query.limit = parsePositiveInt(
+            opts.limit as string,
+            '--limit',
+            CLI_NUMERIC_BOUNDS.priceIndexLimit.maximum
+          );
 
         const client = await createParchmentClient('member');
         const result = await client.priceIndex.list(query);

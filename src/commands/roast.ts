@@ -27,13 +27,70 @@ import {
 import type { components } from '@purveyors/sdk';
 import type { OutputOptions } from '../types/index.js';
 import { getInventory } from '../lib/inventory.js';
-import { parseStrictFiniteNumber } from '../lib/strict-number.js';
+import {
+  parseStrictFiniteNumber,
+  parseStrictInt4Id,
+  parseStrictOffset,
+  parseStrictPositiveCount,
+} from '../lib/strict-number.js';
 
 /** Canonical `POST /v1/roasts/imports` response payload. */
 type RoastImportPayload = components['schemas']['RoastImportResponse'];
 
 // Re-export types for backwards compatibility
 export type { RoastProfile, TemperatureEntry, RoastEventEntry };
+
+function parseRoastInt4Id(value: string, label: string): number {
+  const parsed = parseStrictInt4Id(value);
+  if (!Number.isFinite(parsed)) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `Invalid ${label}: "${value}". Must be an integer between 1 and 2147483647.`
+    );
+  }
+  return parsed;
+}
+
+function parseRoastListCount(value: string, flag: '--limit' | '--offset'): number {
+  const parsed = flag === '--offset' ? parseStrictOffset(value) : parseStrictPositiveCount(value);
+  if (!Number.isFinite(parsed)) {
+    const requirement = flag === '--offset' ? 'a non-negative integer' : 'a positive integer';
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `Invalid ${flag}: "${value}". Must be ${requirement}.`
+    );
+  }
+  return parsed;
+}
+
+function parseWatchCommitMode(value: unknown, fallback: 'batch' | 'individual' = 'batch') {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    return fallback;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'batch' || normalized === 'individual') {
+    return normalized;
+  }
+
+  throw new PrvrsError(
+    'INVALID_ARGUMENT',
+    `Invalid --commit-mode: "${value}". Use "batch" or "individual".`
+  );
+}
+
+function parseWatchOptionalPositiveNumber(value: unknown, flagName: string): number | undefined {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    return undefined;
+  }
+
+  const parsed = parseStrictFiniteNumber(String(value));
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new PrvrsError('INVALID_ARGUMENT', `Invalid ${flagName}: "${value}".`);
+  }
+
+  return parsed;
+}
 
 /**
  * Map the canonical Parchment `roasts.import` response onto the CLI's existing
@@ -241,30 +298,19 @@ Notes:
         // Parse exact-id filters
         let roastId: number | undefined;
         if (opts.roastId !== undefined) {
-          roastId = parseInt(opts.roastId as string, 10);
-          if (isNaN(roastId) || roastId <= 0) {
-            throw new PrvrsError(
-              'INVALID_ARGUMENT',
-              `Invalid --roast-id: "${opts.roastId}". Must be a positive integer.`
-            );
-          }
+          roastId = parseRoastInt4Id(opts.roastId as string, '--roast-id');
         }
 
         let catalogId: number | undefined;
         if (opts.catalogId !== undefined) {
-          catalogId = parseInt(opts.catalogId as string, 10);
-          if (isNaN(catalogId) || catalogId <= 0) {
-            throw new PrvrsError(
-              'INVALID_ARGUMENT',
-              `Invalid --catalog-id: "${opts.catalogId}". Must be a positive integer.`
-            );
-          }
+          catalogId = parseRoastInt4Id(opts.catalogId as string, '--catalog-id');
         }
 
-        const offsetVal = parseInt(opts.offset as string, 10);
         const data = await listRoasts({
           coffee_id:
-            opts.coffeeId !== undefined ? parseInt(opts.coffeeId as string, 10) : undefined,
+            opts.coffeeId !== undefined
+              ? parseRoastInt4Id(opts.coffeeId as string, '--coffee-id')
+              : undefined,
           roast_id: roastId,
           batch_name: opts.batchName as string | undefined,
           coffee_name: opts.coffeeName as string | undefined,
@@ -272,8 +318,8 @@ Notes:
           date_end: dateEnd,
           stocked_only: opts.stocked === true ? true : undefined,
           catalog_id: catalogId,
-          limit: Math.max(1, parseInt(opts.limit as string, 10)),
-          offset: isNaN(offsetVal) || offsetVal < 0 ? 0 : offsetVal,
+          limit: parseRoastListCount(opts.limit as string, '--limit'),
+          offset: parseRoastListCount(opts.offset as string, '--offset'),
         });
 
         if (data.length === 0) {
@@ -310,7 +356,7 @@ Notes:
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const data = await getRoast(parseInt(id, 10), {
+        const data = await getRoast(parseRoastInt4Id(id, 'roast ID'), {
           includeTemps: Boolean(opts.includeTemps),
           includeEvents: Boolean(opts.includeEvents),
         });
@@ -436,10 +482,7 @@ Required flags: --coffee-id (green_coffee_inv.id)
           );
         }
 
-        const coffeeId = parseInt(opts.coffeeId as string, 10);
-        if (isNaN(coffeeId)) {
-          throw new PrvrsError('INVALID_ARGUMENT', `Invalid --coffee-id: "${opts.coffeeId}".`);
-        }
+        const coffeeId = parseRoastInt4Id(opts.coffeeId as string, '--coffee-id');
 
         let ozIn: number | undefined;
         if (opts.ozIn !== undefined) {
@@ -497,10 +540,7 @@ Notes:
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const roastId = parseInt(id, 10);
-        if (isNaN(roastId)) {
-          throw new PrvrsError('INVALID_ARGUMENT', `Invalid roast ID: "${id}".`);
-        }
+        const roastId = parseRoastInt4Id(id, 'roast ID');
 
         let ozOut: number | undefined;
         if (opts.ozOut !== undefined) {
@@ -553,10 +593,7 @@ Notes:
     .action(
       withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
         void cmd;
-        const roastId = parseInt(id, 10);
-        if (isNaN(roastId)) {
-          throw new PrvrsError('INVALID_ARGUMENT', `Invalid roast ID: "${id}".`);
-        }
+        const roastId = parseRoastInt4Id(id, 'roast ID');
 
         if (!opts.yes) {
           const ok = await confirm(`Delete roast profile #${roastId}?`);
@@ -755,10 +792,7 @@ Required: <file> path and --coffee-id (unless using --form)
             );
           }
 
-          const coffeeId = parseInt(opts.coffeeId as string, 10);
-          if (isNaN(coffeeId) || coffeeId <= 0) {
-            throw new PrvrsError('INVALID_ARGUMENT', `Invalid --coffee-id: "${opts.coffeeId}".`);
-          }
+          const coffeeId = parseRoastInt4Id(opts.coffeeId as string, '--coffee-id');
 
           // 4. Parse --oz-in if provided
           let ozIn: number | undefined;
@@ -860,37 +894,25 @@ Notes:
     )
     .action(
       withErrorHandling(async (directory: string | undefined, opts: Record<string, unknown>) => {
-        const { credentialContext, userId } = await requireAuth('member');
-        const roastImporter = createWatchRoastImporter(credentialContext);
+        // Validate all flag values before authentication so malformed machine input
+        // consistently returns INVALID_ARGUMENT without session or network work.
+        const parsedCoffeeId =
+          opts.coffeeId !== undefined
+            ? parseRoastInt4Id(opts.coffeeId as string, '--coffee-id')
+            : undefined;
+        const parsedCommitMode = parseWatchCommitMode(opts.commitMode);
+        const parsedOzIn = parseWatchOptionalPositiveNumber(opts.ozIn, '--oz-in');
+        const autoMatch = Boolean(opts.autoMatch);
 
-        const parseCommitMode = (value: unknown, fallback: 'batch' | 'individual' = 'batch') => {
-          if (value === undefined || value === null || String(value).trim() === '') {
-            return fallback;
-          }
-
-          const normalized = String(value).trim().toLowerCase();
-          if (normalized === 'batch' || normalized === 'individual') {
-            return normalized;
-          }
-
+        if (autoMatch && opts.coffeeId) {
           throw new PrvrsError(
             'INVALID_ARGUMENT',
-            `Invalid --commit-mode: "${value}". Use "batch" or "individual".`
+            '--auto-match and --coffee-id are mutually exclusive. Use one or the other.'
           );
-        };
+        }
 
-        const parseOptionalPositiveNumber = (value: unknown, flagName: string) => {
-          if (value === undefined || value === null || String(value).trim() === '') {
-            return undefined;
-          }
-
-          const parsed = parseStrictFiniteNumber(String(value));
-          if (!Number.isFinite(parsed) || parsed <= 0) {
-            throw new PrvrsError('INVALID_ARGUMENT', `Invalid ${flagName}: "${value}".`);
-          }
-
-          return parsed;
-        };
+        const { credentialContext, userId } = await requireAuth('member');
+        const roastImporter = createWatchRoastImporter(credentialContext);
 
         // ── Resume mode ──────────────────────────────────────────────────────
         if (opts.resume) {
@@ -1009,7 +1031,7 @@ Notes:
             ],
           });
           guardCancel(commitModeRaw);
-          const commitMode = parseCommitMode(commitModeRaw);
+          const commitMode = parseWatchCommitMode(commitModeRaw);
 
           const ozInRaw = await p.text({
             message: 'Green weight (oz)',
@@ -1046,7 +1068,7 @@ Notes:
               promptEach: useAutoMatch ? false : Boolean(promptEachRaw),
               autoMatch: useAutoMatch,
               interactiveRecovery: true,
-              ozIn: parseOptionalPositiveNumber(ozInRaw, 'green weight'),
+              ozIn: parseWatchOptionalPositiveNumber(ozInRaw, 'green weight'),
               roastTargets:
                 String(roastTargetsRaw).trim() !== '' ? String(roastTargetsRaw).trim() : undefined,
               roastNotes:
@@ -1065,9 +1087,6 @@ Notes:
           );
         }
 
-        const autoMatch = Boolean(opts.autoMatch);
-        const commitMode = parseCommitMode(opts.commitMode);
-        const ozIn = parseOptionalPositiveNumber(opts.ozIn, '--oz-in');
         const roastNotes =
           typeof opts.roastNotes === 'string' && opts.roastNotes.trim() !== ''
             ? opts.roastNotes.trim()
@@ -1076,14 +1095,6 @@ Notes:
           typeof opts.roastTargets === 'string' && opts.roastTargets.trim() !== ''
             ? opts.roastTargets.trim()
             : undefined;
-
-        // --auto-match and --coffee-id are mutually exclusive (auto-match picks the bean)
-        if (autoMatch && opts.coffeeId) {
-          throw new PrvrsError(
-            'INVALID_ARGUMENT',
-            '--auto-match and --coffee-id are mutually exclusive. Use one or the other.'
-          );
-        }
 
         if (!autoMatch && !opts.coffeeId) {
           throw new PrvrsError(
@@ -1100,10 +1111,7 @@ Notes:
           coffeeId = 0;
           coffeeName = 'auto-match';
         } else {
-          coffeeId = parseInt(opts.coffeeId as string, 10);
-          if (isNaN(coffeeId) || coffeeId <= 0) {
-            throw new PrvrsError('INVALID_ARGUMENT', `Invalid --coffee-id: "${opts.coffeeId}".`);
-          }
+          coffeeId = parsedCoffeeId as number;
 
           const invItem = await getInventory(
             coffeeId,
@@ -1124,10 +1132,10 @@ Notes:
             coffeeId,
             coffeeName,
             batchPrefix,
-            commitMode,
+            commitMode: parsedCommitMode,
             promptEach: Boolean(opts.promptEach),
             autoMatch,
-            ozIn,
+            ozIn: parsedOzIn,
             roastNotes,
             roastTargets,
           },

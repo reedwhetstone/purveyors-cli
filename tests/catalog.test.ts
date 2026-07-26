@@ -662,6 +662,15 @@ describe('searchCatalogSchema', () => {
     expect(result.limit).toBe(10);
   });
 
+  it('accepts limit at the documented maximum', () => {
+    const result = searchCatalogSchema.parse({ limit: 1000 });
+    expect(result.limit).toBe(1000);
+  });
+
+  it('rejects limit above the documented maximum', () => {
+    expect(() => searchCatalogSchema.parse({ limit: 1001 })).toThrow();
+  });
+
   it('accepts variety as optional string', () => {
     const result = searchCatalogSchema.parse({ variety: 'gesha' });
     expect(result.variety).toBe('gesha');

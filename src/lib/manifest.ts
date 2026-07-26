@@ -1,4 +1,5 @@
 import { EXIT_CODES } from './errors.js';
+import { CLI_NUMERIC_BOUNDS } from './numeric-contracts.js';
 
 export type CliAuthRequirement = 'none' | 'viewer' | 'member';
 export type CliOutputMode = 'json' | 'pretty' | 'csv';
@@ -35,6 +36,8 @@ export interface CliOptionContract {
   flags: string;
   description?: string;
   defaultValue?: string | number | boolean;
+  minimum?: number;
+  maximum?: number;
   requiredInFlagMode?: boolean;
   notes?: string[];
 }
@@ -280,7 +283,13 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--stocked' },
           { flags: '--sort <field>' },
           { flags: '--offset <n>', defaultValue: 0 },
-          { flags: '--limit <n>', defaultValue: 10 },
+          {
+            flags: '--limit <n>',
+            description: `Maximum results to return, ${CLI_NUMERIC_BOUNDS.catalogSearchLimit.minimum}-${CLI_NUMERIC_BOUNDS.catalogSearchLimit.maximum}`,
+            defaultValue: 10,
+            minimum: CLI_NUMERIC_BOUNDS.catalogSearchLimit.minimum,
+            maximum: CLI_NUMERIC_BOUNDS.catalogSearchLimit.maximum,
+          },
           {
             flags: '--include-proof',
             description: 'Request canonical proof summaries from /v1/catalog?include=proof',
@@ -477,7 +486,13 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--country <country>' },
           { flags: '--stocked' },
           { flags: '--non-wholesale-only' },
-          { flags: '--min-coffees <n>', defaultValue: 1 },
+          {
+            flags: '--min-coffees <n>',
+            description: `Minimum catalog rows required per supplier, ${CLI_NUMERIC_BOUNDS.supplierMinCoffees.minimum}-${CLI_NUMERIC_BOUNDS.supplierMinCoffees.maximum}`,
+            defaultValue: 1,
+            minimum: CLI_NUMERIC_BOUNDS.supplierMinCoffees.minimum,
+            maximum: CLI_NUMERIC_BOUNDS.supplierMinCoffees.maximum,
+          },
           { flags: '--sample-size <n>', defaultValue: 5000 },
           { flags: '--limit <n>', defaultValue: 25 },
         ],
@@ -1000,7 +1015,12 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--min-discount <n>' },
           { flags: '--min-score <n>' },
           { flags: '--window <7d|30d>' },
-          { flags: '--limit <n>' },
+          {
+            flags: '--limit <n>',
+            description: `Results per page, ${CLI_NUMERIC_BOUNDS.marketSignalsLimit.minimum}-${CLI_NUMERIC_BOUNDS.marketSignalsLimit.maximum}`,
+            minimum: CLI_NUMERIC_BOUNDS.marketSignalsLimit.minimum,
+            maximum: CLI_NUMERIC_BOUNDS.marketSignalsLimit.maximum,
+          },
         ],
         notes: [
           'Backed by the canonical API GET /v1/market/signals via @purveyors/sdk against api.purveyors.io.',
@@ -1072,7 +1092,12 @@ const commandGroups: CliCommandGroupContract[] = [
         { flags: '--to <date>' },
         { flags: '--wholesale <true|false>' },
         { flags: '--page <n>' },
-        { flags: '--limit <n>' },
+        {
+          flags: '--limit <n>',
+          description: `Results per page, ${CLI_NUMERIC_BOUNDS.priceIndexLimit.minimum}-${CLI_NUMERIC_BOUNDS.priceIndexLimit.maximum}`,
+          minimum: CLI_NUMERIC_BOUNDS.priceIndexLimit.minimum,
+          maximum: CLI_NUMERIC_BOUNDS.priceIndexLimit.maximum,
+        },
       ],
       notes: [
         'Backed by the canonical API GET /v1/price-index via @purveyors/sdk against api.purveyors.io.',
@@ -1129,7 +1154,15 @@ const commandGroups: CliCommandGroupContract[] = [
             required: true,
           },
         ],
-        options: [{ flags: '--page <n>' }, { flags: '--limit <n>' }],
+        options: [
+          { flags: '--page <n>' },
+          {
+            flags: '--limit <n>',
+            description: `Matches per page, ${CLI_NUMERIC_BOUNDS.procurementMatchesLimit.minimum}-${CLI_NUMERIC_BOUNDS.procurementMatchesLimit.maximum}`,
+            minimum: CLI_NUMERIC_BOUNDS.procurementMatchesLimit.minimum,
+            maximum: CLI_NUMERIC_BOUNDS.procurementMatchesLimit.maximum,
+          },
+        ],
         notes: [
           'Backed by the canonical API GET /v1/procurement/briefs/{id}/matches via @purveyors/sdk.',
           '--limit maxes at 100 (default 25); --page is 1-based (default 1).',
