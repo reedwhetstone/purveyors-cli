@@ -165,6 +165,31 @@ describe('strict numeric command input', () => {
     expect(error.message).toContain(flag);
   });
 
+  it.each([
+    [
+      'roast watch coffee ID',
+      ['roast', 'watch', '/tmp', '--coffee-id', '7oops', '--json'],
+      '--coffee-id',
+    ],
+    [
+      'roast watch commit mode',
+      ['roast', 'watch', '/tmp', '--commit-mode', 'invalid', '--json'],
+      '--commit-mode',
+    ],
+    [
+      'roast watch green weight',
+      ['roast', 'watch', '/tmp', '--oz-in', '12oz', '--auto-match', '--json'],
+      '--oz-in',
+    ],
+  ])('rejects malformed %s before authentication', (_label, args, flag) => {
+    const result = runCli(args);
+    const error = parseError(result.stderr);
+
+    expect(result.status).toBe(2);
+    expect(error).toMatchObject({ code: 'INVALID_ARGUMENT', exitCode: 2 });
+    expect(error.message).toContain(flag);
+  });
+
   it('validates roast flags instead of auto-entering form mode when the required selector is present', () => {
     const result = runCli(['roast', 'create', '--coffee-id', '1', '--oz-in', '12oz', '--json'], {
       formMode: true,

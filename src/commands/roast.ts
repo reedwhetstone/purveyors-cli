@@ -63,6 +63,35 @@ function parseRoastListCount(value: string, flag: '--limit' | '--offset'): numbe
   return parsed;
 }
 
+function parseWatchCommitMode(value: unknown, fallback: 'batch' | 'individual' = 'batch') {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    return fallback;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'batch' || normalized === 'individual') {
+    return normalized;
+  }
+
+  throw new PrvrsError(
+    'INVALID_ARGUMENT',
+    `Invalid --commit-mode: "${value}". Use "batch" or "individual".`
+  );
+}
+
+function parseWatchOptionalPositiveNumber(value: unknown, flagName: string): number | undefined {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    return undefined;
+  }
+
+  const parsed = parseStrictFiniteNumber(String(value));
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new PrvrsError('INVALID_ARGUMENT', `Invalid ${flagName}: "${value}".`);
+  }
+
+  return parsed;
+}
+
 /**
  * Map the canonical Parchment `roasts.import` response onto the CLI's existing
  * {@link ImportRoastResult} output shape, so `--pretty` and machine output stay
@@ -865,37 +894,25 @@ Notes:
     )
     .action(
       withErrorHandling(async (directory: string | undefined, opts: Record<string, unknown>) => {
-        const { credentialContext, userId } = await requireAuth('member');
-        const roastImporter = createWatchRoastImporter(credentialContext);
+        // Validate all flag values before authentication so malformed machine input
+        // consistently returns INVALID_ARGUMENT without session or network work.
+        const parsedCoffeeId =
+          opts.coffeeId !== undefined
+            ? parseRoastInt4Id(opts.coffeeId as string, '--coffee-id')
+            : undefined;
+        const parsedCommitMode = parseWatchCommitMode(opts.commitMode);
+        const parsedOzIn = parseWatchOptionalPositiveNumber(opts.ozIn, '--oz-in');
+        const autoMatch = Boolean(opts.autoMatch);
 
-        const parseCommitMode = (value: unknown, fallback: 'batch' | 'individual' = 'batch') => {
-          if (value === undefined || value === null || String(value).trim() === '') {
-            return fallback;
-          }
-
-          const normalized = String(value).trim().toLowerCase();
-          if (normalized === 'batch' || normalized === 'individual') {
-            return normalized;
-          }
-
+        if (autoMatch && opts.coffeeId) {
           throw new PrvrsError(
             'INVALID_ARGUMENT',
-            `Invalid --commit-mode: "${value}". Use "batch" or "individual".`
+            '--auto-match and --coffee-id are mutually exclusive. Use one or the other.'
           );
-        };
+        }
 
-        const parseOptionalPositiveNumber = (value: unknown, flagName: string) => {
-          if (value === undefined || value === null || String(value).trim() === '') {
-            return undefined;
-          }
-
-          const parsed = parseStrictFiniteNumber(String(value));
-          if (!Number.isFinite(parsed) || parsed <= 0) {
-            throw new PrvrsError('INVALID_ARGUMENT', `Invalid ${flagName}: "${value}".`);
-          }
-
-          return parsed;
-        };
+        const { credentialContext, userId } = await requireAuth('member');
+        const roastImporter = createWatchRoastImporter(credentialContext);
 
         // ── Resume mode ──────────────────────────────────────────────────────
         if (opts.resume) {
@@ -1014,7 +1031,7 @@ Notes:
             ],
           });
           guardCancel(commitModeRaw);
-          const commitMode = parseCommitMode(commitModeRaw);
+          const commitMode = parseWatchCommitMode(commitModeRaw);
 
           const ozInRaw = await p.text({
             message: 'Green weight (oz)',
@@ -1051,7 +1068,7 @@ Notes:
               promptEach: useAutoMatch ? false : Boolean(promptEachRaw),
               autoMatch: useAutoMatch,
               interactiveRecovery: true,
-              ozIn: parseOptionalPositiveNumber(ozInRaw, 'green weight'),
+              ozIn: parseWatchOptionalPositiveNumber(ozInRaw, 'green weight'),
               roastTargets:
                 String(roastTargetsRaw).trim() !== '' ? String(roastTargetsRaw).trim() : undefined,
               roastNotes:
@@ -1070,9 +1087,6 @@ Notes:
           );
         }
 
-        const autoMatch = Boolean(opts.autoMatch);
-        const commitMode = parseCommitMode(opts.commitMode);
-        const ozIn = parseOptionalPositiveNumber(opts.ozIn, '--oz-in');
         const roastNotes =
           typeof opts.roastNotes === 'string' && opts.roastNotes.trim() !== ''
             ? opts.roastNotes.trim()
@@ -1081,14 +1095,6 @@ Notes:
           typeof opts.roastTargets === 'string' && opts.roastTargets.trim() !== ''
             ? opts.roastTargets.trim()
             : undefined;
-
-        // --auto-match and --coffee-id are mutually exclusive (auto-match picks the bean)
-        if (autoMatch && opts.coffeeId) {
-          throw new PrvrsError(
-            'INVALID_ARGUMENT',
-            '--auto-match and --coffee-id are mutually exclusive. Use one or the other.'
-          );
-        }
 
         if (!autoMatch && !opts.coffeeId) {
           throw new PrvrsError(
@@ -1105,7 +1111,7 @@ Notes:
           coffeeId = 0;
           coffeeName = 'auto-match';
         } else {
-          coffeeId = parseRoastInt4Id(opts.coffeeId as string, '--coffee-id');
+          coffeeId = parsedCoffeeId as number;
 
           const invItem = await getInventory(
             coffeeId,
@@ -1126,10 +1132,10 @@ Notes:
             coffeeId,
             coffeeName,
             batchPrefix,
-            commitMode,
+            commitMode: parsedCommitMode,
             promptEach: Boolean(opts.promptEach),
             autoMatch,
-            ozIn,
+            ozIn: parsedOzIn,
             roastNotes,
             roastTargets,
           },
