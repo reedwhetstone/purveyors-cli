@@ -1092,10 +1092,11 @@ async function fetchCatalogApiItems(
 
   if (
     parsed.includeProof &&
-    envelope.data.some(
-      (item) =>
-        !item || typeof item !== 'object' || !Object.prototype.hasOwnProperty.call(item, 'proof')
-    )
+    (envelope.data.length === 0 ||
+      envelope.data.some(
+        (item) =>
+          !item || typeof item !== 'object' || !Object.prototype.hasOwnProperty.call(item, 'proof')
+      ))
   ) {
     throw new PrvrsError(
       'CONFIG_ERROR',

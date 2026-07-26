@@ -1295,6 +1295,21 @@ describe('searchCatalog', () => {
       message: expect.stringContaining('Catalog API rejected --include-proof'),
     });
   });
+
+  it('rejects empty include-proof responses as unsupported', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(getCatalog(42, { includeProof: true })).rejects.toMatchObject({
+      code: 'CONFIG_ERROR',
+      message: expect.stringContaining('did not return proof summaries'),
+    });
+  });
 });
 
 // ─── getCatalogSimilaritySchema ───────────────────────────────────────────────
