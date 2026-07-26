@@ -7,6 +7,7 @@ import {
   resolveParchmentToken,
   unwrapParchment,
 } from './parchment.js';
+import { POSTGRES_INT4_MAX } from './strict-number.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -402,6 +403,7 @@ export interface CatalogRankingResponse {
 
 export const catalogSortFields = ['price', 'price-desc', 'name', 'origin'] as const;
 export type CatalogSortField = (typeof catalogSortFields)[number];
+export const SUPPLIER_MIN_COFFEES_MAX = 100;
 export const CATALOG_SEARCH_MAX_LIMIT = 1000;
 
 export const searchCatalogSchema = z
@@ -415,7 +417,7 @@ export const searchCatalogSchema = z
     offset: z.number().int().min(0).optional(),
     limit: z.number().int().min(1).max(CATALOG_SEARCH_MAX_LIMIT).default(10),
     name: z.string().optional(),
-    ids: z.array(z.number().int().positive()).max(100).optional(),
+    ids: z.array(z.number().int().min(1).max(POSTGRES_INT4_MAX)).max(100).optional(),
     variety: z.string().optional(),
     stockedDays: z.number().int().positive().optional(),
     processingBaseMethod: z.string().optional(),
@@ -430,7 +432,7 @@ export const searchCatalogSchema = z
 export type SearchCatalogInput = z.input<typeof searchCatalogSchema>;
 
 export const getCatalogSchema = z.object({
-  id: z.number().int().positive(),
+  id: z.number().int().min(1).max(POSTGRES_INT4_MAX),
   includeProof: z.boolean().optional(),
 });
 
@@ -470,7 +472,7 @@ export const supplierAggregateSchema = z.object({
   country: z.string().optional(),
   stocked: z.boolean().optional(),
   nonWholesaleOnly: z.boolean().default(false).optional(),
-  minCoffees: z.number().int().min(1).default(1).optional(),
+  minCoffees: z.number().int().min(1).max(SUPPLIER_MIN_COFFEES_MAX).default(1).optional(),
   topCoffees: z.number().int().min(1).max(25).default(5).optional(),
   limit: z.number().int().min(1).max(100).default(25).optional(),
   sampleSize: z
@@ -536,7 +538,8 @@ export const getCatalogSimilaritySchema = z.object({
   coffee_id: z
     .number()
     .int()
-    .positive()
+    .min(1)
+    .max(POSTGRES_INT4_MAX)
     .describe('The coffee_catalog ID to request canonical similarity for'),
   threshold: z
     .number()
@@ -567,7 +570,8 @@ export const findSimilarBeansSchema = z.object({
   coffee_id: z
     .number()
     .int()
-    .positive()
+    .min(1)
+    .max(POSTGRES_INT4_MAX)
     .describe('The coffee_catalog ID to find similar beans for'),
   threshold: z
     .number()

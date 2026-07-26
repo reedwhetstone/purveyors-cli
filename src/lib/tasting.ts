@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { PrvrsError } from './errors.js';
-import { getInventory, type InventoryItem } from './inventory.js';
+import { getInventory, getInventorySchema, type InventoryItem } from './inventory.js';
 import { createParchmentClient, unwrapParchment } from './parchment.js';
-import { parseStrictInteger } from './strict-number.js';
+import { POSTGRES_INT4_MAX, parseStrictInteger } from './strict-number.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,7 +50,7 @@ export interface CuppingNotes {
 export const tastingFilterSchema = z.enum(['user', 'supplier', 'both']);
 
 export const getTastingNotesSchema = z.object({
-  bean_id: z.number().int().positive().describe('Required coffee bean ID'),
+  bean_id: z.number().int().min(1).max(POSTGRES_INT4_MAX).describe('Required coffee bean ID'),
   filter: tastingFilterSchema.default('both'),
 });
 
@@ -116,6 +116,7 @@ export async function rateCoffee(
   input: RateCoffeeInput,
   tokenOverride?: string
 ): Promise<InventoryItem> {
+  getInventorySchema.parse({ id });
   const parsed = rateCoffeeSchema.parse(input);
   const client = await createParchmentClient('member', tokenOverride);
   unwrapParchment(await client.tasting.rate(id, parsed), 'Tasting rate');

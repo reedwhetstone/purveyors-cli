@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { PrvrsError } from './errors.js';
 import { createParchmentClient, unwrapParchment } from './parchment.js';
+import { POSTGRES_INT4_MAX } from './strict-number.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,7 +40,13 @@ export const listInventorySchema = z.object({
   stocked_only: z.boolean().optional().describe('Only show currently stocked beans'),
   limit: z.number().int().min(1).default(20).describe('Maximum results to return'),
   offset: z.number().int().min(0).optional().describe('Skip N results (for pagination)'),
-  catalogId: z.number().int().positive().optional().describe('Filter by catalog ID'),
+  catalogId: z
+    .number()
+    .int()
+    .min(1)
+    .max(POSTGRES_INT4_MAX)
+    .optional()
+    .describe('Filter by catalog ID'),
   purchaseDateStart: z.string().optional().describe('Only show purchases on or after this date'),
   purchaseDateEnd: z.string().optional().describe('Only show purchases on or before this date'),
   origin: z.string().optional().describe('Filter by country of origin (partial match)'),
@@ -48,13 +55,13 @@ export const listInventorySchema = z.object({
 export type ListInventoryInput = z.input<typeof listInventorySchema>;
 
 export const getInventorySchema = z.object({
-  id: z.number().int().positive(),
+  id: z.number().int().min(1).max(POSTGRES_INT4_MAX),
 });
 
 export type GetInventoryInput = z.input<typeof getInventorySchema>;
 
 export const addInventorySchema = z.object({
-  catalogId: z.number().int().positive(),
+  catalogId: z.number().int().min(1).max(POSTGRES_INT4_MAX),
   qty: z.number().positive(),
   cost: z.number().optional(),
   taxShip: z.number().optional(),
@@ -79,7 +86,7 @@ export const updateInventorySchema = z
 export type UpdateInventoryInput = z.input<typeof updateInventorySchema>;
 
 export const deleteInventorySchema = z.object({
-  id: z.number().int().positive(),
+  id: z.number().int().min(1).max(POSTGRES_INT4_MAX),
 });
 
 export type DeleteInventoryInput = z.input<typeof deleteInventorySchema>;

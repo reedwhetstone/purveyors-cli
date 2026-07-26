@@ -16,6 +16,7 @@ import {
   sanitizeFilterValue,
   catalogSortFields,
   CATALOG_SEARCH_MAX_LIMIT,
+  SUPPLIER_MIN_COFFEES_MAX,
   catalogFacetFields,
   catalogRankObjectives,
   catalogSimilarityModes,
@@ -669,7 +670,7 @@ Notes:
             opts.minCoffees as string,
             '--min-coffees',
             1,
-            100
+            SUPPLIER_MIN_COFFEES_MAX
           ),
           sampleSize: parseBoundedPositiveIntegerArg(
             opts.sampleSize as string,
