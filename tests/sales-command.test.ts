@@ -70,6 +70,29 @@ describe('sales record command', () => {
     expect(stderr.message).toContain('Missing sale target');
   }, 15000);
 
+  it.each(['12.5abc', '10oz'])(
+    'rejects suffixed --oz input %j before auth',
+    (oz) => {
+      const result = runCli([
+        'sales',
+        'record',
+        '--roast-id',
+        '7',
+        '--oz',
+        oz,
+        '--price',
+        '18',
+        '--json',
+      ]);
+      const stderr = parseJson(result.stderr);
+
+      expect(result.status).toBe(2);
+      expect(stderr).toMatchObject({ error: true, code: 'INVALID_ARGUMENT', exitCode: 2 });
+      expect(stderr.message).toContain(`Invalid --oz: "${oz}"`);
+    },
+    15000
+  );
+
   it('rejects incomplete resolved mode when batch-name is missing', () => {
     const result = runCli([
       'sales',

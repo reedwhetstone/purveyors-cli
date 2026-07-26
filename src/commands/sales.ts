@@ -8,6 +8,7 @@ import { listSales, recordSale, updateSale, deleteSale } from '../lib/sales.js';
 import type { Sale, RecordSaleInput } from '../lib/sales.js';
 import { pickRoast, guardCancel } from '../lib/interactive/forms.js';
 import { getConfigValue } from '../lib/config.js';
+import { parseStrictFiniteNumber } from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
 
 // Re-export type for backwards compatibility
@@ -72,8 +73,8 @@ function parsePositiveIntegerOption(flag: string, value: string): number {
 }
 
 function parsePositiveNumberOption(flag: string, value: string): number {
-  const parsed = parseFloat(value);
-  if (isNaN(parsed) || parsed <= 0) {
+  const parsed = parseStrictFiniteNumber(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new PrvrsError(
       'INVALID_ARGUMENT',
       `Invalid ${flag}: "${value}". Must be a positive number.`
@@ -83,8 +84,8 @@ function parsePositiveNumberOption(flag: string, value: string): number {
 }
 
 function parseNonNegativeNumberOption(flag: string, value: string): number {
-  const parsed = parseFloat(value);
-  if (isNaN(parsed) || parsed < 0) {
+  const parsed = parseStrictFiniteNumber(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
     throw new PrvrsError(
       'INVALID_ARGUMENT',
       `Invalid ${flag}: "${value}". Must be a non-negative number.`
@@ -276,8 +277,8 @@ Required flags: selector mode, --oz, --price
             message: 'Ounces sold',
             placeholder: '12',
             validate: (v) => {
-              const n = parseFloat(String(v));
-              if (isNaN(n) || n <= 0) return 'Must be a positive number.';
+              const n = parseStrictFiniteNumber(String(v));
+              if (!Number.isFinite(n) || n <= 0) return 'Must be a positive number.';
             },
           });
           guardCancel(ozRaw);
@@ -286,8 +287,8 @@ Required flags: selector mode, --oz, --price
             message: 'Sale price ($)',
             placeholder: '22.00',
             validate: (v) => {
-              const n = parseFloat(String(v));
-              if (isNaN(n) || n < 0) return 'Must be a non-negative number.';
+              const n = parseStrictFiniteNumber(String(v));
+              if (!Number.isFinite(n) || n < 0) return 'Must be a non-negative number.';
             },
           });
           guardCancel(priceRaw);
@@ -312,8 +313,8 @@ Required flags: selector mode, --oz, --price
           const data = await recordInteractiveSale(
             credentialContext,
             {
-              oz: parseFloat(String(ozRaw)),
-              price: parseFloat(String(priceRaw)),
+              oz: parseStrictFiniteNumber(String(ozRaw)),
+              price: parseStrictFiniteNumber(String(priceRaw)),
               buyer: buyerStr !== '' ? buyerStr : undefined,
               sellDate: todayIso(),
             },
@@ -369,15 +370,15 @@ Notes:
 
         let oz: number | undefined;
         if (opts.oz !== undefined) {
-          oz = parseFloat(opts.oz as string);
-          if (isNaN(oz) || oz <= 0)
+          oz = parseStrictFiniteNumber(opts.oz as string);
+          if (!Number.isFinite(oz) || oz <= 0)
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --oz: "${opts.oz}".`);
         }
 
         let price: number | undefined;
         if (opts.price !== undefined) {
-          price = parseFloat(opts.price as string);
-          if (isNaN(price) || price < 0)
+          price = parseStrictFiniteNumber(opts.price as string);
+          if (!Number.isFinite(price) || price < 0)
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --price: "${opts.price}".`);
         }
 
