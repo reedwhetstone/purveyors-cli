@@ -41,7 +41,6 @@ describe('searchCatalogSchema', () => {
       process: 'natural',
       priceMin: 5.0,
       priceMax: 20.0,
-      flavor: 'berry',
       stocked: true,
       limit: 25,
     });
@@ -49,7 +48,6 @@ describe('searchCatalogSchema', () => {
     expect(parsed.process).toBe('natural');
     expect(parsed.priceMin).toBe(5.0);
     expect(parsed.priceMax).toBe(20.0);
-    expect(parsed.flavor).toBe('berry');
     expect(parsed.stocked).toBe(true);
     expect(parsed.limit).toBe(25);
   });

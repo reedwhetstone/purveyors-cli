@@ -111,8 +111,8 @@ export async function pickRoast(
  */
 export async function pickCatalogItem(): Promise<{ id: number; name: string }> {
   const searchTerm = await p.text({
-    message: 'Search coffee catalog (origin, name, or flavor)',
-    placeholder: 'e.g. Ethiopia, natural, berry',
+    message: 'Search coffee catalog (origin or name)',
+    placeholder: 'e.g. Ethiopia or Guji',
     validate: (v) => {
       if (!v || v.trim().length === 0) return 'Please enter a search term.';
     },
@@ -121,14 +121,14 @@ export async function pickCatalogItem(): Promise<{ id: number; name: string }> {
   guardCancel(searchTerm);
 
   const term = (searchTerm as string).trim();
-  const [byName, byOrigin, byFlavor] = await Promise.all([
+  const [byName, byOrigin] = await Promise.all([
     searchCatalog({ name: term, limit: 20 }),
     searchCatalog({ origin: term, limit: 20 }),
-    searchCatalog({ flavor: term, limit: 20 }),
   ]);
-  const rows = [
-    ...new Map([...byName, ...byOrigin, ...byFlavor].map((row) => [row.id, row])).values(),
-  ].slice(0, 20);
+  const rows = [...new Map([...byName, ...byOrigin].map((row) => [row.id, row])).values()].slice(
+    0,
+    20
+  );
 
   if (rows.length === 0) {
     p.cancel(`No coffees found matching "${term}". Try a different search.`);

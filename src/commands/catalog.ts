@@ -93,7 +93,7 @@ export function buildCatalogCommand(): Command {
   // ── catalog search ────────────────────────────────────────────────────────
   catalog
     .command('search')
-    .description('Search coffees by origin, process, price, or flavor')
+    .description('Search coffees by origin, process, price, or catalog metadata')
     .option('--origin <origin>', 'Filter by origin (country, continent, or region)')
     .option('--process <method>', 'Filter by processing method (e.g. natural, washed)')
     .option('--processing-base-method <method>', 'Filter by canonical process base method')
@@ -103,12 +103,9 @@ export function buildCatalogCommand(): Command {
     .option('--processing-confidence-min <n>', 'Minimum process metadata confidence (0-1)')
     .option('--price-min <n>', 'Minimum price per lb (USD)')
     .option('--price-max <n>', 'Maximum price per lb (USD)')
-    .option('--flavor <keywords>', 'Flavor keywords, comma-separated (e.g. "berry,chocolate")')
     .option('--name <text>', 'Filter by coffee name (partial match, case-insensitive)')
-    .option('--supplier <name>', 'Filter by supplier/source name (partial match, case-insensitive)')
     .option('--ids <n,n,...>', 'Fetch specific catalog IDs (comma-separated, ignores limit)')
     .option('--variety <text>', 'Filter by coffee variety/cultivar (partial match)')
-    .option('--drying-method <text>', 'Filter by drying method (partial match)')
     .option('--stocked-days <n>', 'Only show coffees stocked within N days')
     .option('--stocked', 'Only show currently stocked coffees')
     .option('--sort <field>', `Sort results by: ${catalogSortFields.join(', ')}`)
@@ -121,20 +118,16 @@ export function buildCatalogCommand(): Command {
 Examples:
   purvey catalog search --origin "Ethiopia" --pretty
   purvey catalog search --origin "Colombia" --process "honey" --pretty
-  purvey catalog search --process "natural" --flavor "blueberry,citrus" --stocked
   purvey catalog search --processing-base-method "Natural" --fermentation-type "Anaerobic" --pretty
   purvey catalog search --process-additive "hops" --processing-confidence-min 0.8 --pretty
   purvey catalog search --price-min 5 --price-max 12 --stocked --limit 20
   purvey catalog search --stocked --sort price --pretty
-  purvey catalog search --sort newest --limit 20
   purvey catalog search --stocked --limit 10 --offset 10   # page 2
   purvey catalog search --origin "Ethiopia" --csv > ethiopia.csv
   purvey catalog search --stocked --limit 50 | jq '.[].name'
   purvey catalog search --name "Guji" --pretty
-  purvey catalog search --supplier "Royal Coffee" --stocked --pretty
   purvey catalog search --ids "1182,1183,1200"
   purvey catalog search --variety "gesha" --stocked --pretty
-  purvey catalog search --drying-method "sun" --origin "Ethiopia" --pretty
   purvey catalog search --stocked-days 30 --pretty
   purvey catalog search --origin "Ethiopia" --include-proof --json
 
@@ -143,7 +136,6 @@ Sort fields:
   price-desc  most expensive first
   name        alphabetical by name
   origin      alphabetical by country
-  newest      most recently updated first
 
 Notes:
   All filters are optional. Without flags, returns up to --limit results.
@@ -156,9 +148,7 @@ Notes:
   --processing-base-method, --fermentation-type, --process-additive, and
   --processing-disclosure-level require exact structured metadata matches.
   --processing-confidence-min accepts a decimal from 0 to 1.
-  --name and --supplier accept partial matches (case-insensitive).
   --variety filters on cultivar_detail (partial match, case-insensitive).
-  --drying-method filters on drying_method (partial match, case-insensitive).
   --stocked-days N shows only coffees stocked within the last N days.
   --ids fetches specific catalog items by ID, ignoring --limit and --offset.
   --offset + --limit enables pagination through large result sets.
@@ -254,12 +244,9 @@ Notes:
           process: opts.process as string | undefined,
           priceMin,
           priceMax,
-          flavor: opts.flavor as string | undefined,
           name: opts.name as string | undefined,
-          supplier: opts.supplier as string | undefined,
           ids: parsedIds,
           variety: opts.variety as string | undefined,
-          dryingMethod: opts.dryingMethod as string | undefined,
           stockedDays,
           processingBaseMethod: opts.processingBaseMethod as string | undefined,
           fermentationType: opts.fermentationType as string | undefined,
@@ -401,7 +388,6 @@ Notes:
     )
     .option('--country <country>', 'Filter by country')
     .option('--process <method>', 'Filter by processing method')
-    .option('--supplier <name>', 'Filter by supplier/source name')
     .option('--stocked', 'Only include currently stocked coffees')
     .option('--all', 'Use all visible catalog rows instead of default stocked-only scope')
     .option('--price-max <n>', 'Maximum price per lb (USD)')
@@ -439,7 +425,6 @@ Notes:
           objective: objective as (typeof catalogRankObjectives)[number],
           country: opts.country as string | undefined,
           process: opts.process as string | undefined,
-          supplier: opts.supplier as string | undefined,
           stockedOnly: opts.all ? false : opts.stocked ? true : true,
           priceMax:
             opts.priceMax !== undefined
@@ -476,7 +461,6 @@ Notes:
     .description('Rank premium catalog candidates by Purveyor Score')
     .option('--origin <origin>', 'Filter by origin (country, continent, or region)')
     .option('--process <method>', 'Filter by processing method')
-    .option('--supplier <name>', 'Filter by supplier/source name')
     .option('--stocked', 'Only include currently stocked coffees')
     .option('--price-max <n>', 'Maximum price per lb (USD)')
     .option('--min-score <n>', 'Minimum Purveyor Score')
@@ -489,7 +473,6 @@ Notes:
 Examples:
   purvey catalog rank-premium --stocked --limit 10 --pretty
   purvey catalog rank-premium --origin Ethiopia --min-score 88 --json
-  purvey catalog rank-premium --supplier "Royal Coffee" --price-max 12 --pretty
 
 Notes:
   Ranks by coffee_catalog.score_value, exposed as purveyor_score in output.
@@ -504,7 +487,6 @@ Notes:
         const input = {
           origin: opts.origin as string | undefined,
           process: opts.process as string | undefined,
-          supplier: opts.supplier as string | undefined,
           stocked: opts.stocked ? true : undefined,
           priceMax:
             opts.priceMax !== undefined

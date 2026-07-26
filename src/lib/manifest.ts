@@ -261,7 +261,7 @@ const commandGroups: CliCommandGroupContract[] = [
       {
         name: 'search',
         summary:
-          'Search coffees by origin, process, price, flavor, and catalog metadata; structured process filters require member access',
+          'Search coffees by origin, process, price, and catalog metadata; structured process filters require member access',
         auth: 'viewer',
         options: [
           { flags: '--origin <origin>' },
@@ -273,12 +273,9 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--processing-confidence-min <n>' },
           { flags: '--price-min <n>' },
           { flags: '--price-max <n>' },
-          { flags: '--flavor <keywords>' },
           { flags: '--name <text>' },
-          { flags: '--supplier <name>' },
           { flags: '--ids <n,n,...>' },
           { flags: '--variety <text>' },
-          { flags: '--drying-method <text>' },
           { flags: '--stocked-days <n>' },
           { flags: '--stocked' },
           { flags: '--sort <field>' },
@@ -289,7 +286,7 @@ const commandGroups: CliCommandGroupContract[] = [
             description: 'Request canonical proof summaries from /v1/catalog?include=proof',
             notes: [
               'Consumes the API proof summary; the CLI does not compute proof fields locally.',
-              'If the configured endpoint has not deployed include=proof, the CLI surfaces the structured API error.',
+              'The SDK supplies the canonical proof-summary-v1 row projection.',
             ],
           },
         ],
@@ -300,7 +297,6 @@ const commandGroups: CliCommandGroupContract[] = [
           '--ids fetches specific catalog items by ID, ignoring --limit and --offset.',
           '--offset + --limit enables pagination through large result sets.',
           '--include-proof uses the canonical /v1/catalog proof summary include and preserves the default output shape when omitted.',
-          '--include-proof rejects CLI-only filters that /v1/catalog cannot yet preserve exactly, including --flavor, --supplier, --drying-method, and --sort newest.',
           'PURVEYORS_API_KEY or PARCHMENT_API_KEY overrides the scoped API key stored by `purvey auth login`.',
         ],
         examples: [
@@ -308,7 +304,6 @@ const commandGroups: CliCommandGroupContract[] = [
           'purvey catalog search --processing-base-method "Natural" --fermentation-type "Anaerobic" --pretty',
           'purvey catalog search --process-additive "hops" --processing-confidence-min 0.8 --pretty',
           'purvey catalog search --variety "gesha" --stocked --pretty',
-          'purvey catalog search --drying-method "sun" --origin "Ethiopia" --pretty',
           'purvey catalog search --stocked-days 30 --pretty',
           'purvey catalog search --origin "Ethiopia" --include-proof --json',
         ],
@@ -383,7 +378,6 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--objective <objective>', defaultValue: 'premium' },
           { flags: '--country <country>' },
           { flags: '--process <method>' },
-          { flags: '--supplier <name>' },
           { flags: '--stocked' },
           {
             flags: '--all',
@@ -416,7 +410,6 @@ const commandGroups: CliCommandGroupContract[] = [
         options: [
           { flags: '--origin <origin>' },
           { flags: '--process <method>' },
-          { flags: '--supplier <name>' },
           { flags: '--stocked' },
           { flags: '--price-max <n>' },
           { flags: '--min-score <n>' },

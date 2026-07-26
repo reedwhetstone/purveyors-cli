@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { CatalogProofSummary as SdkCatalogProofSummary } from '@purveyors/sdk';
 import { AuthError, PrvrsError } from './errors.js';
 import {
   createParchmentClient,
@@ -9,22 +10,7 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export interface CatalogProofFamily {
-  label: string;
-  confidence: number | null;
-  signals: string[];
-  message: string;
-}
-
-export interface CatalogProofSummary {
-  version: string;
-  overall: {
-    label: string;
-    families_with_signals: number;
-  };
-  families: Record<string, CatalogProofFamily>;
-  limitations: string[];
-}
+export type CatalogProofSummary = SdkCatalogProofSummary;
 
 export interface CatalogItem {
   id: number;
@@ -414,7 +400,7 @@ export interface CatalogRankingResponse {
 
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
-export const catalogSortFields = ['price', 'price-desc', 'name', 'origin', 'newest'] as const;
+export const catalogSortFields = ['price', 'price-desc', 'name', 'origin'] as const;
 export type CatalogSortField = (typeof catalogSortFields)[number];
 
 export const searchCatalogSchema = z.object({
@@ -422,16 +408,13 @@ export const searchCatalogSchema = z.object({
   process: z.string().optional(),
   priceMin: z.number().optional(),
   priceMax: z.number().optional(),
-  flavor: z.string().optional(),
   stocked: z.boolean().optional(),
   sort: z.enum(catalogSortFields).optional(),
   offset: z.number().int().min(0).optional(),
   limit: z.number().int().min(1).default(10),
   name: z.string().optional(),
-  supplier: z.string().optional(),
   ids: z.array(z.number().int().positive()).max(100).optional(),
   variety: z.string().optional(),
-  dryingMethod: z.string().optional(),
   stockedDays: z.number().int().positive().optional(),
   processingBaseMethod: z.string().optional(),
   fermentationType: z.string().optional(),
@@ -461,7 +444,6 @@ const SUPPLIER_AGGREGATE_DEFAULT_SAMPLE_SIZE = CATALOG_INTELLIGENCE_MAX_SAMPLE_S
 export const catalogRankPremiumSchema = z.object({
   origin: z.string().optional(),
   process: z.string().optional(),
-  supplier: z.string().optional(),
   stocked: z.boolean().optional(),
   priceMax: z.number().optional(),
   minScore: z.number().optional(),
@@ -520,7 +502,6 @@ export const catalogRankObjectives = ['premium', 'value', 'fresh_arrival', 'rare
 export const catalogRankSchema = z.object({
   objective: z.enum(catalogRankObjectives).default('premium').optional(),
   stockedOnly: z.boolean().default(true).optional(),
-  supplier: z.string().optional(),
   country: z.string().optional(),
   process: z.string().optional(),
   priceMax: z.number().optional(),
@@ -852,97 +833,13 @@ const CATALOG_API_SORT_MAP: Partial<
   'price-desc': { field: 'price_per_lb', direction: 'desc' },
   name: { field: 'name', direction: 'asc' },
   origin: { field: 'country', direction: 'asc' },
-  newest: { field: 'last_updated', direction: 'desc' },
 };
-
-function appendSearchParam(
-  params: URLSearchParams,
-  name: string,
-  value: string | number | boolean | undefined
-): void {
-  if (value === undefined) return;
-  params.append(name, String(value));
-}
 
 function hasCatalogIdFilter(parsed: Pick<z.infer<typeof searchCatalogSchema>, 'ids'>): boolean {
   return parsed.ids !== undefined && parsed.ids.length > 0;
 }
 
-function assertCatalogApiCompatibleSearch(parsed: z.infer<typeof searchCatalogSchema>): void {
-  const unsupportedFilters: string[] = [];
-  if (parsed.flavor) unsupportedFilters.push('--flavor');
-  if (parsed.supplier) unsupportedFilters.push('--supplier');
-  if (parsed.dryingMethod) unsupportedFilters.push('--drying-method');
-  if (parsed.sort === 'newest') unsupportedFilters.push('--sort newest');
-
-  if (unsupportedFilters.length > 0) {
-    throw new PrvrsError(
-      'INVALID_ARGUMENT',
-      `--include-proof uses /v1/catalog and cannot safely preserve ${unsupportedFilters.join(
-        ', '
-      )} yet. Omit those filters or run the default catalog search without --include-proof.`
-    );
-  }
-
-  if (hasCatalogIdFilter(parsed)) return;
-
-  const offset = parsed.offset ?? 0;
-  if (offset > 0 && offset % parsed.limit !== 0) {
-    throw new PrvrsError(
-      'INVALID_ARGUMENT',
-      `--include-proof uses /v1/catalog page-based pagination; --offset must be a multiple of --limit. Received offset=${offset}, limit=${parsed.limit}.`
-    );
-  }
-}
-
-function buildCatalogApiUrl(parsed: z.infer<typeof searchCatalogSchema>): URL {
-  assertCatalogApiCompatibleSearch(parsed);
-
-  const url = new URL('/v1/catalog', getParchmentBaseUrl());
-  const params = url.searchParams;
-
-  params.set('include', 'proof');
-  params.set('stocked', parsed.stocked ? 'true' : 'all');
-
-  appendSearchParam(params, 'origin', parsed.origin);
-  appendSearchParam(params, 'processing', parsed.process);
-  appendSearchParam(params, 'processing_base_method', parsed.processingBaseMethod);
-  appendSearchParam(params, 'fermentation_type', parsed.fermentationType);
-  appendSearchParam(params, 'process_additive', parsed.processAdditive);
-  appendSearchParam(params, 'processing_disclosure_level', parsed.processingDisclosureLevel);
-  appendSearchParam(params, 'processing_confidence_min', parsed.processingConfidenceMin);
-  appendSearchParam(params, 'price_per_lb_min', parsed.priceMin);
-  appendSearchParam(params, 'price_per_lb_max', parsed.priceMax);
-  appendSearchParam(params, 'name', parsed.name);
-  appendSearchParam(params, 'cultivar_detail', parsed.variety);
-  appendSearchParam(params, 'stocked_days', parsed.stockedDays);
-
-  for (const id of parsed.ids ?? []) {
-    params.append('ids', String(id));
-  }
-
-  const sort = parsed.sort ? CATALOG_API_SORT_MAP[parsed.sort] : undefined;
-  if (sort) {
-    params.set('sortField', sort.field);
-    params.set('sortDirection', sort.direction);
-  }
-
-  if (!hasCatalogIdFilter(parsed)) {
-    const offset = parsed.offset ?? 0;
-    const limit = parsed.limit;
-    params.set('limit', String(limit));
-    if (offset > 0) {
-      params.set('page', String(Math.floor(offset / limit) + 1));
-    }
-  }
-
-  return url;
-}
-
-async function parseCatalogApiError(
-  response: Response,
-  context = 'include=proof'
-): Promise<PrvrsError> {
+async function parseCatalogApiError(response: Response, context: string): Promise<PrvrsError> {
   let body: CatalogApiEnvelope | undefined;
   try {
     body = (await response.json()) as CatalogApiEnvelope;
@@ -1059,41 +956,6 @@ async function fetchCatalogSimilarityApi(
   return envelope;
 }
 
-async function fetchCatalogApiItems(
-  parsed: z.infer<typeof searchCatalogSchema>
-): Promise<CatalogItem[]> {
-  const url = buildCatalogApiUrl(parsed);
-  const response = await fetch(url, {
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${await resolveParchmentToken(
-        parsed.processingBaseMethod ||
-          parsed.fermentationType ||
-          parsed.processAdditive ||
-          parsed.processingDisclosureLevel ||
-          parsed.processingConfidenceMin !== undefined
-          ? 'member'
-          : 'viewer'
-      )}`,
-    },
-  });
-
-  if (!response.ok) {
-    throw await parseCatalogApiError(response);
-  }
-
-  const envelope = (await response.json()) as CatalogApiEnvelope;
-  if (!Array.isArray(envelope.data)) {
-    throw new PrvrsError(
-      'GENERAL_ERROR',
-      'Catalog API returned an unexpected response shape for include=proof; expected { data: [...] }.',
-      { body: envelope }
-    );
-  }
-
-  return envelope.data as CatalogItem[];
-}
-
 /**
  * Aggregate stats from an array of catalog items.
  * Pure function — no I/O, safe to unit test.
@@ -1127,10 +989,6 @@ export function computeCatalogStats(items: CatalogItem[]): CatalogStats {
  */
 export async function searchCatalog(opts: SearchCatalogInput): Promise<CatalogItem[]> {
   const parsed = searchCatalogSchema.parse(opts);
-
-  if (parsed.includeProof) {
-    return fetchCatalogApiItems(parsed);
-  }
   const offset = parsed.offset ?? 0;
   if (!hasCatalogIdFilter(parsed) && offset % parsed.limit !== 0) {
     throw new PrvrsError(
@@ -1150,6 +1008,7 @@ export async function searchCatalog(opts: SearchCatalogInput): Promise<CatalogIt
       : 'viewer'
   );
   const result = await client.catalog.list({
+    include: parsed.includeProof ? 'proof' : undefined,
     origin: parsed.origin,
     processing: parsed.process,
     processing_base_method: parsed.processingBaseMethod,
@@ -1159,15 +1018,9 @@ export async function searchCatalog(opts: SearchCatalogInput): Promise<CatalogIt
     processing_confidence_min: parsed.processingConfidenceMin,
     pricePerLbMin: parsed.priceMin,
     pricePerLbMax: parsed.priceMax,
-    flavorKeywords: parsed.flavor
-      ?.split(',')
-      .map((value) => value.trim())
-      .filter(Boolean),
     name: parsed.name,
-    supplier: parsed.supplier,
     coffeeIds: parsed.ids?.join(','),
     variety: parsed.variety,
-    dryingMethod: parsed.dryingMethod,
     stockedDays: parsed.stockedDays,
     stocked: parsed.stocked ? 'true' : 'all',
     sort: sort?.field,
@@ -1175,7 +1028,10 @@ export async function searchCatalog(opts: SearchCatalogInput): Promise<CatalogIt
     limit: hasCatalogIdFilter(parsed) ? Math.min(parsed.ids?.length ?? 1, 100) : parsed.limit,
     page: hasCatalogIdFilter(parsed) ? 1 : Math.floor(offset / parsed.limit) + 1,
   });
-  const envelope = unwrapParchment(result, 'Catalog search');
+  const envelope = unwrapParchment(
+    result,
+    parsed.includeProof ? 'Catalog search with proof' : 'Catalog search'
+  );
   return envelope.data as CatalogItem[];
 }
 
@@ -1187,21 +1043,11 @@ export async function getCatalog(
   opts: { includeProof?: boolean } = {}
 ): Promise<CatalogItem> {
   const parsed = getCatalogSchema.parse({ id, includeProof: opts.includeProof });
-
-  if (parsed.includeProof) {
-    const rows = await fetchCatalogApiItems({
-      ids: [parsed.id],
-      limit: 1,
-      includeProof: true,
-    });
-    const item = rows[0];
-    if (!item) {
-      throw new PrvrsError('NOT_FOUND', `Coffee ID ${parsed.id} not found in catalog.`);
-    }
-    return item;
-  }
-
-  const rows = await searchCatalog({ ids: [parsed.id], limit: 1 });
+  const rows = await searchCatalog({
+    ids: [parsed.id],
+    limit: 1,
+    includeProof: parsed.includeProof,
+  });
   const item = rows[0];
   if (!item) {
     throw new PrvrsError('NOT_FOUND', `Coffee ID ${parsed.id} not found in catalog.`);
@@ -1283,7 +1129,6 @@ export async function rankCatalog(input: CatalogRankInput = {}): Promise<Catalog
     await client.catalog.rank({
       objective: parsed.objective,
       stockedOnly: parsed.stockedOnly === false ? 'false' : 'true',
-      supplier: parsed.supplier,
       country: parsed.country,
       process: parsed.process,
       priceMax: parsed.priceMax,
@@ -1309,7 +1154,6 @@ export async function catalogRankPremium(
     await client.catalog.rankPremium({
       origin: parsed.origin,
       process: parsed.process,
-      supplier: parsed.supplier,
       stocked: parsed.stocked === undefined ? undefined : parsed.stocked ? 'true' : 'false',
       priceMax: parsed.priceMax,
       minScore: parsed.minScore,
