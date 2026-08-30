@@ -1058,7 +1058,7 @@ async function runAutoMatch(
 
   // Call the AI classifier
   try {
-    const { classifyRoast } = await import('../ai.js');
+    const { classifyRoast } = await import('../cherry.js');
     // Always include the filename — it often contains the bean name
     // even when the .alog XML title is generic (e.g. "Roaster Scope")
     const enrichedMetadata = {

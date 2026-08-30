@@ -19,7 +19,7 @@ vi.mock('../src/lib/interactive/forms.js', () => ({
   guardCancel: guardCancelMock,
 }));
 
-vi.mock('../src/lib/ai.js', () => ({
+vi.mock('../src/lib/cherry.js', () => ({
   classifyRoast: classifyRoastMock,
 }));
 

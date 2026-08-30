@@ -112,18 +112,19 @@ The npm package is both a binary and a reusable TypeScript surface for Node.js c
 
 `coffee-app` also consumes `@purveyors/sdk` directly. It does not depend on `@purveyors/cli`; the website chat tools and the CLI are separate adapters over the same API contract. Shared data behavior belongs in Parchment and its OpenAPI contract, while terminal concerns such as local credentials, flags, output modes, exit codes, Artisan file handling, and watch mode belong in this package.
 
-| Import path                | Use it for                                                                           |
-| -------------------------- | ------------------------------------------------------------------------------------ |
-| `@purveyors/cli`           | CLI entrypoint package root                                                          |
-| `@purveyors/cli/catalog`   | Catalog search, lookup, stats, premium ranking, supplier aggregates, similar coffees |
-| `@purveyors/cli/market`    | Market Index value signals, movement stats, and metadata trends                      |
-| `@purveyors/cli/inventory` | Green coffee inventory operations                                                    |
-| `@purveyors/cli/roast`     | Roast profile operations                                                             |
-| `@purveyors/cli/sales`     | Sales record operations                                                              |
-| `@purveyors/cli/tasting`   | Tasting note and rating operations                                                   |
-| `@purveyors/cli/lib`       | Shared library helpers                                                               |
-| `@purveyors/cli/manifest`  | Stable machine-readable CLI manifest                                                 |
-| `@purveyors/cli/ai`        | AI helper surface used by CLI workflows                                              |
+| Import path                | Use it for                                                                                     |
+| -------------------------- | ---------------------------------------------------------------------------------------------- |
+| `@purveyors/cli`           | CLI entrypoint package root                                                                    |
+| `@purveyors/cli/catalog`   | Catalog search, lookup, stats, premium ranking, supplier aggregates, similar coffees           |
+| `@purveyors/cli/market`    | Market Index value signals, movement stats, and metadata trends                                |
+| `@purveyors/cli/inventory` | Green coffee inventory operations                                                              |
+| `@purveyors/cli/roast`     | Roast profile operations                                                                       |
+| `@purveyors/cli/sales`     | Sales record operations                                                                        |
+| `@purveyors/cli/tasting`   | Tasting note and rating operations                                                             |
+| `@purveyors/cli/lib`       | Shared library helpers                                                                         |
+| `@purveyors/cli/manifest`  | Stable machine-readable CLI manifest                                                           |
+| `@purveyors/cli/cherry`    | Primary Cherry roast-classification helper                                                     |
+| `@purveyors/cli/ai`        | Deprecated compatibility re-export of `@purveyors/cli/cherry`; existing consumers keep working |
 
 Shell integrations should usually start with `purvey manifest`. Node.js agents that specifically need CLI semantics may import the smallest relevant CLI subpath instead of shelling out. Application integrations should normally use `@purveyors/sdk` directly so the API contract, rather than the CLI package, remains the cross-surface boundary.
 
@@ -665,7 +666,7 @@ Notes:
 - `--coffee-id` uses inventory IDs.
 - `roast import` and `roast watch` normalize pasted paths by trimming whitespace, removing one layer of matching quotes, and accepting common shell-escaped characters.
 - `roast watch --auto-match` is mutually exclusive with `--coffee-id`.
-- `roast watch --auto-match` sends roast metadata and the current stocked-inventory candidates to the canonical Parchment `POST /v1/roasts/classify` endpoint via `@purveyors/sdk`; it never calls an AI provider directly.
+- `roast watch --auto-match` uses the `@purveyors/cli/cherry` helper to send roast metadata and the current stocked-inventory candidates to the canonical Parchment `POST /v1/roasts/classify` endpoint via `@purveyors/sdk`; it never calls an AI provider directly.
 - `roast watch --commit-mode` defaults to `batch`.
 
 ### sales

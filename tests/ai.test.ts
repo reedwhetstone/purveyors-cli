@@ -1,5 +1,16 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import type { ClassifyRoastInput, ClassifyRoastResult } from '../src/lib/ai.js';
+import type { ClassifyRoastInput, ClassifyRoastResult } from '../src/lib/cherry.js';
+
+describe('Cherry package compatibility', () => {
+  it('keeps the deprecated AI entrypoint as an exact re-export', async () => {
+    const [cherry, legacyAi] = await Promise.all([
+      import('../src/lib/cherry.js'),
+      import('../src/lib/ai.js'),
+    ]);
+
+    expect(legacyAi.classifyRoast).toBe(cherry.classifyRoast);
+  });
+});
 
 // ─── Type validation ──────────────────────────────────────────────────────────
 
@@ -107,7 +118,7 @@ describe('classifyRoast SDK contract', () => {
   });
 
   it('does not route the canonical classifier through the legacy web-base override', async () => {
-    const { classifyRoast } = await import('../src/lib/ai.js');
+    const { classifyRoast } = await import('../src/lib/cherry.js');
     process.env.PURVEYORS_BASE_URL = 'https://www.purveyors.example.test';
     const mockFetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ match: null }), {
@@ -135,7 +146,7 @@ describe('classifyRoast SDK contract', () => {
   }
 
   it('preserves the unauthenticated-session error', async () => {
-    const { classifyRoast } = await import('../src/lib/ai.js');
+    const { classifyRoast } = await import('../src/lib/cherry.js');
 
     const mockCredentialContext = {
       getSession: vi.fn().mockResolvedValue({ data: { session: null } }),
@@ -150,7 +161,7 @@ describe('classifyRoast SDK contract', () => {
   });
 
   it('posts normalized input to the canonical SDK URL with the session bearer token', async () => {
-    const { classifyRoast } = await import('../src/lib/ai.js');
+    const { classifyRoast } = await import('../src/lib/cherry.js');
     process.env.PARCHMENT_API_BASE_URL = 'https://parchment.example.test/';
     const expectedResult: ClassifyRoastResult = {
       match: {
@@ -188,7 +199,7 @@ describe('classifyRoast SDK contract', () => {
   });
 
   it('normalizes blank Artisan fields and malformed optional metadata before classification', async () => {
-    const { classifyRoast } = await import('../src/lib/ai.js');
+    const { classifyRoast } = await import('../src/lib/cherry.js');
     process.env.PARCHMENT_API_BASE_URL = 'https://parchment.example.test/';
     const mockFetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ match: null }), {
@@ -223,7 +234,7 @@ describe('classifyRoast SDK contract', () => {
   });
 
   it('rejects a blank title locally when no filename fallback is available', async () => {
-    const { classifyRoast } = await import('../src/lib/ai.js');
+    const { classifyRoast } = await import('../src/lib/cherry.js');
     const mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);
 
@@ -237,7 +248,7 @@ describe('classifyRoast SDK contract', () => {
   });
 
   it('caps prompt-facing strings and inventory while omitting non-finite weight values', async () => {
-    const { classifyRoast } = await import('../src/lib/ai.js');
+    const { classifyRoast } = await import('../src/lib/cherry.js');
     process.env.PARCHMENT_API_BASE_URL = 'https://parchment.example.test/';
     const mockFetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ match: null }), {
@@ -283,7 +294,7 @@ describe('classifyRoast SDK contract', () => {
     [429, 'Roast classification rate limit exceeded'],
     [503, 'Roast classification provider is unavailable'],
   ])('propagates the canonical API error envelope for HTTP %i', async (status, message) => {
-    const { classifyRoast } = await import('../src/lib/ai.js');
+    const { classifyRoast } = await import('../src/lib/cherry.js');
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
@@ -303,7 +314,7 @@ describe('classifyRoast SDK contract', () => {
   });
 
   it('lets network errors propagate for watch mode to mark as needs-review', async () => {
-    const { classifyRoast } = await import('../src/lib/ai.js');
+    const { classifyRoast } = await import('../src/lib/cherry.js');
     const mockFetch = vi.fn().mockRejectedValue(new Error('network error'));
     vi.stubGlobal('fetch', mockFetch);
 

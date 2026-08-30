@@ -31,6 +31,7 @@ export const REQUIRED_PACKAGE_EXPORTS = {
   './lib': './dist/lib/index.js',
   './manifest': './dist/lib/manifest.js',
   './market': './dist/lib/market.js',
+  './cherry': './dist/lib/cherry.js',
   './ai': './dist/lib/ai.js',
 };
 
@@ -68,6 +69,7 @@ export const REQUIRED_SELF_IMPORT_MEMBERS = {
   ],
   './manifest': ['getCliManifest', 'renderContextText'],
   './market': ['marketSignals', 'marketSignalsSummary', 'marketStats', 'marketMetadataIndex'],
+  './cherry': ['classifyRoast'],
   './ai': ['classifyRoast'],
 };
 
@@ -77,6 +79,7 @@ export const REQUIRED_README_SNIPPETS = [
   'purvey manifest',
   'purvey context --json',
   '@purveyors/cli/manifest',
+  '@purveyors/cli/cherry',
   'No pre-existing credentials are required for `auth`, `config`, `context`, or `manifest`.',
 ];
 
@@ -612,6 +615,37 @@ console.log(JSON.stringify(await classifyRoast(legacyFacade, {
   );
 }
 
+function runPackedCherryContract(packFixture) {
+  return run(
+    'node',
+    [
+      '--input-type=module',
+      '-e',
+      `import { classifyRoast } from '@purveyors/cli/cherry';
+globalThis.fetch = async (input) => {
+  const request = input instanceof Request ? input : new Request(input);
+  if (request.headers.get('authorization') !== 'Bearer cherry-session-token') {
+    throw new Error('Cherry credential token was not forwarded');
+  }
+  return new Response(JSON.stringify({ match: null }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+};
+const credentialContext = {
+  getSession: async () => ({
+    data: { session: { apiKey: 'cherry-session-token' } },
+  }),
+};
+console.log(JSON.stringify(await classifyRoast(credentialContext, {
+  alogMetadata: { title: 'packed-cherry-contract.alog' },
+  inventory: [],
+})));`,
+    ],
+    { cwd: packFixture.packageDir }
+  );
+}
+
 export function verifyPrepublishParity() {
   const packageJson = readJson('package.json');
   const readmeText = readText('README.md');
@@ -658,6 +692,10 @@ export function verifyPrepublishParity() {
     const importedExports = parseJsonStdout(
       runPackedSelfImportExports(packFixture),
       'packed self-import subpath smoke check'
+    );
+    const cherryResult = parseJsonStdout(
+      runPackedCherryContract(packFixture),
+      'packed primary Cherry callable contract smoke check'
     );
     const legacyAiResult = parseJsonStdout(
       runPackedLegacyAiContract(packFixture),
@@ -707,6 +745,11 @@ export function verifyPrepublishParity() {
     }
 
     assertDeepEqual(
+      cherryResult,
+      { match: null },
+      'Packed primary @purveyors/cli/cherry callable contract'
+    );
+    assertDeepEqual(
       legacyAiResult,
       { match: null },
       'Packed legacy @purveyors/cli/ai callable contract'
@@ -723,6 +766,7 @@ export function verifyPrepublishParity() {
         'packed manifest/context parity',
         'packed self-import manifest parity',
         'packed self-import subpath member parity',
+        'packed primary Cherry callable contract',
         'packed legacy AI callable contract',
       ],
     };
