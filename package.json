@@ -16,6 +16,7 @@
     "./lib": "./dist/lib/index.js",
     "./manifest": "./dist/lib/manifest.js",
     "./market": "./dist/lib/market.js",
+    "./cherry": "./dist/lib/cherry.js",
     "./ai": "./dist/lib/ai.js"
   },
   "files": [

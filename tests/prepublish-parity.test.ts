@@ -260,6 +260,11 @@ describe('prepublish parity guardrail', () => {
     };
     delete missingCatalogExport.exports['./catalog'];
 
+    const wrongCherryExportPath = JSON.parse(JSON.stringify(packageJson)) as {
+      exports: Record<string, string>;
+    };
+    wrongCherryExportPath.exports['./cherry'] = './dist/lib/not-cherry.js';
+
     const wrongAiExportPath = JSON.parse(JSON.stringify(packageJson)) as {
       exports: Record<string, string>;
     };
@@ -277,10 +282,16 @@ describe('prepublish parity guardrail', () => {
     const missingCatalogError = collectErrorMessage(() =>
       assertPackageReleaseSurface(missingCatalogExport)
     );
+    const wrongCherryError = collectErrorMessage(() =>
+      assertPackageReleaseSurface(wrongCherryExportPath)
+    );
     const wrongAiError = collectErrorMessage(() => assertPackageReleaseSurface(wrongAiExportPath));
 
     expect(missingCatalogError).toContain('package.json exports contract drifted.');
     expect(missingCatalogError).toContain('"./catalog": "./dist/lib/catalog.js"');
+    expect(wrongCherryError).toContain('package.json exports contract drifted.');
+    expect(wrongCherryError).toContain('"./cherry": "./dist/lib/not-cherry.js"');
+    expect(wrongCherryError).toContain('"./cherry": "./dist/lib/cherry.js"');
     expect(wrongAiError).toContain('package.json exports contract drifted.');
     expect(wrongAiError).toContain('"./ai": "./dist/lib/not-ai.js"');
     expect(wrongAiError).toContain('"./ai": "./dist/lib/ai.js"');

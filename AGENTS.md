@@ -13,7 +13,7 @@ Use this file as the single maintained guide for humans and agents. `CLAUDE.md` 
 - Version source of truth: `package.json` and `purvey --version`
 - Binary entrypoint: `purvey` via package `bin` field
 - Package contract source of truth: `package.json` `exports` plus `src/lib/manifest.ts`
-- In-process product exports: `@purveyors/cli/catalog`, `/market`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, and `/ai`
+- In-process product exports: `@purveyors/cli/catalog`, `/market`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, and `/cherry`; `/ai` is a deprecated compatibility re-export of `/cherry`
 - In-process manifest export: `@purveyors/cli/manifest` via package export `./manifest`
 - Live CLI guides: `/docs/cli/*` on `https://purveyors.io`
 - Canonical API reference: `https://api.purveyors.io/docs`
@@ -97,6 +97,8 @@ src/
   program.ts          top-level program, global options, command registration
   commands/           Commander command trees and help text
   lib/                Parchment SDK access, output, auth guards, CLI adapters
+    cherry.ts         primary Cherry roast-classification helper
+    ai.ts             deprecated compatibility re-export of cherry.ts
   types/              shared TypeScript types
 tests/                Vitest coverage
 ```
@@ -135,6 +137,7 @@ Command files:
 - `@purveyors/cli` consumes `@purveyors/sdk`; the SDK never consumes CLI functions.
 - `coffee-app` consumes `@purveyors/sdk` directly and does not depend on this package. Shared cross-surface data behavior belongs in Parchment and its OpenAPI contract.
 - Agent runtimes may import exported CLI functions when they intentionally need CLI semantics. Prefer narrow imports such as `@purveyors/cli/catalog` instead of the package root.
+- Use `@purveyors/cli/cherry` for roast classification. `@purveyors/cli/ai` remains a deprecated compatibility alias so existing integrations do not break.
 - When package exports change, update `package.json`, `README.md`, `AGENTS.md`, `docs/CLI_STRATEGY.md`, `src/lib/manifest.ts`, and dist parity validation in the same PR.
 - `purvey manifest` is the primary shell-level machine contract. `@purveyors/cli/manifest` is the primary in-process machine contract.
 

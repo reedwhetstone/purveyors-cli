@@ -1284,6 +1284,7 @@ export function getCliManifest(): CliManifest {
         '`purvey manifest` is the preferred stable machine-readable contract for shells and automation.',
         '`purvey context --json` emits the same manifest contract for compatibility when callers already use the context entrypoint.',
         '`@purveyors/cli/manifest` exposes the same manifest contract in-process for Node.js and agent consumers.',
+        '`@purveyors/cli/cherry` is the primary in-process Cherry roast-classification helper; `@purveyors/cli/ai` is its deprecated compatibility re-export.',
       ],
     },
     files: {

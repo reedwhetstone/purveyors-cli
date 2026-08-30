@@ -206,6 +206,9 @@ describe('CLI manifest contract', () => {
     expect(manifest.machineSurfaces.notes).toContain(
       '`@purveyors/cli/manifest` exposes the same manifest contract in-process for Node.js and agent consumers.'
     );
+    expect(manifest.machineSurfaces.notes).toContain(
+      '`@purveyors/cli/cherry` is the primary in-process Cherry roast-classification helper; `@purveyors/cli/ai` is its deprecated compatibility re-export.'
+    );
     expect(manifest.outputContract.notes).toContain(
       '`purvey config list/get/set/reset` stay human-readable in an interactive TTY, but emit JSON on stdout in machine mode and reject --csv.'
     );

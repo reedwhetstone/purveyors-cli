@@ -142,7 +142,7 @@ Reference surfaces:
 - `purvey context` is the dense human-readable reference.
 - `purvey context --json` emits the same JSON as `purvey manifest`, but is maintained for compatibility with existing wrappers and parity checks.
 - `@purveyors/cli/manifest` exposes the same contract in-process for Node.js consumers.
-- `@purveyors/cli/catalog`, `/market`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, and `/ai` expose reusable CLI-package functions for intentional in-process consumers. Coffee-app uses `@purveyors/sdk` directly.
+- `@purveyors/cli/catalog`, `/market`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, and `/cherry` expose reusable CLI-package functions for intentional in-process consumers. `/ai` remains a deprecated compatibility re-export of `/cherry`. Coffee-app uses `@purveyors/sdk` directly.
 
 Package export changes are product changes for supported CLI-package consumers. They do not define the coffee-app integration contract.
 
