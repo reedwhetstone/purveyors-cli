@@ -1,6 +1,6 @@
 {
   "name": "@purveyors/cli",
-  "version": "0.33.1",
+  "version": "0.33.2",
   "description": "The official CLI for purveyors.io — coffee intelligence from your terminal",
   "type": "module",
   "bin": {
@@ -57,7 +57,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.1.0",
-    "@purveyors/sdk": "^0.11.1",
+    "@purveyors/sdk": "^0.35.0",
     "chalk": "^5.4.1",
     "commander": "^13.1.0",
     "ora": "^8.2.0",

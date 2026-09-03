@@ -1,66 +1,18 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
+import type { components } from '@purveyors/sdk';
 import { createParchmentClient, unwrapParchment } from './parchment.js';
 import type { MilestoneData, ProcessedRoastData } from './artisan/types.js';
 import { POSTGRES_INT4_MAX } from './strict-number.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export interface RoastProfile {
-  roast_id: number;
-  batch_name: string | null;
-  coffee_id: number | null;
-  coffee_name: string | null;
-  roast_date: string | null;
-  oz_in: number | null;
-  oz_out: number | null;
-  weight_loss_percent: number | null;
-  roast_notes: string | null;
-  roast_targets?: string | null;
-  user: string;
-  last_updated: string;
-  roaster_type: string | null;
-  roaster_size: string | null;
-  temperature_unit: string | null;
-  charge_time: number | null;
-  drop_time: number | null;
-  fc_start_time: number | null;
-  fc_end_time: number | null;
-  fc_start_temp: number | null;
-  fc_end_temp: number | null;
-  drop_temp: number | null;
-  charge_temp: number | null;
-  tp_time: number | null;
-  tp_temp: number | null;
-  total_ror: number | null;
-  dry_percent: number | null;
-  maillard_percent: number | null;
-  development_percent: number | null;
-  auc: number | null;
-  dry_phase_ror: number | null;
-  mid_phase_ror: number | null;
-  finish_phase_ror: number | null;
-  dry_phase_delta_temp: number | null;
-  total_roast_time: number | null;
-  data_source: string | null;
-  roast_uuid: string | null;
-  temperatures?: TemperatureEntry[];
-  events?: RoastEventEntry[];
-}
-
-export interface TemperatureEntry {
-  roast_id: number;
-  time_seconds: number;
-  bean_temp: number | null;
-  environmental_temp: number | null;
-}
-
-export interface RoastEventEntry {
-  roast_id: number;
-  time_seconds: number;
-  event_type: number | null;
-  event_value: string | null;
-}
+export type RoastListProfile = components['schemas']['RoastListResource'];
+export type RoastDetailProfile = components['schemas']['RoastDetailResource'];
+/** Backward-compatible detail-shaped alias for existing CLI consumers. */
+export type RoastProfile = RoastDetailProfile;
+export type TemperatureEntry = components['schemas']['RoastTemperature'];
+export type RoastEventEntry = components['schemas']['RoastEvent'];
 
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
@@ -156,35 +108,35 @@ export type UpdateRoastInput = z.input<typeof updateRoastSchema>;
 export async function listRoasts(
   opts: ListRoastsInput,
   tokenOverride?: string
-): Promise<RoastProfile[]> {
+): Promise<RoastListProfile[]> {
   const parsed = listRoastsSchema.parse(opts);
   const client = await createParchmentClient('member', tokenOverride);
   const envelope = unwrapParchment(await client.roasts.list(parsed), 'Roast list');
-  return envelope.data as RoastProfile[];
+  return envelope.data;
 }
 
 export async function getRoast(
   id: number,
   opts: { includeTemps?: boolean; includeEvents?: boolean } = {},
   tokenOverride?: string
-): Promise<RoastProfile> {
+): Promise<RoastDetailProfile> {
   getRoastSchema.parse({ id, ...opts });
   const client = await createParchmentClient('member', tokenOverride);
   const envelope = unwrapParchment(await client.roasts.get(String(id), opts), `Roast ${id}`);
-  return envelope.data as RoastProfile;
+  return envelope.data;
 }
 
 export async function createRoast(
   input: CreateRoastInput,
   tokenOverride?: string
-): Promise<RoastProfile> {
+): Promise<RoastDetailProfile> {
   const parsed = createRoastSchema.parse(input);
   const client = await createParchmentClient('member', tokenOverride);
   const envelope = unwrapParchment(
     await client.roasts.create(parsed, { idempotencyKey: randomUUID() }),
     'Roast create'
   );
-  return envelope.data as RoastProfile;
+  return envelope.data;
 }
 
 export async function deleteRoast(id: number, tokenOverride?: string): Promise<void> {
@@ -197,26 +149,26 @@ export async function updateRoast(
   id: number,
   input: UpdateRoastInput,
   tokenOverride?: string
-): Promise<RoastProfile> {
+): Promise<RoastDetailProfile> {
   deleteRoastSchema.parse({ id });
   const parsed = updateRoastSchema.parse(input);
   const client = await createParchmentClient('member', tokenOverride);
   const envelope = unwrapParchment(await client.roasts.update(id, parsed), `Roast ${id} update`);
-  return envelope.data as RoastProfile;
+  return envelope.data;
 }
 
 export async function replaceRoastArtisanImport(
   id: number,
   input: { fileName: string; fileContent: string; fileSize?: number },
   tokenOverride?: string
-): Promise<RoastProfile> {
+): Promise<RoastDetailProfile> {
   deleteRoastSchema.parse({ id });
   const client = await createParchmentClient('member', tokenOverride);
   const envelope = unwrapParchment(
     await client.roasts.replaceArtisanImport(id, input),
     `Roast ${id} Artisan import replace`
   );
-  return envelope.data.roast as RoastProfile;
+  return envelope.data.roast;
 }
 
 export async function clearRoastArtisanImport(
