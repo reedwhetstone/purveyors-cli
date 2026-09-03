@@ -9,7 +9,8 @@ import { POSTGRES_INT4_MAX } from './strict-number.js';
 
 export type RoastListProfile = components['schemas']['RoastListResource'];
 export type RoastDetailProfile = components['schemas']['RoastDetailResource'];
-export type RoastProfile = RoastListProfile | RoastDetailProfile;
+/** Backward-compatible detail-shaped alias for existing CLI consumers. */
+export type RoastProfile = RoastDetailProfile;
 export type TemperatureEntry = components['schemas']['RoastTemperature'];
 export type RoastEventEntry = components['schemas']['RoastEvent'];
 
