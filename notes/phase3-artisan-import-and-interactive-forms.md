@@ -6,7 +6,8 @@ _Status: Historical plan; partially shipped and architecturally superseded_
 > Current disposition: Artisan import and watch workflows shipped, but the shared
 > architecture in this plan is no longer current. Coffee-app does not import CLI
 > functions, roast classification now runs through Parchment and `@purveyors/sdk`,
-> and the CLI stores a scoped Parchment API key rather than a Supabase session. Use
+> Artisan parsing and persistence are canonical Parchment responsibilities, and the
+> CLI stores a scoped Parchment API key rather than a Supabase session. Use
 > `README.md`, `AGENTS.md`, `docs/CLI_STRATEGY.md`, and `docs/ADR-INDEX.md` for the
 > maintained contract.
 

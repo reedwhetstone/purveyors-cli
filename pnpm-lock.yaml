@@ -11,8 +11,8 @@ importers:
         specifier: ^1.1.0
         version: 1.1.0
       '@purveyors/sdk':
-        specifier: ^0.35.0
-        version: 0.35.0
+        specifier: ^0.41.0
+        version: 0.41.0
       chalk:
         specifier: ^5.4.1
         version: 5.6.2
@@ -400,10 +400,10 @@ packages:
         integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==,
       }
 
-  '@purveyors/sdk@0.35.0':
+  '@purveyors/sdk@0.41.0':
     resolution:
       {
-        integrity: sha512-wh01lxkOpjNZIrpZGHCgHzZaguBxRL7yp4nkyXr/D0qFRG+9vtpgq+B8rYCMCYF1pVLeyfCyb7keWebmap6i5w==,
+        integrity: sha512-5RN3Gg4klzs3qH+ID7gUfT+h6aDFFVM/5O2wbId+f6hb1vxVCCtyiunDEaKrcXf+vaBf5r9N5B5laZF4nd2+Xg==,
       }
 
   '@rollup/rollup-android-arm-eabi@4.59.0':
@@ -1978,7 +1978,7 @@ snapshots:
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
 
-  '@purveyors/sdk@0.35.0':
+  '@purveyors/sdk@0.41.0':
     dependencies:
       openapi-fetch: 0.13.8
 

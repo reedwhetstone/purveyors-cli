@@ -114,6 +114,8 @@ scope. The request token and PKCE verifier are transient bootstrap material only
 
 `roast watch` is a long-running operator workflow. It reacts only to new `.alog` files, saves session state for `--resume`, and treats Ctrl+C or SIGTERM as graceful shutdown signals that wait for active imports, commit queued batch-mode roasts, and print a verification summary.
 
+Both `roast import` and `roast watch` forward the original `.alog` source to Parchment. Parsing, validation, normalization, and persistence are canonical server-side responsibilities; the CLI must not maintain a second Artisan parser or reinterpret profile data locally.
+
 ### Output and reference surfaces
 
 The CLI is designed for both humans and automation:

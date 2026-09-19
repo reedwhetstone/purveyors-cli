@@ -1,26 +1,12 @@
 /** Cherry roast classification through the canonical Parchment API. */
 
 import type { CredentialContext } from './auth-client.js';
+import type { components } from '@purveyors/sdk';
 import { createParchmentClient, unwrapParchment } from './parchment.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export interface ClassifyRoastInput {
-  alogMetadata: {
-    title: string;
-    filename?: string;
-    roastertype?: string;
-    beans?: string;
-    roastingnotes?: string;
-    weight?: [number, number, string];
-  };
-  inventory: Array<{
-    id: number;
-    coffee_name: string;
-    origin?: string;
-    processing?: string;
-  }>;
-}
+export type ClassifyRoastInput = components['schemas']['RoastClassificationRequest'];
 
 export interface ClassifyRoastResult {
   match: {
@@ -73,18 +59,6 @@ function normalizeWeight(value: unknown): [number, number, string] | undefined {
 }
 
 function normalizeClassificationInput(input: ClassifyRoastInput): ClassifyRoastInput {
-  const filename = normalizeOptionalString(
-    input.alogMetadata.filename,
-    CLASSIFICATION_STRING_LIMIT
-  );
-  const title =
-    normalizeOptionalString(input.alogMetadata.title, CLASSIFICATION_STRING_LIMIT) ?? filename;
-  if (!title) {
-    throw new Error(
-      'Invalid roast classification input: alogMetadata.title and filename cannot both be blank.'
-    );
-  }
-
   const inventory = input.inventory.slice(0, CLASSIFICATION_INVENTORY_LIMIT).map((item, index) => {
     if (!Number.isInteger(item.id) || item.id <= 0) {
       throw new Error(
@@ -100,6 +74,38 @@ function normalizeClassificationInput(input: ClassifyRoastInput): ClassifyRoastI
       processing: normalizeOptionalString(item.processing, CLASSIFICATION_STRING_LIMIT),
     };
   });
+
+  if ('artisanSource' in input) {
+    const fileName = normalizeOptionalString(
+      input.artisanSource.fileName,
+      CLASSIFICATION_STRING_LIMIT
+    );
+    if (!fileName) {
+      throw new Error(
+        'Invalid roast classification input: artisanSource.fileName cannot be blank.'
+      );
+    }
+    return {
+      artisanSource: {
+        fileName,
+        // Source content is integrity-sensitive. Never trim or rewrite it client-side.
+        fileContent: input.artisanSource.fileContent,
+      },
+      inventory,
+    };
+  }
+
+  const filename = normalizeOptionalString(
+    input.alogMetadata.filename,
+    CLASSIFICATION_STRING_LIMIT
+  );
+  const title =
+    normalizeOptionalString(input.alogMetadata.title, CLASSIFICATION_STRING_LIMIT) ?? filename;
+  if (!title) {
+    throw new Error(
+      'Invalid roast classification input: alogMetadata.title and filename cannot both be blank.'
+    );
+  }
 
   return {
     alogMetadata: {

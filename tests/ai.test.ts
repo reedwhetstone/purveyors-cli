@@ -48,6 +48,17 @@ describe('ClassifyRoastInput type shape', () => {
     expect(input.inventory[0].origin).toBeUndefined();
     expect(input.inventory[0].processing).toBeUndefined();
   });
+
+  it('accepts canonical raw Artisan source', () => {
+    const input: ClassifyRoastInput = {
+      artisanSource: {
+        fileName: 'ethiopia-guji.alog',
+        fileContent: '{"title":"Ethiopia Guji"}',
+      },
+      inventory: [{ id: 42, coffee_name: 'Ethiopia Guji' }],
+    };
+    expect(input.artisanSource.fileContent).toContain('Ethiopia Guji');
+  });
 });
 
 // ─── Response parsing ─────────────────────────────────────────────────────────
@@ -196,6 +207,30 @@ describe('classifyRoast SDK contract', () => {
     expect(request.headers.get('content-type')).toContain('application/json');
     await expect(request.clone().json()).resolves.toEqual(input);
     expect(result).toEqual(expectedResult);
+  });
+
+  it('forwards raw Artisan source without rewriting its content', async () => {
+    const { classifyRoast } = await import('../src/lib/cherry.js');
+    process.env.PARCHMENT_API_BASE_URL = 'https://parchment.example.test/';
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ match: null }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', mockFetch);
+
+    const fileContent = "{'title':'Roaster Scope', 'roastingnotes':' keep spacing '}\n";
+    await classifyRoast(authenticatedClient() as unknown as Parameters<typeof classifyRoast>[0], {
+      artisanSource: { fileName: ' roast.alog ', fileContent },
+      inventory: [{ id: 7, coffee_name: ' Test Coffee ' }],
+    });
+
+    const request = mockFetch.mock.calls[0][0] as Request;
+    await expect(request.clone().json()).resolves.toEqual({
+      artisanSource: { fileName: 'roast.alog', fileContent },
+      inventory: [{ id: 7, coffee_name: 'Test Coffee' }],
+    });
   });
 
   it('normalizes blank Artisan fields and malformed optional metadata before classification', async () => {
