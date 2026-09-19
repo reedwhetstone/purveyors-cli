@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import type { components } from '@purveyors/sdk';
 import { createParchmentClient, unwrapParchment } from './parchment.js';
-import type { MilestoneData, ProcessedRoastData } from './artisan/types.js';
 import { POSTGRES_INT4_MAX } from './strict-number.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -198,11 +197,29 @@ export const importRoastSchema = z.object({
 
 export type ImportRoastInput = z.input<typeof importRoastSchema>;
 
+export interface MilestoneData {
+  charge?: number;
+  dry_end?: number;
+  fc_start?: number;
+  fc_end?: number;
+  sc_start?: number;
+  sc_end?: number;
+  drop?: number;
+  cool?: number;
+}
+
+export interface RoastPhaseSummary {
+  drying_percent: number;
+  maillard_percent: number;
+  development_percent: number;
+  total_time_seconds: number;
+}
+
 export interface ImportRoastResult {
   success: boolean;
   message: string;
   milestones: MilestoneData;
-  phases: ProcessedRoastData['phases'];
+  phases: RoastPhaseSummary;
   total_time: number;
   temperature_unit: 'F' | 'C';
   milestone_events: number;

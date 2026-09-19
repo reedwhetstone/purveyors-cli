@@ -12,7 +12,6 @@ import { join, extname } from 'path';
 import { constants } from 'fs';
 import type { CredentialContext } from '../auth-client.js';
 import type { ImportRoastResult } from '../roast.js';
-import type { MilestoneData, ProcessedRoastData } from '../artisan/types.js';
 import { CONFIG_DIR } from '../config.js';
 import { listInventory } from '../inventory.js';
 import { AuthError } from '../errors.js';
@@ -65,8 +64,8 @@ export interface ImportRecord {
   batchName: string;
   status: 'pending' | 'success' | 'failed' | 'needs-review';
   error?: string;
-  milestones?: MilestoneData;
-  phases?: ProcessedRoastData['phases'];
+  milestones?: ImportRoastResult['milestones'];
+  phases?: ImportRoastResult['phases'];
   importedAt: string;
   selectedCoffeeId?: number;
   selectedCoffeeName?: string;
@@ -972,32 +971,6 @@ async function runAutoMatch(
   inventoryLister: typeof listInventory,
   sessionTokenProvider: () => Promise<string | undefined>
 ): Promise<AutoMatchResult> {
-  // Parse alog metadata without full import
-  let alogMetadata: {
-    title: string;
-    roastertype?: string;
-    beans?: string;
-    roastingnotes?: string;
-    weight?: [number, number, string];
-  };
-
-  try {
-    const { processAlogFile } = await import('../artisan/parser.js');
-    const parsed = processAlogFile(fileContent) as Record<string, unknown>;
-    alogMetadata = {
-      title: typeof parsed.title === 'string' ? parsed.title : filename,
-      roastertype: typeof parsed.roastertype === 'string' ? parsed.roastertype : undefined,
-      beans: typeof parsed.beans === 'string' ? parsed.beans : undefined,
-      roastingnotes: typeof parsed.roastingnotes === 'string' ? parsed.roastingnotes : undefined,
-      weight: Array.isArray(parsed.weight)
-        ? (parsed.weight as [number, number, string])
-        : undefined,
-    };
-  } catch {
-    // If we can't parse the file, fall back to filename as title
-    alogMetadata = { title: filename };
-  }
-
   // Fetch the user's stocked inventory
   let inventory: Array<{
     id: number;
@@ -1059,14 +1032,11 @@ async function runAutoMatch(
   // Call the AI classifier
   try {
     const { classifyRoast } = await import('../cherry.js');
-    // Always include the filename — it often contains the bean name
-    // even when the .alog XML title is generic (e.g. "Roaster Scope")
-    const enrichedMetadata = {
-      ...alogMetadata,
-      filename,
-    };
     const result = await classifyRoast(credentialContext, {
-      alogMetadata: enrichedMetadata,
+      artisanSource: {
+        fileName: filename,
+        fileContent,
+      },
       inventory,
     });
 

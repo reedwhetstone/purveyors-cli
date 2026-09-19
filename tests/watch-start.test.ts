@@ -5,14 +5,11 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { startWatch, type StartWatchRuntime } from '../src/lib/interactive/watch.js';
 
-const { pickBeanMock, guardCancelMock, classifyRoastMock, processAlogFileMock } = vi.hoisted(
-  () => ({
-    pickBeanMock: vi.fn(),
-    guardCancelMock: vi.fn(),
-    classifyRoastMock: vi.fn(),
-    processAlogFileMock: vi.fn(),
-  })
-);
+const { pickBeanMock, guardCancelMock, classifyRoastMock } = vi.hoisted(() => ({
+  pickBeanMock: vi.fn(),
+  guardCancelMock: vi.fn(),
+  classifyRoastMock: vi.fn(),
+}));
 
 vi.mock('../src/lib/interactive/forms.js', () => ({
   pickBean: pickBeanMock,
@@ -21,10 +18,6 @@ vi.mock('../src/lib/interactive/forms.js', () => ({
 
 vi.mock('../src/lib/cherry.js', () => ({
   classifyRoast: classifyRoastMock,
-}));
-
-vi.mock('../src/lib/artisan/parser.js', () => ({
-  processAlogFile: processAlogFileMock,
 }));
 
 let stderrSpy: ReturnType<typeof vi.spyOn>;
@@ -159,8 +152,6 @@ beforeEach(() => {
   guardCancelMock.mockReset();
   guardCancelMock.mockImplementation(() => undefined);
   classifyRoastMock.mockReset();
-  processAlogFileMock.mockReset();
-  processAlogFileMock.mockReturnValue({ title: 'Roaster Scope' });
 
   stderrOutput = [];
   stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
@@ -237,7 +228,6 @@ describe('startWatch', () => {
     const { runtime, emitFileEvent, emitExitKey, hasExitKeyListener, cleanupExitKeyListener } =
       createRuntime();
 
-    processAlogFileMock.mockReturnValue({ title: 'Exit Key Roast' });
     pickBeanMock.mockResolvedValue({ id: 7, name: 'Test Coffee' });
     runtime.roastImporter?.mockResolvedValue(createImportResult(456));
 
@@ -571,6 +561,15 @@ describe('startWatch', () => {
     runtime.emitFileEvent('resumed-auto.alog');
     await sleep(10);
 
+    expect(classifyRoastMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        artisanSource: {
+          fileName: 'resumed-auto.alog',
+          fileContent: 'auto match content',
+        },
+      })
+    );
     expect(runtime.saveWatchSessionImpl).toHaveBeenCalledWith(
       expect.objectContaining({
         autoMatch: true,
