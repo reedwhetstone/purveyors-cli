@@ -1,7 +1,7 @@
 # Purveyors CLI Architecture Retrospective
 
 _Created: 2026-03-14_
-_Refreshed: 2026-07-22_
+_Refreshed: 2026-09-22_
 _Status: Historical architecture note for the shipped `purvey` CLI_
 
 ## Why this file exists
@@ -24,6 +24,7 @@ Current command groups:
 - `market`: `signals`, `stats`, `metadata` for Market Index decision-surface reads through `@purveyors/sdk`
 - `price-index`: Parchment Price Index aggregate snapshots through `@purveyors/sdk`
 - `procurement`: saved sourcing brief reads and matches through `@purveyors/sdk`
+- `reference-profile`: Studio reference list, import, chart, preview, save, and export through `@purveyors/sdk`
 - `inventory`: `list`, `get`, `add`, `update`, `delete`
 - `roast`: `list`, `get`, `create`, `update`, `delete`, `import`, `watch`
 - `sales`: `list`, `record`, `update`, `delete` through canonical SDK sales and roast endpoints
@@ -90,6 +91,7 @@ The shipped auth model is role- and scope-based:
 - No pre-existing credentials required: `auth`, `config`, `context`, `manifest`
 - Authenticated `viewer` role required: `catalog`
 - Mixed public and entitled access: `market` public teaser slices are unauthenticated; filtered market slices require Parchment Intelligence access enforced server-side
+- Authenticated `member` role plus Studio entitlement required: `reference-profile`, enforced by Parchment
 - Authenticated `member` role required through the stored scoped key: structured process filters on `catalog search`, plus `price-index`, `procurement`, `inventory`, `roast`, `sales`, `tasting`
 
 Parchment device authorization exposes the existing purveyors.io Google login in two supported flows:
@@ -116,6 +118,15 @@ scope. The request token and PKCE verifier are transient bootstrap material only
 
 Both `roast import` and `roast watch` forward the original `.alog` source to Parchment. Parsing, validation, normalization, and persistence are canonical server-side responsibilities; the CLI must not maintain a second Artisan parser or reinterpret profile data locally.
 
+### Studio reference planning
+
+`reference-profile` consumes the published Parchment SDK for owner-scoped reference list,
+upload, chart, preview, save, and export operations. Parchment owns source parsing,
+revision calculation, lineage, entitlement checks, persistence, and export serialization.
+The CLI validates the bounded request shape but does not transform chart data or generate
+`.alog` content. Generated references remain plans outside executed roast history; exports
+are unsigned, and the CLI does not claim verified Artisan 4.2 playback compatibility.
+
 ### Output and reference surfaces
 
 The CLI is designed for both humans and automation:
@@ -135,7 +146,7 @@ Catalog intelligence boundaries:
 - `catalog similar <id>` consumes the beta canonical `/v1/catalog/{id}/similar` contract, not the legacy direct RPC path, and requires member access or a paid API tier.
 - Similarity output must keep `canonical_candidates` separate from `similar_recommendations` and preserve blocker, proof, pricing, score-dimension, `classification_version`, and `query_strategy` metadata for agents.
 - Structured process filters map to canonical `/v1/catalog` query names and require member access through a valid scoped key.
-- Catalog reads and intelligence helpers, inventory CRUD, roast CRUD and classification, sales CRUD, tasting reads and writes, role resolution, `market`, `price-index`, and `procurement` are SDK-backed canonical API operations. They default to `api.purveyors.io` and accept `PARCHMENT_API_BASE_URL` for alternate deployments. Most surfaces use `PARCHMENT_API_KEY`/`PURVEYORS_API_KEY` when provided and otherwise send the scoped API key created by `purvey auth login`; interactive roast auto-classification pins that logged-in identity so its inventory candidates and owner-bound classifier authorization cannot diverge. Owner data requires the matching owner-bound API-key scope. `catalog:read` is the canonical scope for catalog, Market Index, Price Index, and procurement reads. Market public teaser slices are unauthenticated; filtered and non-public market slices require Parchment Intelligence access enforced server-side.
+- Catalog reads and intelligence helpers, inventory CRUD, roast CRUD and classification, reference-profile operations, sales CRUD, tasting reads and writes, role resolution, `market`, `price-index`, and `procurement` are SDK-backed canonical API operations. They default to `api.purveyors.io` and accept `PARCHMENT_API_BASE_URL` for alternate deployments. Most surfaces use `PARCHMENT_API_KEY`/`PURVEYORS_API_KEY` when provided and otherwise send the scoped API key created by `purvey auth login`; interactive roast auto-classification pins that logged-in identity so its inventory candidates and owner-bound classifier authorization cannot diverge. Owner data requires the matching owner-bound API-key scope. `catalog:read` is the canonical scope for catalog, Market Index, Price Index, and procurement reads. Market public teaser slices are unauthenticated; filtered and non-public market slices require Parchment Intelligence access enforced server-side.
 - Procurement brief creation is intentionally absent from the CLI read surface until the Phase 2 write contract ships.
 
 Reference surfaces:

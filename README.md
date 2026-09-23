@@ -145,11 +145,12 @@ Remote data commands require a valid owner-bound API key with the required scope
 - `catalog search` structured process filters require the `member` role
 - `market` has public teaser slices for `signals --summary`, unfiltered retail `stats`, and process/retail/month `metadata`; all filtered or non-public slices require Parchment Intelligence access enforced server-side
 - `price-index`, `procurement`, `inventory`, `roast`, `sales`, and `tasting` require the `member` role
+- `reference-profile` requires a `member` credential plus Studio access, enforced server-side by Parchment
 
 `purvey` uses Google OAuth through purveyors.io.
 
 Set `PARCHMENT_API_KEY` (or `PURVEYORS_API_KEY`) to authenticate SDK-backed catalog,
-inventory, roast, sales, tasting-read, market, price-index, and procurement operations
+inventory, roast, reference-profile, sales, tasting-read, market, price-index, and procurement operations
 without using the API key created by `purvey auth login`. Environment credentials take precedence.
 
 Interactive login:
@@ -191,6 +192,8 @@ Credentials are stored at `~/.config/purvey/credentials.json`.
 | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `viewer` | `catalog search`, `catalog get`, `catalog stats`, excluding structured process filters                                                                                                                                        |
 | `member` | All viewer commands, `catalog similar`, structured process filters on `catalog search`, plus `price-index`, `procurement`, `inventory`, `roast`, `sales`, and `tasting` through the scoped key created by `purvey auth login` |
+
+The `reference-profile` commands also require Studio access; the API enforces this entitlement.
 
 Market Index teaser slices are public. Filtered `market signals`, origin/process/wholesale `market stats`, and non-public `market metadata` slices require Parchment Intelligence access; API-key denial is enforced by the canonical API. The stored login key carries `catalog:read`, which is also the canonical read scope for Market Index, Price Index, and procurement.
 
@@ -669,6 +672,63 @@ Notes:
 - `roast watch --auto-match` uses the `@purveyors/cli/cherry` helper to send roast metadata and the current stocked-inventory candidates to the canonical Parchment `POST /v1/roasts/classify` endpoint via `@purveyors/sdk`; it never calls an AI provider directly.
 - `roast watch --commit-mode` defaults to `batch`.
 
+### reference-profile
+
+- `purvey reference-profile list [--include-archived]`
+- `purvey reference-profile get <profile-id>`
+- `purvey reference-profile chart <profile-id> <revision-id>`
+- `purvey reference-profile import <file>`
+- `purvey reference-profile preview <profile-id> <revision-id> --request <file>`
+- `purvey reference-profile save <profile-id> <revision-id> --request <file>`
+- `purvey reference-profile export <profile-id> <revision-id> --output <file>`
+
+Reference-profile commands use the canonical Parchment API through `@purveyors/sdk`. They
+require a member credential and Studio access, which Parchment enforces server-side.
+
+`reference-profile import` uploads an Artisan `.alog` or another file accepted by the
+canonical importer. Parchment owns parsing and private source retention. It creates a
+reference profile, not an executed roast. `get` returns its current revision; pass
+`data.currentRevision.id` to `chart`, `preview`, or `save`.
+
+`preview` and `save` take the same JSON request file. The first supported edits are
+explicit bounded bean-temperature or environmental-temperature adjustments over a time
+interval in milliseconds. Each request supports at most 12 adjustments; intervals must
+be ordered and each nonzero `delta` is bounded from -20 to 20. For example:
+
+```json
+{
+  "title": "Slightly later development",
+  "notes": "Small next-batch adjustment",
+  "changes": {
+    "temperatureAdjustments": [
+      {
+        "kind": "bean_temperature",
+        "startMilliseconds": 300000,
+        "endMilliseconds": 420000,
+        "delta": 3
+      }
+    ]
+  }
+}
+```
+
+Example flow:
+
+```bash
+purvey reference-profile import ~/artisan/ethiopia.alog --title "Ethiopia baseline" --pretty
+purvey reference-profile get <profile-id> --pretty
+purvey reference-profile preview <profile-id> <revision-id> --request changes.json --pretty
+purvey reference-profile save <profile-id> <revision-id> --request changes.json --pretty
+purvey reference-profile export <generated-profile-id> <generated-revision-id> --output ~/artisan/next-batch.alog
+```
+
+Writes generate a new idempotency key per invocation. Pass `--idempotency-key <key>` on
+`import` or `save` and reuse that key to safely retry the same request. `export` requires a
+saved generated revision, writes the unsigned `.alog` plan locally, and emits a JSON
+receipt; it refuses to overwrite an existing file unless `--force` is passed. A generated
+profile is never executed roast history, and this CLI does not claim verified Artisan 4.2
+playback compatibility.
+
 ### sales
 
 - `purvey sales list`
@@ -852,6 +912,19 @@ purvey roast watch --resume
 
 Watch mode runs until Ctrl+C or SIGTERM. On shutdown it waits for active imports, commits queued batch-mode roasts, prints the verification summary, and leaves session state available for `--resume`.
 
+### Plan an Artisan reference
+
+```bash
+purvey reference-profile import ~/artisan/ethiopia.alog --title "Ethiopia baseline"
+purvey reference-profile get <profile-id> --pretty
+purvey reference-profile preview <profile-id> <revision-id> --request changes.json --pretty
+purvey reference-profile save <profile-id> <revision-id> --request changes.json
+purvey reference-profile export <generated-profile-id> <generated-revision-id> --output ~/artisan/next-batch.alog
+```
+
+Review the preview before saving. The export is an unsigned plan; Artisan 4.2 playback
+compatibility has not yet been established.
+
 ### Export records for spreadsheets
 
 ```bash
@@ -878,13 +951,15 @@ Use the right ID for the right command.
 - `roast_id`: `roast_data` rows; used by `roast get/delete`, `sales record --roast-id`, `roast list --roast-id`
 - `sales record` also supports resolving a roast from `inventory id` plus `--batch-name`; because sales retain inventory + batch rather than roast ID, duplicate batch names on one inventory item are rejected
 - `sale id`: `coffee_sales` rows; used by `sales update/delete`
+- `reference_profile_id`: owner-scoped Studio profile UUID; used by `reference-profile get/chart/preview/save/export`
+- `reference_revision_id`: immutable revision UUID; used by `reference-profile chart/preview/save/export`
 
 ## Environment variables
 
 - `PURVEYORS_BASE_URL`: override the Purveyors web base URL
 - `PURVEYORS_API_KEY`: explicit API-key override for canonical Parchment commands
 - `PARCHMENT_API_KEY`: preferred API-key variable for SDK-backed Parchment commands; also accepted for API-backed proof and paid-tier similarity paths
-- `PARCHMENT_API_BASE_URL`: override the SDK-backed Parchment API base URL, including `market`, `price-index`, `procurement`, and roast auto-classification requests
+- `PARCHMENT_API_BASE_URL`: override the SDK-backed Parchment API base URL, including `market`, `price-index`, `procurement`, `reference-profile`, and roast auto-classification requests
 - `PURVEY_DEBUG`: enable verbose error output
 
 ## For AI agents

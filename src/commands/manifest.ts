@@ -16,12 +16,14 @@ export function buildManifestCommand(): Command {
       `
 Preferred machine-readable entrypoint for shells, scripts, and agents.
 Use \`purvey context --json\` only for compatibility with existing context-based callers.
+The \`reference-profile\` command group describes the SDK-backed Studio Artisan plan workflow.
 
 Examples:
   purvey manifest
   purvey manifest --pretty
   purvey manifest > cli-manifest.json
   purvey manifest | jq '.commandGroups[].name'
+  purvey manifest | jq '.commandGroups[] | select(.name == "reference-profile")'
   node --input-type=module -e "import { getCliManifest } from '@purveyors/cli/manifest'; console.log(JSON.stringify(getCliManifest()))"
 `
     )
