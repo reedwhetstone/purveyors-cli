@@ -1223,7 +1223,7 @@ const commandGroups: CliCommandGroupContract[] = [
           },
         ],
         notes: ['Use data.currentRevision.id for chart, preview, and save.'],
-        examples: ['purvey reference-profile get <profile-id> --pretty'],
+        examples: ['purvey reference-profile get 5ea1af6f-234c-43a9-9bf8-5678dd24f854 --pretty'],
       },
       {
         name: 'chart',
@@ -1248,7 +1248,9 @@ const commandGroups: CliCommandGroupContract[] = [
         notes: [
           'Backed by GET /v1/reference-profiles/{id}/revisions/{revisionId}/chart via @purveyors/sdk.',
         ],
-        examples: ['purvey reference-profile chart <profile-id> <revision-id> --pretty'],
+        examples: [
+          'purvey reference-profile chart 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --pretty',
+        ],
       },
       {
         name: 'import',
@@ -1303,7 +1305,7 @@ const commandGroups: CliCommandGroupContract[] = [
           'Parchment recalculates from the immutable parent; preview never persists or changes the source.',
         ],
         examples: [
-          'purvey reference-profile preview <profile-id> <revision-id> --request changes.json --pretty',
+          'purvey reference-profile preview 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --pretty',
         ],
       },
       {
@@ -1336,7 +1338,7 @@ const commandGroups: CliCommandGroupContract[] = [
           'Generated references are plans and never create executed roast history.',
         ],
         examples: [
-          'purvey reference-profile save <profile-id> <revision-id> --request changes.json --pretty',
+          'purvey reference-profile save 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --pretty',
         ],
       },
       {
@@ -1369,7 +1371,7 @@ const commandGroups: CliCommandGroupContract[] = [
           'The CLI does not claim verified Artisan 4.2 playback compatibility.',
         ],
         examples: [
-          'purvey reference-profile export <generated-profile-id> <generated-revision-id> --output ~/artisan/next-batch.alog',
+          'purvey reference-profile export 0b7e9f52-3c61-4d8a-9e24-6f1a8c3d5b90 c43a1d7e-95b2-4e06-8f7c-1d2b3a4e5f68 --output ~/artisan/next-batch.alog',
         ],
       },
     ],
@@ -1403,10 +1405,10 @@ const workflows: CliWorkflowContract[] = [
     title: 'Plan and export an Artisan reference',
     commands: [
       'purvey reference-profile import ~/artisan/ethiopia.alog --title "Ethiopia baseline"',
-      'purvey reference-profile get <profile-id> --pretty',
-      'purvey reference-profile preview <profile-id> <revision-id> --request changes.json --pretty',
-      'purvey reference-profile save <profile-id> <revision-id> --request changes.json --idempotency-key <stable-key>',
-      'purvey reference-profile export <generated-profile-id> <generated-revision-id> --output ~/artisan/next-batch.alog',
+      'purvey reference-profile get 5ea1af6f-234c-43a9-9bf8-5678dd24f854 --pretty',
+      'purvey reference-profile preview 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --pretty',
+      'purvey reference-profile save 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --idempotency-key 3f6c2a1b-8e4d-4b7a-9c05-7e1f2d3a4b5c',
+      'purvey reference-profile export 0b7e9f52-3c61-4d8a-9e24-6f1a8c3d5b90 c43a1d7e-95b2-4e06-8f7c-1d2b3a4e5f68 --output ~/artisan/next-batch.alog',
     ],
   },
   {

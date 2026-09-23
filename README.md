@@ -714,12 +714,14 @@ be ordered and each nonzero `delta` is bounded from -20 to 20. For example:
 
 Example flow:
 
+Replace the sample UUIDs below with the profile and revision IDs returned by your commands.
+
 ```bash
 purvey reference-profile import ~/artisan/ethiopia.alog --title "Ethiopia baseline" --pretty
-purvey reference-profile get <profile-id> --pretty
-purvey reference-profile preview <profile-id> <revision-id> --request changes.json --pretty
-purvey reference-profile save <profile-id> <revision-id> --request changes.json --pretty
-purvey reference-profile export <generated-profile-id> <generated-revision-id> --output ~/artisan/next-batch.alog
+purvey reference-profile get 5ea1af6f-234c-43a9-9bf8-5678dd24f854 --pretty
+purvey reference-profile preview 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --pretty
+purvey reference-profile save 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --pretty
+purvey reference-profile export 0b7e9f52-3c61-4d8a-9e24-6f1a8c3d5b90 c43a1d7e-95b2-4e06-8f7c-1d2b3a4e5f68 --output ~/artisan/next-batch.alog
 ```
 
 Writes generate a new idempotency key per invocation. Pass `--idempotency-key <key>` on
@@ -914,12 +916,14 @@ Watch mode runs until Ctrl+C or SIGTERM. On shutdown it waits for active imports
 
 ### Plan an Artisan reference
 
+Replace the sample UUIDs with IDs returned by your own import and save commands.
+
 ```bash
 purvey reference-profile import ~/artisan/ethiopia.alog --title "Ethiopia baseline"
-purvey reference-profile get <profile-id> --pretty
-purvey reference-profile preview <profile-id> <revision-id> --request changes.json --pretty
-purvey reference-profile save <profile-id> <revision-id> --request changes.json
-purvey reference-profile export <generated-profile-id> <generated-revision-id> --output ~/artisan/next-batch.alog
+purvey reference-profile get 5ea1af6f-234c-43a9-9bf8-5678dd24f854 --pretty
+purvey reference-profile preview 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --pretty
+purvey reference-profile save 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json
+purvey reference-profile export 0b7e9f52-3c61-4d8a-9e24-6f1a8c3d5b90 c43a1d7e-95b2-4e06-8f7c-1d2b3a4e5f68 --output ~/artisan/next-batch.alog
 ```
 
 Review the preview before saving. The export is an unsigned plan; Artisan 4.2 playback

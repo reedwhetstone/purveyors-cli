@@ -143,7 +143,7 @@ Examples:
   $ purvey inventory list --stocked --pretty
   $ purvey roast import my-roast.alog --coffee-id 7
   $ purvey reference-profile list --pretty
-  $ purvey reference-profile preview <profile-id> <revision-id> --request changes.json --pretty
+  $ purvey reference-profile preview 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --pretty
   $ purvey roast watch ~/artisan/ --auto-match
   $ purvey tasting rate 42 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
   $ purvey --help

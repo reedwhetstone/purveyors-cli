@@ -80,7 +80,7 @@ Use data.currentRevision.id as the revision id for chart, preview, and save.`
       'after',
       `
 Example:
-  purvey reference-profile chart <profile-id> <revision-id> --pretty`
+  purvey reference-profile chart 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --pretty`
     )
     .action(
       withErrorHandling(
@@ -107,7 +107,7 @@ Example:
       `
 Examples:
   purvey reference-profile import ~/artisan/ethiopia.alog --title "Ethiopia baseline" --pretty
-  purvey reference-profile import ~/artisan/ethiopia.alog --idempotency-key <stable-uuid> --json
+  purvey reference-profile import ~/artisan/ethiopia.alog --idempotency-key 3f6c2a1b-8e4d-4b7a-9c05-7e1f2d3a4b5c --json
 
 Notes:
   Parchment parses and retains the private source (up to 10,000,000 bytes); this command does not create roast history.
@@ -163,7 +163,7 @@ Notes:
       'after',
       `
 Example:
-  purvey reference-profile preview <profile-id> <revision-id> --request changes.json --pretty
+  purvey reference-profile preview 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --pretty
 
 The request file is also the exact body accepted by save. Parchment recalculates from the
 immutable parent; preview never changes or stores the source.`
@@ -196,7 +196,7 @@ immutable parent; preview never changes or stores the source.`
     'after',
     `
 Example:
-  purvey reference-profile save <profile-id> <revision-id> --request changes.json --pretty
+  purvey reference-profile save 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --pretty
 
 Notes:
   Omit --idempotency-key to generate a new key for this call. Reuse an explicit key to replay a retry.
@@ -232,7 +232,7 @@ Notes:
       'after',
       `
 Example:
-  purvey reference-profile export <generated-profile-id> <generated-revision-id> --output ~/artisan/next-batch.alog
+  purvey reference-profile export 0b7e9f52-3c61-4d8a-9e24-6f1a8c3d5b90 c43a1d7e-95b2-4e06-8f7c-1d2b3a4e5f68 --output ~/artisan/next-batch.alog
 
 Only a saved generated revision can be exported. Export writes the .alog file locally and
 prints a JSON receipt; it does not claim verified Artisan 4.2 playback compatibility.`
