@@ -33,6 +33,7 @@ Current command groups:
 - `catalog`: `search` (filters: origin, process, price-min/max, name, ids, stocked, variety, stocked-days, processing-base-method, fermentation-type, process-additive, processing-disclosure-level, processing-confidence-min, sort, offset, limit; proof output via `--include-proof`), `get <id>`, `stats`, `facets <field>`, `rank`, `rank-premium`, `supplier-list` (filters: country, stocked, non-wholesale-only, sample-size, limit), `supplier-detail <supplier>` (filters: country, stocked, non-wholesale-only, top-coffees, sample-size), `supplier-rank` (filters: country, stocked, non-wholesale-only, min-coffees, sample-size, limit), `similar <id>`. Structured processing filters require the `member` role.
 - `price-index`: Parchment Price Index snapshots via the canonical API and `@purveyors/sdk` (filters: origin, process, grade, from, to, wholesale, page, limit). The stored API key requires `member` plus server-side PPI access.
 - `procurement`: `list`, `get <id>`, `matches <id>` for saved sourcing briefs via the canonical API and `@purveyors/sdk`. The stored API key requires `member`; authorization is enforced server-side. No create/write command belongs here until the Phase 2 write contract ships.
+- `reference-profile`: `list`, `get`, `chart`, `import`, `preview`, `save`, `export` for owner-scoped Studio Artisan references through the canonical API and `@purveyors/sdk`. Requires a member credential plus Studio access enforced server-side. Generated profiles are plans, never executed roast history; exported `.alog` files are unsigned and are not claimed as Artisan 4.2 playback-verified.
 - `market`: `signals`, `stats`, `metadata` — Market Index decision surface via the canonical API and `@purveyors/sdk` (thin read wrappers; no client-side computation). Mixed auth: each command has a public teaser slice that works unauthenticated (`signals --summary`, `stats` with no origin/process at `market=retail`, `metadata` at dimension=process/no-origin/market=retail/grain=month); all other filters require Parchment Intelligence access, enforced server-side (403 on denial). `--json` returns the API response verbatim.
 - `inventory`: `list` (filters: stocked, catalog-id, purchase-date-start, purchase-date-end, origin, limit, offset), `get <id>`, `add`, `update <id>`, `delete <id>` (`--yes` skips confirmation; dependent roasts or sales must be deleted explicitly before retrying a dependency conflict)
 - `roast`: `list` (filters: coffee-id, roast-id, batch-name, coffee-name, date-start, date-end, stocked, catalog-id, limit, offset), `get <id>`, `create`, `update <id>`, `delete <id>`, `import [file]`, `watch [directory]` (including canonical SDK-backed roast classification with `--auto-match`)
@@ -109,6 +110,7 @@ Command files:
 - `catalog.ts`: catalog search, fetch, stats, premium ranking, supplier aggregates, similar-bean lookup
 - `price-index.ts`: SDK-backed Parchment Price Index read command
 - `procurement.ts`: SDK-backed procurement brief read commands
+- `reference-profile.ts`: SDK-backed Studio reference list, import, preview, save, and export commands
 - `inventory.ts`: personal green coffee inventory CRUD
 - `roast.ts`: roast CRUD, Artisan import, watch mode
 - `sales.ts`: sales CRUD
@@ -122,10 +124,10 @@ Command files:
 ### Auth and roles
 
 - Use `requireAuth('viewer')` for catalog commands and other viewer-level access, except `catalog search` structured processing filters, which require `member`.
-- Use `requireAuth('member')` for personal data, entitled market intelligence, and writes.
+- Use `requireAuth('member')` for personal data, entitled market intelligence, Studio reference profiles, and writes.
 - SDK-backed Parchment commands should use `src/lib/parchment.ts`. Explicit environment API keys take precedence over the scoped key created by `purvey auth login`; the canonical API enforces owner-bound scopes and entitlements.
 - `auth`, `config`, `context`, and `manifest` do not require pre-existing credentials.
-- `catalog`, `inventory`, `roast`, `sales`, and `tasting` require authentication.
+- `catalog`, `inventory`, `roast`, `reference-profile`, `sales`, and `tasting` require authentication. Reference profiles additionally require Studio access enforced by Parchment.
 - Keep docs aligned with actual handler behavior. If auth requirements change, update README, help text, and context in the same PR.
 - Preserve both supported login paths: browser approval with automatic polling, and `auth login --headless` for agents, CI, SSH sessions, and remote hosts. Neither path uses a localhost callback or pasted URL.
 - Device authorization secrets are memory-only. Never persist the signed request token or PKCE verifier.
@@ -192,6 +194,7 @@ The published package and binary run from `dist/`, not `src/`. Any command-surfa
 - `tasting rate [bean-id]` uses an `inventory id` (green_coffee_inv.id). It is NOT a catalog ID.
 - `roast --coffee-id` expects an inventory ID, not a catalog ID.
 - `sales list --coffee-id` expects an inventory ID; `sales record --roast-id` expects a roast ID.
+- `reference-profile` commands use separate reference-profile and immutable revision UUIDs; they do not accept roast IDs. Export requires a saved generated revision, not an unsaved preview.
 - `context.ts` and `manifest.ts` are easy to forget when command flags or output behavior change.
 - `inventory list`, `roast list`, and `sales list` all support `--offset` for pagination. Keep docs in sync when adding new list flags.
 - `roast import` and `roast watch` normalize file and directory path input by trimming whitespace, removing one layer of matching quotes, and unescaping common shell-escaped characters. Preserve this when changing Artisan workflows.
@@ -210,7 +213,7 @@ The published package and binary run from `dist/`, not `src/`. Any command-surfa
 When doing a docs-only refresh, confirm these before opening a PR:
 
 - README command reference matches `src/commands/*` and `src/lib/manifest.ts`.
-- Auth and role claims match the actual boundary: catalog is viewer, with `catalog search` structured processing filters elevated to member; market has unauthenticated public teaser slices and Parchment Intelligence-gated filtered slices; price-index, procurement, inventory, roast, sales, and tasting require a valid scoped key and the corresponding server-side entitlement; auth, config, context, and manifest do not require pre-existing credentials.
+- Auth and role claims match the actual boundary: catalog is viewer, with `catalog search` structured processing filters elevated to member; market has unauthenticated public teaser slices and Parchment Intelligence-gated filtered slices; price-index, procurement, inventory, roast, reference-profile, sales, and tasting require a valid scoped key and the corresponding server-side entitlement; auth, config, context, and manifest do not require pre-existing credentials.
 - Headless device authorization remains documented as first-class, not as a fallback.
 - `purvey manifest` is documented as the preferred shell contract; `purvey context --json` is documented as compatibility.
 - `@purveyors/cli/manifest` and package subpath exports are documented as supported in-process CLI contracts, not as coffee-app dependencies.

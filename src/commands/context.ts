@@ -18,6 +18,7 @@ Default output is the dense human-readable operator reference.
 Preferred machine contract: \`purvey manifest\`.
 Use --json or --pretty only when an existing \`purvey context\` caller needs manifest parity.
 Use \`@purveyors/cli/manifest\` for the same contract inside Node.js or agent runtimes.
+Studio reference workflows are listed under \`reference-profile\` in the manifest; they require Studio access.
 
 Examples:
   purvey context
@@ -26,6 +27,7 @@ Examples:
   purvey context --pretty
   purvey context --json > cli-manifest.json
   purvey manifest
+  purvey reference-profile --help
 `
     )
     .action(

@@ -11,6 +11,7 @@ import { buildManifestCommand } from './commands/manifest.js';
 import { buildMarketCommand } from './commands/market.js';
 import { buildPriceIndexCommand } from './commands/price-index.js';
 import { buildProcurementCommand } from './commands/procurement.js';
+import { buildReferenceProfileCommand } from './commands/reference-profile.js';
 import { buildRoastCommand } from './commands/roast.js';
 import { buildSalesCommand } from './commands/sales.js';
 import { buildTastingCommand } from './commands/tasting.js';
@@ -109,6 +110,15 @@ Market intelligence (canonical API; entitled slices require Parchment Intelligen
   procurement get     Get a saved sourcing brief by id
   procurement matches Page through catalog matches for a brief
 
+Studio reference profiles (member credential plus Studio access):
+  reference-profile list     List your saved reference profiles
+  reference-profile get      Get a profile and its current revision
+  reference-profile chart    Get a typed chart for a revision
+  reference-profile import   Upload an Artisan file as a reference profile
+  reference-profile preview  Preview bounded temperature adjustments
+  reference-profile save     Save an immutable generated plan
+  reference-profile export   Download a saved plan as an unsigned .alog
+
 Local and reference commands (no pre-existing credentials required):
   config list       Show all config values
   config get        Get a config value
@@ -132,6 +142,8 @@ Examples:
   $ purvey catalog similar 1182 --threshold 0.85 --stocked-only --json | jq '.data.groups'
   $ purvey inventory list --stocked --pretty
   $ purvey roast import my-roast.alog --coffee-id 7
+  $ purvey reference-profile list --pretty
+  $ purvey reference-profile preview 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --pretty
   $ purvey roast watch ~/artisan/ --auto-match
   $ purvey tasting rate 42 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
   $ purvey --help
@@ -160,6 +172,7 @@ Module import:    @purveyors/cli/manifest
   program.addCommand(buildMarketCommand());
   program.addCommand(buildPriceIndexCommand());
   program.addCommand(buildProcurementCommand());
+  program.addCommand(buildReferenceProfileCommand());
   program.addCommand(buildRoastCommand());
   program.addCommand(buildSalesCommand());
   program.addCommand(buildTastingCommand());
