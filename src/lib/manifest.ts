@@ -220,6 +220,25 @@ const idTypes: CliIdContract[] = [
     source: 'coffee_sales row',
     usedBy: ['sales update/delete'],
   },
+  {
+    name: 'reference_profile_id',
+    source: 'owner-scoped Studio reference profile',
+    usedBy: [
+      'reference-profile get',
+      'reference-profile chart',
+      'reference-profile preview/save',
+      'reference-profile export',
+    ],
+  },
+  {
+    name: 'reference_revision_id',
+    source: 'immutable revision belonging to a reference profile',
+    usedBy: [
+      'reference-profile chart',
+      'reference-profile preview/save',
+      'reference-profile export',
+    ],
+  },
 ];
 
 const commandGroups: CliCommandGroupContract[] = [
@@ -1174,6 +1193,189 @@ const commandGroups: CliCommandGroupContract[] = [
       },
     ],
   },
+  {
+    name: 'reference-profile',
+    summary: 'Preview, save, and export Studio reference plans through the canonical API',
+    auth: 'member',
+    subcommands: [
+      {
+        name: 'list',
+        summary: 'List your Studio reference profiles',
+        auth: 'member',
+        options: [{ flags: '--include-archived' }],
+        notes: [
+          'Backed by GET /v1/reference-profiles via @purveyors/sdk.',
+          'Requires a member credential and Studio access; entitlement is enforced by Parchment.',
+        ],
+        examples: ['purvey reference-profile list --pretty'],
+      },
+      {
+        name: 'get',
+        summary: 'Get one reference profile and its current revision',
+        auth: 'member',
+        arguments: [
+          {
+            name: 'reference_profile_id',
+            cliToken: 'profile-id',
+            description: 'owner-scoped reference profile UUID',
+            required: true,
+            idType: 'reference_profile_id',
+          },
+        ],
+        notes: ['Use data.currentRevision.id for chart, preview, and save.'],
+        examples: ['purvey reference-profile get 5ea1af6f-234c-43a9-9bf8-5678dd24f854 --pretty'],
+      },
+      {
+        name: 'chart',
+        summary: 'Get the typed Artisan chart for a reference revision',
+        auth: 'member',
+        arguments: [
+          {
+            name: 'reference_profile_id',
+            cliToken: 'profile-id',
+            description: 'owner-scoped reference profile UUID',
+            required: true,
+            idType: 'reference_profile_id',
+          },
+          {
+            name: 'reference_revision_id',
+            cliToken: 'revision-id',
+            description: 'immutable revision UUID belonging to the profile',
+            required: true,
+            idType: 'reference_revision_id',
+          },
+        ],
+        notes: [
+          'Backed by GET /v1/reference-profiles/{id}/revisions/{revisionId}/chart via @purveyors/sdk.',
+        ],
+        examples: [
+          'purvey reference-profile chart 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --pretty',
+        ],
+      },
+      {
+        name: 'import',
+        summary: 'Upload an Artisan file as a private Studio reference profile',
+        auth: 'member',
+        arguments: [
+          {
+            name: 'file',
+            description: 'Path to an Artisan .alog or importer-supported JSON file',
+            required: true,
+          },
+        ],
+        options: [
+          { flags: '--title <text>' },
+          { flags: '--notes <text>' },
+          { flags: '--idempotency-key <key>', description: 'Stable key for safe retries' },
+        ],
+        notes: [
+          'Backed by POST /v1/reference-profiles/imports via @purveyors/sdk; parsing and private retention are server-owned.',
+          'A new idempotency key is generated when omitted; reuse an explicit key to replay the same upload.',
+          'Import creates a reference profile, not executed roast history.',
+        ],
+        examples: [
+          'purvey reference-profile import ~/artisan/ethiopia.alog --title "Ethiopia baseline"',
+        ],
+      },
+      {
+        name: 'preview',
+        summary: 'Preview bounded temperature adjustments without saving',
+        auth: 'member',
+        arguments: [
+          {
+            name: 'reference_profile_id',
+            cliToken: 'profile-id',
+            description: 'owner-scoped reference profile UUID',
+            required: true,
+            idType: 'reference_profile_id',
+          },
+          {
+            name: 'reference_revision_id',
+            cliToken: 'revision-id',
+            description: 'immutable parent revision UUID',
+            required: true,
+            idType: 'reference_revision_id',
+          },
+        ],
+        options: [{ flags: '--request <file>', requiredInFlagMode: true }],
+        notes: [
+          'Backed by POST /v1/reference-profiles/{id}/revisions/{revisionId}/preview via @purveyors/sdk.',
+          'Request JSON contains title, optional notes, and changes.temperatureAdjustments; each adjustment has kind, startMilliseconds, endMilliseconds, and delta.',
+          'At most 12 adjustments are accepted; intervals must be ordered and each nonzero delta is bounded to -20 through 20.',
+          'Parchment recalculates from the immutable parent; preview never persists or changes the source.',
+        ],
+        examples: [
+          'purvey reference-profile preview 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --pretty',
+        ],
+      },
+      {
+        name: 'save',
+        summary: 'Save changes as a new immutable generated reference plan',
+        auth: 'member',
+        arguments: [
+          {
+            name: 'reference_profile_id',
+            cliToken: 'profile-id',
+            description: 'owner-scoped reference profile UUID',
+            required: true,
+            idType: 'reference_profile_id',
+          },
+          {
+            name: 'reference_revision_id',
+            cliToken: 'revision-id',
+            description: 'immutable parent revision UUID',
+            required: true,
+            idType: 'reference_revision_id',
+          },
+        ],
+        options: [
+          { flags: '--request <file>', requiredInFlagMode: true },
+          { flags: '--idempotency-key <key>', description: 'Stable key for safe retries' },
+        ],
+        notes: [
+          'Backed by POST /v1/reference-profiles/{id}/revisions/{revisionId}/generated via @purveyors/sdk.',
+          'A new idempotency key is generated when omitted; reuse an explicit key to replay the same save.',
+          'Generated references are plans and never create executed roast history.',
+        ],
+        examples: [
+          'purvey reference-profile save 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --pretty',
+        ],
+      },
+      {
+        name: 'export',
+        summary: 'Download a saved generated reference as an unsigned Artisan .alog plan',
+        auth: 'member',
+        arguments: [
+          {
+            name: 'reference_profile_id',
+            cliToken: 'profile-id',
+            description: 'saved generated reference profile UUID',
+            required: true,
+            idType: 'reference_profile_id',
+          },
+          {
+            name: 'reference_revision_id',
+            cliToken: 'revision-id',
+            description: 'saved generated revision UUID',
+            required: true,
+            idType: 'reference_revision_id',
+          },
+        ],
+        options: [
+          { flags: '--output <file>', requiredInFlagMode: true },
+          { flags: '--force', description: 'Overwrite the destination file if it exists' },
+        ],
+        notes: [
+          'Backed by GET /v1/reference-profiles/{id}/revisions/{revisionId}/export via @purveyors/sdk.',
+          'Only a saved generated revision can be exported; output is a local file plus a JSON receipt.',
+          'The CLI does not claim verified Artisan 4.2 playback compatibility.',
+        ],
+        examples: [
+          'purvey reference-profile export 0b7e9f52-3c61-4d8a-9e24-6f1a8c3d5b90 c43a1d7e-95b2-4e06-8f7c-1d2b3a4e5f68 --output ~/artisan/next-batch.alog',
+        ],
+      },
+    ],
+  },
 ];
 
 const workflows: CliWorkflowContract[] = [
@@ -1197,6 +1399,16 @@ const workflows: CliWorkflowContract[] = [
     commands: [
       'purvey inventory list --stocked --pretty',
       'purvey roast import ~/artisan/ethiopia.alog --coffee-id 7 --pretty',
+    ],
+  },
+  {
+    title: 'Plan and export an Artisan reference',
+    commands: [
+      'purvey reference-profile import ~/artisan/ethiopia.alog --title "Ethiopia baseline"',
+      'purvey reference-profile get 5ea1af6f-234c-43a9-9bf8-5678dd24f854 --pretty',
+      'purvey reference-profile preview 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --pretty',
+      'purvey reference-profile save 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --idempotency-key 3f6c2a1b-8e4d-4b7a-9c05-7e1f2d3a4b5c',
+      'purvey reference-profile export 0b7e9f52-3c61-4d8a-9e24-6f1a8c3d5b90 c43a1d7e-95b2-4e06-8f7c-1d2b3a4e5f68 --output ~/artisan/next-batch.alog',
     ],
   },
   {
@@ -1229,7 +1441,7 @@ const errorPatterns: CliErrorPatternContract[] = [
     title: 'Wrong ID type',
     exitCodes: [EXIT_CODES.INVALID_ARGUMENT, EXIT_CODES.NOT_FOUND],
     guidance: [
-      'Verify whether the command wants catalog_id, inventory_id, roast_id, or sale_id.',
+      'Verify whether the command wants catalog_id, inventory_id, roast_id, sale_id, reference_profile_id, or reference_revision_id.',
       'See the ID MAP section.',
     ],
   },
@@ -1426,7 +1638,7 @@ function renderIdMap(ids: CliIdContract[]): string[] {
   }
   lines.push(
     '',
-    'Common ID mistake: tasting get takes catalog_id; tasting rate takes inventory_id.'
+    'Common ID mistakes: tasting get takes catalog_id; tasting rate takes inventory_id; reference-profile commands use profile and revision UUIDs, not roast IDs.'
   );
   return lines;
 }
