@@ -13,63 +13,15 @@ Use this file as the single maintained guide for humans and agents. `CLAUDE.md` 
 - Version source of truth: `package.json` and `purvey --version`
 - Binary entrypoint: `purvey` via package `bin` field
 - Package contract source of truth: `package.json` `exports` plus `src/lib/manifest.ts`
-- In-process product exports: `@purveyors/cli/catalog`, `/market`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, and `/cherry`; `/ai` is a deprecated compatibility re-export of `/cherry`
 - In-process manifest export: `@purveyors/cli/manifest` via package export `./manifest`
 - Live CLI guides: `/docs/cli/*` on `https://purveyors.io`
 - Canonical API reference: `https://api.purveyors.io/docs`
 
-## Canonical Agent Docs Policy
+## Setup and guidance ownership
 
-- `AGENTS.md` is the canonical maintained guide.
-- `CLAUDE.md` and `GEMINI.md` must stay lightweight pointers to this file.
-- If agent guidance changes, update `AGENTS.md` first and keep pointer files minimal.
-- Do not let agent-specific copies drift into separate maintained documentation.
+Use `pnpm install --frozen-lockfile` for local setup. `AGENTS.md` owns contributor policy; `CLAUDE.md` and `GEMINI.md` are lightweight pointers and need changes only if their target changes.
 
-## What the CLI Covers
-
-Current command groups:
-
-- `auth`: `login`, `status`, `logout`
-- `catalog`: `search` (filters: origin, process, price-min/max, name, ids, stocked, variety, stocked-days, processing-base-method, fermentation-type, process-additive, processing-disclosure-level, processing-confidence-min, sort, offset, limit; proof output via `--include-proof`), `get <id>`, `stats`, `facets <field>`, `rank`, `rank-premium`, `supplier-list` (filters: country, stocked, non-wholesale-only, sample-size, limit), `supplier-detail <supplier>` (filters: country, stocked, non-wholesale-only, top-coffees, sample-size), `supplier-rank` (filters: country, stocked, non-wholesale-only, min-coffees, sample-size, limit), `similar <id>`. Structured processing filters require the `member` role.
-- `price-index`: Parchment Price Index snapshots via the canonical API and `@purveyors/sdk` (filters: origin, process, grade, from, to, wholesale, page, limit). The stored API key requires `member` plus server-side PPI access.
-- `procurement`: `list`, `get <id>`, `matches <id>` for saved sourcing briefs via the canonical API and `@purveyors/sdk`. The stored API key requires `member`; authorization is enforced server-side. No create/write command belongs here until the Phase 2 write contract ships.
-- `reference-profile`: `list`, `get`, `chart`, `import`, `preview`, `save`, `export` for owner-scoped Studio Artisan references through the canonical API and `@purveyors/sdk`. Requires a member credential plus Studio access enforced server-side. Generated profiles are plans, never executed roast history; exported `.alog` files are unsigned and are not claimed as Artisan 4.2 playback-verified.
-- `market`: `signals`, `stats`, `metadata` — Market Index decision surface via the canonical API and `@purveyors/sdk` (thin read wrappers; no client-side computation). Mixed auth: each command has a public teaser slice that works unauthenticated (`signals --summary`, `stats` with no origin/process at `market=retail`, `metadata` at dimension=process/no-origin/market=retail/grain=month); all other filters require Parchment Intelligence access, enforced server-side (403 on denial). `--json` returns the API response verbatim.
-- `inventory`: `list` (filters: stocked, catalog-id, purchase-date-start, purchase-date-end, origin, limit, offset), `get <id>`, `add`, `update <id>`, `delete <id>` (`--yes` skips confirmation; dependent roasts or sales must be deleted explicitly before retrying a dependency conflict)
-- `roast`: `list` (filters: coffee-id, roast-id, batch-name, coffee-name, date-start, date-end, stocked, catalog-id, limit, offset), `get <id>`, `create`, `update <id>`, `delete <id>`, `import [file]`, `watch [directory]` (including canonical SDK-backed roast classification with `--auto-match`)
-- `sales`: `list` (filters: coffee-id, date-start, date-end, buyer, limit, offset), `record`, `update <id>`, `delete <id>`
-- `tasting`: `get <bean-id>`, `rate [bean-id]`
-- `config`: `list`, `get <key>`, `set <key> <value>`, `reset`
-- `context`: dense human-readable agent reference for the CLI, or manifest-compat JSON with `--json`/`--pretty`
-- `manifest`: preferred machine-readable CLI manifest contract for agents and scripts
-
-If you change this surface, update all of these in the same PR:
-
-1. `README.md`
-2. `AGENTS.md`
-3. `CLAUDE.md` and `GEMINI.md` pointers
-4. `docs/CLI_STRATEGY.md` when historical or architecture claims change
-5. `src/commands/context.ts`
-6. `src/commands/manifest.ts`
-7. `src/lib/manifest.ts`
-8. command help text in `src/commands/*` and `src/program.ts` when affected
-9. compiled artifact checks after `npm run build` (`node dist/index.js --help`, `node dist/index.js manifest`, `node dist/index.js context --json`)
-10. relevant tests, including dist parity coverage
-
-## Local Setup
-
-```bash
-pnpm install
-npm run build
-npm run verify:contract
-npm run verify:dist
-npm run verify:prepublish
-npm run check
-npm run lint
-npm test
-```
-
-Use `pnpm install` for local setup. Use the package scripts for validation.
+Discover current commands, flags, roles, and workflow examples from `src/lib/manifest.ts`, the command handlers, and `purvey manifest`; do not duplicate that inventory here.
 
 ## Documentation Sources of Truth
 
@@ -104,21 +56,6 @@ src/
 tests/                Vitest coverage
 ```
 
-Command files:
-
-- `auth.ts`: Parchment device authorization for browser/headless login, status, logout
-- `catalog.ts`: catalog search, fetch, stats, premium ranking, supplier aggregates, similar-bean lookup
-- `price-index.ts`: SDK-backed Parchment Price Index read command
-- `procurement.ts`: SDK-backed procurement brief read commands
-- `reference-profile.ts`: SDK-backed Studio reference list, import, preview, save, and export commands
-- `inventory.ts`: personal green coffee inventory CRUD
-- `roast.ts`: roast CRUD, Artisan import, watch mode
-- `sales.ts`: sales CRUD
-- `tasting.ts`: tasting lookup and cupping scores
-- `config.ts`: local CLI config
-- `context.ts`: dense agent-oriented reference output, with optional JSON manifest mode
-- `manifest.ts`: machine-readable CLI manifest command and contract output
-
 ## Contribution Rules
 
 ### Auth and roles
@@ -140,7 +77,7 @@ Command files:
 - `coffee-app` consumes `@purveyors/sdk` directly and does not depend on this package. Shared cross-surface data behavior belongs in Parchment and its OpenAPI contract.
 - Agent runtimes may import exported CLI functions when they intentionally need CLI semantics. Prefer narrow imports such as `@purveyors/cli/catalog` instead of the package root.
 - Use `@purveyors/cli/cherry` for roast classification. `@purveyors/cli/ai` remains a deprecated compatibility alias so existing integrations do not break.
-- When package exports change, update `package.json`, `README.md`, `AGENTS.md`, `docs/CLI_STRATEGY.md`, `src/lib/manifest.ts`, and dist parity validation in the same PR.
+- When package exports change, keep `package.json`, the manifest, affected consumer docs, and packaged-artifact coverage aligned. Update contributor policy or architecture history only when their claims change.
 - `purvey manifest` is the primary shell-level machine contract. `@purveyors/cli/manifest` is the primary in-process machine contract.
 
 ### Output contract
@@ -167,25 +104,17 @@ Command files:
 - Do not document flags that are not wired in code.
 - Do not leave stale release numbers or command names in help text.
 
-### Docs discipline
+### Documentation and validation
 
-This repo has several documentation surfaces that drift easily. When changing commands, options, auth behavior, package exports, scripts, or output behavior, audit the full set rather than patching one file.
+Inspect affected consumers when commands, auth, exports, scripts, or output behavior change: README, command help, manifest/context rendering, package metadata, and relevant architecture or downstream docs. Update surfaces whose claims or behavior change; do not mechanically edit every file or regenerate pointer files. Keep `purvey manifest` primary and `purvey context --json` in exact compatibility parity.
 
-- Treat the CLI as a core agent-first product surface, not a sidecar utility. The binary, exported functions, manifest, context output, and headless auth flow are all part of the product contract.
-- Prefer `purvey manifest` as the primary machine-readable contract in docs and examples.
-- Keep `purvey context --json` in exact parity, but document it as a compatibility surface rather than the preferred entry point.
-- Keep `CLAUDE.md` and `GEMINI.md` as pointer files only.
+Choose one validation path for the change, based on the current `package.json` script graph:
 
-### Built artifact discipline
+- **Instruction/docs-only, with no published contract claim changed:** inspect links and factual claims against their owners; run `pnpm exec prettier --check <changed Markdown files>` and `git diff --check`. No build or application test suite is required just for a PR description or contributor-policy edit.
+- **Code changes outside package/command/help/manifest/output contracts:** run `pnpm lint`, `pnpm build`, and `pnpm test`. Build includes TypeScript checking; the full test suite includes contract and dist tests. Add targeted regression evidence when needed, without rerunning those same tests separately.
+- **Package, release, command/help/manifest/output contract changes, including README release-contract claims:** run `pnpm lint`, `pnpm verify:prepublish`, then `pnpm exec vitest run --exclude tests/manifest.test.ts --exclude tests/cli-output-modes.test.ts --exclude tests/dist-contract.test.ts`. The prepublish umbrella cleans and builds dist, runs contract and dist tests, then checks actual packed-artifact parity. The remaining suite covers other behavior without repeating those test files. A standalone `pnpm check`, build, or verification subcommand adds no coverage to this path.
 
-The published package and binary run from `dist/`, not `src/`. Any command-surface or manifest change must keep the compiled artifact in parity with source.
-
-- Run `npm run build` before opening or updating a PR.
-- Run `npm run verify:contract` when command contracts or machine-mode behavior change.
-- Run `npm run verify:dist` to check compiled-artifact parity.
-- Run `npm run verify:prepublish` before release work or when touching package/docs/manifest/help surfaces.
-- `verify:prepublish` rebuilds first, then smoke-checks `package.json`, `npm pack --dry-run`, `README.md`, `node dist/index.js --help`, `node dist/index.js manifest`, `node dist/index.js context --json`, and `@purveyors/cli/manifest` self-import parity.
-- Do not assume source-level tests cover the built artifact or the packaged export surface.
+The package runs from `dist/`, not `src/`; source tests alone do not prove packaged exports or binary parity. Keep the script graph and these paths aligned if scripts change. Record commands and results for the validated revision. Reuse successful evidence for an unchanged head and environment; PR-body-only updates do not trigger reruns. Revalidate affected checks after new changes, failures, or a material environment change. Report actual blockers rather than claiming unrun checks passed.
 
 ## Common Gotchas
 
@@ -207,29 +136,3 @@ The published package and binary run from `dist/`, not `src/`. Any command-surfa
 - After merge, tag `vX.Y.Z` to publish to npm through GitHub Actions.
 - Do not rely on hardcoded version strings in docs when they can drift.
 - `prepack` runs `npm run verify:prepublish`, which rebuilds first, so release artifacts fail fast if command contracts, dist parity, docs, or package exports drift.
-
-## Docs Audit Checklist
-
-When doing a docs-only refresh, confirm these before opening a PR:
-
-- README command reference matches `src/commands/*` and `src/lib/manifest.ts`.
-- Auth and role claims match the actual boundary: catalog is viewer, with `catalog search` structured processing filters elevated to member; market has unauthenticated public teaser slices and Parchment Intelligence-gated filtered slices; price-index, procurement, inventory, roast, reference-profile, sales, and tasting require a valid scoped key and the corresponding server-side entitlement; auth, config, context, and manifest do not require pre-existing credentials.
-- Headless device authorization remains documented as first-class, not as a fallback.
-- `purvey manifest` is documented as the preferred shell contract; `purvey context --json` is documented as compatibility.
-- `@purveyors/cli/manifest` and package subpath exports are documented as supported in-process CLI contracts, not as coffee-app dependencies.
-- Live docs links point to `https://purveyors.io/docs/cli/overview` and `https://api.purveyors.io/docs`.
-
-## PR Checklist
-
-Before opening or updating a PR:
-
-- `npm run build`
-- `npm run verify:contract`
-- `npm run verify:dist`
-- `npm run verify:prepublish`
-- `npm run check`
-- `npm run lint`
-- `npm test`
-- audit README, AGENTS, CLAUDE, GEMINI, CLI_STRATEGY, help text, manifest/context contract files, and dist artifact smoke checks for drift
-
-Documentation-only PRs should still leave the command docs internally consistent.
