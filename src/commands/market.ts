@@ -2,7 +2,11 @@ import { Command } from 'commander';
 import type { MarketSignalsQuery, PriceIndexStatsQuery, MetadataIndexQuery } from '@purveyors/sdk';
 import { outputData } from '../lib/output.js';
 import { withErrorHandling, PrvrsError } from '../lib/errors.js';
-import { createOptionalParchmentClient, unwrapParchment } from '../lib/parchment.js';
+import {
+  createOptionalParchmentClient,
+  createParchmentClient,
+  unwrapParchment,
+} from '../lib/parchment.js';
 import { CLI_NUMERIC_BOUNDS } from '../lib/numeric-contracts.js';
 import { parseStrictPositiveCount } from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
@@ -267,7 +271,7 @@ Notes:
     .action(
       withErrorHandling(async (_opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const client = await createOptionalParchmentClient();
+        const client = await createParchmentClient('viewer');
         const data = unwrapParchment(await client.market.overview(), 'market overview');
         outputData(data, globalOpts);
       })
@@ -291,7 +295,7 @@ Notes:
     .action(
       withErrorHandling(async (_opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        const client = await createOptionalParchmentClient();
+        const client = await createParchmentClient('member');
         const data = unwrapParchment(await client.market.evidence(), 'market evidence');
         outputData(data, globalOpts);
       })
