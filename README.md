@@ -2,7 +2,7 @@
 
 Coffee intelligence from your terminal.
 
-`purvey` is the official CLI for [purveyors.io](https://purveyors.io). It gives coffee professionals, developers, and AI agents direct access to the Purveyors platform from the terminal: catalog search, Market Index intelligence, price-index snapshots, procurement brief reads, inventory tracking, roast logging, sales records, tasting notes, and Artisan `.alog` import.
+`purvey` is the official CLI for [purveyors.io](https://purveyors.io). It gives coffee professionals, developers, and AI agents direct access to the Purveyors platform from the terminal: catalog search, Market Index intelligence, price-index snapshots, matched price comparisons, and chart history, procurement brief reads, inventory tracking, roast logging, sales records, tasting notes, and Artisan `.alog` import.
 
 Use `purvey --help` for quick command discovery, `purvey context` for the dense human-readable operator reference, `purvey manifest` for the preferred machine-readable contract, or `@purveyors/cli/manifest` in-process.
 
@@ -13,8 +13,8 @@ Use `purvey --help` for quick command discovery, `purvey context` for the dense 
 - Runtime: Node.js 20+
 - No pre-existing credentials required: `auth`, `config`, `context`, `manifest`
 - Viewer role required: `catalog` (excluding structured process filters on `catalog search`)
-- Member role required: `price-index`, `procurement`, `inventory`, `roast`, `sales`, `tasting`
-- Mixed public and entitled access: `market` public teaser slices are unauthenticated; filtered slices require Parchment Intelligence access
+- Member role required: `procurement`, `inventory`, `roast`, `sales`, `tasting`
+- Mixed public and entitled access: `market` and `price-index` public teaser slices are unauthenticated; filtered, non-public, and evidence slices require a credential and, where entitled, Parchment Intelligence access
 - Preferred machine-readable contract: `purvey manifest`
 - Dense human-readable reference: `purvey context`
 - Compatibility JSON alias: `purvey context --json`
@@ -144,7 +144,9 @@ Remote data commands require a valid owner-bound API key with the required scope
 - `catalog` requires the `viewer` role by default
 - `catalog search` structured process filters require the `member` role
 - `market` has public teaser slices for `signals --summary`, unfiltered retail `stats`, and process/retail/month `metadata`; all filtered or non-public slices require Parchment Intelligence access enforced server-side
-- `price-index`, `procurement`, `inventory`, `roast`, `sales`, and `tasting` require the `member` role
+- `market overview` requires any signed-in session or API key; `market evidence` requires Parchment Intelligence access
+- `price-index history` is public for windows up to 90 days; longer windows require Parchment Intelligence access
+- `price-index` snapshots, `price-index comparisons`, `price-index comparison`, `procurement`, `inventory`, `roast`, `sales`, and `tasting` require the `member` role
 - `reference-profile` requires a `member` credential plus Studio access, enforced server-side by Parchment
 
 `purvey` uses Google OAuth through purveyors.io.
@@ -195,7 +197,7 @@ Credentials are stored at `~/.config/purvey/credentials.json`.
 
 The `reference-profile` commands also require Studio access; the API enforces this entitlement.
 
-Market Index teaser slices are public. Filtered `market signals`, origin/process/wholesale `market stats`, and non-public `market metadata` slices require Parchment Intelligence access; API-key denial is enforced by the canonical API. The stored login key carries `catalog:read`, which is also the canonical read scope for Market Index, Price Index, and procurement.
+Market Index teaser slices are public. Filtered `market signals`, origin/process/wholesale `market stats`, non-public `market metadata`, `market evidence`, `price-index comparisons`, `price-index comparison`, and `price-index history` windows over 90 days require Parchment Intelligence access; API-key denial is enforced by the canonical API. The stored login key carries `catalog:read`, which is also the canonical read scope for Market Index, Price Index, and procurement.
 
 `auth`, `config`, `context`, and `manifest` remain available without pre-existing credentials.
 
@@ -426,6 +428,9 @@ Notes:
 ### price-index
 
 - `purvey price-index`
+- `purvey price-index comparisons`
+- `purvey price-index comparison`
+- `purvey price-index history`
 
 `price-index` filters:
 
@@ -438,25 +443,53 @@ Notes:
 - `--page <n>`; 1-based page number
 - `--limit <n>`; results per page, min `1`, max `100`
 
+`price-index comparisons` options:
+
+- `--wholesale <true|false|all>`
+
+`price-index comparison` options:
+
+- `--origin <origin>`; required
+- `--from <YYYY-MM-DD>`; required
+- `--to <YYYY-MM-DD>`; required, within 365 days of `--from`
+- `--wholesale <true|false>`
+
+`price-index history` options:
+
+- `--window-days <n>`; min `1`, max `365`; windows over 90 days require Parchment Intelligence access
+- `--page <n>`; 1-based page number
+- `--limit <n>`; results per page, min `1`, max `10000`
+- `--order <asc|desc>`
+
+The snapshot filters above belong to the bare `price-index` command; subcommands reject them.
+
 Examples:
 
 ```bash
 purvey price-index --pretty
 purvey price-index --origin "Ethiopia" --from 2026-01-01 --to 2026-06-30 --json
 PARCHMENT_API_KEY="$PURVEYORS_API_KEY" purvey price-index --limit 25 --json
+purvey price-index comparisons --pretty
+purvey price-index comparison --origin "Ethiopia" --from 2026-08-31 --to 2026-09-30 --json
+purvey price-index history --window-days 30 --order desc --json
 ```
 
 Notes:
 
 - `price-index` is backed by the canonical Parchment API `GET /v1/price-index` through `@purveyors/sdk`.
 - Session-token use requires the local `member` role; API-key use is accepted via `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY` and PPI entitlement is enforced server-side.
-- `PARCHMENT_API_BASE_URL` overrides the canonical API base for this SDK-backed command.
+- `price-index comparisons` (`GET /v1/price-index/comparisons`) lists the origins that have an exact 30-day matched comparison. Each comparison carries its `significance` object verbatim; `classification` is `quiet`, `normal`, `notable`, `exceptional`, or `null`. `null` means fewer than eight baseline windows exist, not that the move is quiet.
+- `price-index comparison` (`GET /v1/price-index/comparison`) compares one origin between two exact dates. When fresh coverage is insufficient, `changePercent` is `null`, never zero.
+- `price-index history` (`GET /v1/price-index/history`) returns tier-one chart history and runs without credentials for windows up to 90 days.
+- `PARCHMENT_API_BASE_URL` overrides the canonical API base for these SDK-backed commands.
 
 ### market
 
 - `purvey market signals`
 - `purvey market stats`
 - `purvey market metadata`
+- `purvey market overview`
+- `purvey market evidence`
 
 `market signals` filters:
 
@@ -494,6 +527,8 @@ purvey market signals --summary --pretty
 purvey market signals --type price_drop --origin "Ethiopia" --json
 purvey market stats --pretty
 purvey market metadata --dimension score --origin "Ethiopia" --grain month --json
+purvey market overview --pretty
+purvey market evidence --json
 PARCHMENT_API_KEY="$PURVEYORS_API_KEY" purvey market signals --market wholesale --json
 ```
 
@@ -502,6 +537,8 @@ Notes:
 - `market` commands are backed by canonical Parchment API endpoints through `@purveyors/sdk`; the CLI does not compute Market Index intelligence locally.
 - Public teaser slices: `signals --summary`, `stats` with no origin/process and `market=retail`, and `metadata` at dimension=process/no-origin/market=retail/grain=month.
 - Any filtered or non-public market slice requires Parchment Intelligence access, enforced server-side for API-key calls.
+- `market overview` (`GET /v1/market/overview`) returns aggregate-only daily change, coverage, movement, process mix, and origin price distributions. The API rejects anonymous calls; any signed-in session or API key receives the same public evidence.
+- `market evidence` (`GET /v1/market/evidence`) returns named arrivals, delistings, comparable lots, and supplier health and price ranges. It requires Parchment Intelligence access.
 - `--json` returns the API response verbatim.
 
 ### procurement

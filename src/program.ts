@@ -105,7 +105,12 @@ Market intelligence (canonical API; entitled slices require Parchment Intelligen
   market signals      Actionable value signals (public summary via --summary)
   market stats        Price movement-significance stats (public retail summary)
   market metadata     Metadata-trend index (public process/retail/month slice)
+  market overview     Aggregate market overview (any signed-in session or API key)
+  market evidence     Named lots and supplier evidence (Intelligence access)
   price-index         Parchment Price Index aggregate snapshots
+  price-index comparisons  Available 30-day matched comparisons with significance
+  price-index comparison   Matched comparison for one origin between two dates
+  price-index history      Chart history (public up to 90 days)
   procurement list    List your saved sourcing briefs
   procurement get     Get a saved sourcing brief by id
   procurement matches Page through catalog matches for a brief

@@ -44,13 +44,15 @@ function runCli(args: string[], baseUrl?: string) {
 }
 
 describe('market command', () => {
-  it('lists the three subcommands in help output', () => {
+  it('lists the five subcommands in help output', () => {
     const result = runCli(['market', '--help']);
     const stdout = stripAnsi(result.stdout);
     expect(result.status).toBe(0);
     expect(stdout).toContain('signals');
     expect(stdout).toContain('stats');
     expect(stdout).toContain('metadata');
+    expect(stdout).toContain('overview');
+    expect(stdout).toContain('evidence');
   }, 15000);
 
   it('documents signals flags in help output', () => {
@@ -119,4 +121,17 @@ describe('market command', () => {
     expect(result.status).not.toBe(3); // not an auth error — anonymous is allowed
     expect(result.status).not.toBe(0); // the unreachable host still fails the call
   }, 15000);
+
+  it.each([['overview'], ['evidence']])(
+    'leaves market %s entitlement to the API instead of failing locally',
+    (subcommand) => {
+      // Unreachable API: the request is attempted (anonymously here) and fails on
+      // the network call, never on a client-side auth or argument check.
+      const result = runCli(['market', subcommand, '--json'], 'http://127.0.0.1:1');
+      expect(result.status).not.toBe(2);
+      expect(result.status).not.toBe(3);
+      expect(result.status).not.toBe(0);
+    },
+    15000
+  );
 });
