@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { CatalogProofSummary as SdkCatalogProofSummary } from '@purveyors/sdk';
+import type { CatalogProofSummary as SdkCatalogProofSummary, components } from '@purveyors/sdk';
 import { AuthError, PrvrsError } from './errors.js';
 import {
   createParchmentClient,
@@ -348,23 +348,16 @@ export interface CatalogFacetValue {
   count: number;
 }
 
+/** Canonical `/v1/catalog/facets` envelope, returned unchanged by `getCatalogFacets`. */
+export type CanonicalCatalogFacetsResponse = components['schemas']['CatalogFacetsResponse'];
+export type CatalogFacetKey = keyof CanonicalCatalogFacetsResponse['facets'];
+
+/** One counted facet from the canonical envelope, with Parchment's response metadata. */
 export interface CatalogFacetsResponse {
+  field: CatalogFacetField;
+  facet: CatalogFacetKey;
   data: CatalogFacetValue[];
-  meta: {
-    resource: 'catalog-facets';
-    field: CatalogFacetField;
-    source_column: string;
-    stocked_only: boolean;
-    scope: 'stocked_only' | 'all_visible';
-    sample_size: number;
-    sample_limited: boolean;
-    sample_order: 'id_asc';
-    truncated: boolean;
-    rows_examined: number;
-    distinct_values: number;
-    returned: number;
-    caveats: string[];
-  };
+  meta: CanonicalCatalogFacetsResponse['meta'];
 }
 
 export type CatalogRankObjective = 'premium' | 'value' | 'fresh_arrival' | 'rare_origin';
@@ -426,6 +419,9 @@ export const searchCatalogSchema = z
     ids: z.array(z.number().int().min(1).max(POSTGRES_INT4_MAX)).max(100).optional(),
     variety: z.string().optional(),
     stockedDays: z.number().int().positive().optional(),
+    supplier: z.string().optional(),
+    dryingMethod: z.string().optional(),
+    flavor: z.array(z.string().trim().min(1)).min(1).max(20).optional(),
     processingBaseMethod: z.string().optional(),
     fermentationType: z.string().optional(),
     processAdditive: z.string().optional(),
@@ -508,10 +504,20 @@ export const catalogFacetFields = [
   'wholesale',
 ] as const;
 
+/** CLI facet field names mapped to the canonical counted-facet keys. */
+export const catalogFacetKeys: Record<CatalogFacetField, CatalogFacetKey> = {
+  supplier: 'sources',
+  country: 'countries',
+  processing_base_method: 'processing_base_method',
+  fermentation_type: 'fermentation_type',
+  drying_method: 'drying_method',
+  grade: 'grade',
+  wholesale: 'wholesale',
+};
+
 export const catalogFacetsSchema = z.object({
   field: z.enum(catalogFacetFields),
   stockedOnly: z.boolean().default(true).optional(),
-  limit: z.number().int().min(1).max(100).default(60).optional(),
 });
 
 export type CatalogFacetsInput = z.input<typeof catalogFacetsSchema>;
@@ -522,6 +528,7 @@ export const catalogRankSchema = z
   .object({
     objective: z.enum(catalogRankObjectives).default('premium').optional(),
     stockedOnly: z.boolean().default(true).optional(),
+    supplier: z.string().optional(),
     country: z.string().optional(),
     process: z.string().optional(),
     priceMax: z.number().optional(),
@@ -1045,6 +1052,9 @@ export async function searchCatalog(opts: SearchCatalogInput): Promise<CatalogIt
     coffeeIds: parsed.ids?.join(','),
     variety: parsed.variety,
     stockedDays: parsed.stockedDays,
+    supplier: parsed.supplier,
+    dryingMethod: parsed.dryingMethod,
+    flavorKeywords: parsed.flavor,
     stocked: parsed.stocked ? 'true' : 'all',
     sort: sort?.field,
     order: sort?.direction,
@@ -1087,60 +1097,35 @@ export async function getCatalogStats(): Promise<CatalogStats> {
   return envelope.stats;
 }
 
-const catalogFacetColumns: Record<CatalogFacetField, keyof CatalogItem> = {
-  supplier: 'source',
-  country: 'country',
-  processing_base_method: 'processing_base_method',
-  fermentation_type: 'fermentation_type',
-  drying_method: 'drying_method',
-  grade: 'grade',
-  wholesale: 'wholesale',
-};
-
-const catalogFacetCaveats = [
-  'Facet counts are computed from catalog rows visible to the current client and are intended for value discovery, not inventory guarantees.',
-];
-
-/** List distinct catalog facet values with counts for agent/client filter discovery. */
-export async function listCatalogFacets(input: CatalogFacetsInput): Promise<CatalogFacetsResponse> {
-  const parsed = catalogFacetsSchema.parse(input);
-  const limit = parsed.limit ?? 60;
-  const column = catalogFacetColumns[parsed.field];
-  const facetKey = {
-    supplier: 'sources',
-    country: 'countries',
-    processing_base_method: 'processing_base_method',
-    fermentation_type: 'fermentation_type',
-    drying_method: 'drying_method',
-    grade: 'grade',
-    wholesale: 'wholesale',
-  }[parsed.field];
+/**
+ * Fetch every counted catalog facet from the canonical `/v1/catalog/facets`
+ * endpoint. The envelope (values, facets, meta) is returned unchanged.
+ */
+export async function getCatalogFacets(
+  input: { stockedOnly?: boolean } = {}
+): Promise<CanonicalCatalogFacetsResponse> {
+  const stockedOnly = input.stockedOnly ?? true;
   const client = await createParchmentClient('viewer');
-  const envelope = unwrapParchment(
-    await client.catalog.facets({ stocked: parsed.stockedOnly === false ? 'all' : 'true' }),
+  return unwrapParchment(
+    await client.catalog.facets({ stocked: stockedOnly ? 'true' : 'all' }),
     'Catalog facets'
   );
-  const facets = envelope.facets as Record<string, CatalogFacetValue[] | undefined>;
-  const values = (facets[facetKey] ?? []).slice(0, limit);
-  const rowsExamined = (facets[facetKey] ?? []).reduce((total, facet) => total + facet.count, 0);
+}
 
+/**
+ * Select one counted facet from the canonical envelope. Values, counts, and
+ * metadata are Parchment's; the CLI does not truncate, re-count, or sum them
+ * (counts for multi-valued dimensions can overlap).
+ */
+export async function listCatalogFacets(input: CatalogFacetsInput): Promise<CatalogFacetsResponse> {
+  const parsed = catalogFacetsSchema.parse(input);
+  const facet = catalogFacetKeys[parsed.field];
+  const envelope = await getCatalogFacets({ stockedOnly: parsed.stockedOnly });
   return {
-    data: values,
-    meta: {
-      resource: 'catalog-facets',
-      field: parsed.field,
-      source_column: String(column),
-      stocked_only: parsed.stockedOnly ?? true,
-      scope: (parsed.stockedOnly ?? true) ? 'stocked_only' : 'all_visible',
-      sample_size: rowsExamined,
-      sample_limited: false,
-      sample_order: 'id_asc',
-      truncated: (facets[facetKey]?.length ?? 0) > limit,
-      rows_examined: rowsExamined,
-      distinct_values: facets[facetKey]?.length ?? 0,
-      returned: values.length,
-      caveats: catalogFacetCaveats,
-    },
+    field: parsed.field,
+    facet,
+    data: envelope.facets[facet] ?? [],
+    meta: envelope.meta,
   };
 }
 
@@ -1152,6 +1137,7 @@ export async function rankCatalog(input: CatalogRankInput = {}): Promise<Catalog
     await client.catalog.rank({
       objective: parsed.objective,
       stockedOnly: parsed.stockedOnly === false ? 'false' : 'true',
+      supplier: parsed.supplier,
       country: parsed.country,
       process: parsed.process,
       priceMax: parsed.priceMax,

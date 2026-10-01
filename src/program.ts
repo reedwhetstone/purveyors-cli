@@ -71,12 +71,15 @@ export function createProgram(version = getCliVersion()): Command {
 Authentication:
   auth login        Log in to purveyors.io (--headless for agents)
   auth status       Show current login status and role
+  auth whoami       Show canonical identity, plan, scopes, and capabilities
   auth logout       Clear stored credentials
 
 Catalog (viewer role required, member role required for structured process filters):
   catalog search    Search the coffee catalog with filters
   catalog get       Get details for a specific coffee by ID
   catalog stats     Aggregate statistics for the catalog
+  catalog facets    Counted facet values for filter discovery
+  catalog rank      Rank catalog candidates by a deterministic objective
   catalog rank-premium  Rank premium catalog candidates by Purveyor Score
   catalog supplier-rank Rank suppliers by average Purveyor Score
   catalog similar   Fetch canonical candidates and similar recommendations by catalog ID
@@ -89,6 +92,7 @@ Personal Data (member role required):
   inventory delete  Delete an inventory item
   roast list        List your roast profiles
   roast get         Get a single roast profile
+  roast chart       Get sampled chart data and the chart revision for a roast
   roast create      Create a new roast profile
   roast update      Update a roast profile
   roast delete      Delete a roast profile
@@ -119,6 +123,7 @@ Studio reference profiles (member credential plus Studio access):
   reference-profile list     List your saved reference profiles
   reference-profile get      Get a profile and its current revision
   reference-profile chart    Get a typed chart for a revision
+  reference-profile compare  Compare two roast or reference revisions
   reference-profile import   Upload an Artisan file as a reference profile
   reference-profile preview  Preview bounded temperature adjustments
   reference-profile save     Save an immutable generated plan

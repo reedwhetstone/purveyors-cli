@@ -11,6 +11,7 @@ import {
   createRoast,
   deleteRoast,
   getRoast,
+  getRoastChartData,
   listRoasts,
   replaceRoastArtisanImport,
   updateRoast,
@@ -73,6 +74,30 @@ describe('SDK-backed roast and sales data planes', () => {
     expect(update).toHaveBeenCalledWith(10, { notes: 'better', ozOut: 12 });
     await deleteRoast(10);
     expect(remove).toHaveBeenCalledWith(10);
+  });
+
+  it('returns the canonical roast chart-data envelope with optional target points', async () => {
+    const envelope = { data: { series: [], events: [], metadata: { revision: 'r1' } }, meta: {} };
+    const chartData = vi.fn().mockResolvedValue(ok(envelope));
+    vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { chartData } } as never);
+
+    await expect(getRoastChartData({ id: 9 })).resolves.toEqual(envelope);
+    expect(chartData).toHaveBeenLastCalledWith('9', undefined);
+    await getRoastChartData({ id: 9, targetPoints: 120 });
+    expect(chartData).toHaveBeenLastCalledWith('9', { target_points: 120 });
+    await expect(getRoastChartData({ id: 9, targetPoints: 49 })).rejects.toThrow();
+  });
+
+  it('forwards roast targets and roaster type on create', async () => {
+    const create = vi.fn().mockResolvedValue(ok({ data: { roast_id: 11 } }));
+    vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { create } } as never);
+
+    await createRoast({ coffeeId: 2, targets: 'FC at 390F', roasterType: 'Aillio Bullet' });
+
+    expect(create).toHaveBeenCalledWith(
+      { coffeeId: 2, targets: 'FC at 390F', roasterType: 'Aillio Bullet' },
+      { idempotencyKey: expect.any(String) }
+    );
   });
 
   it('maps Artisan replace and clear operations', async () => {

@@ -12,6 +12,7 @@ export type RoastDetailProfile = components['schemas']['RoastDetailResource'];
 export type RoastProfile = RoastDetailProfile;
 export type TemperatureEntry = components['schemas']['RoastTemperature'];
 export type RoastEventEntry = components['schemas']['RoastEvent'];
+export type RoastChartDataResponse = components['schemas']['RoastChartDataResponse'];
 
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
@@ -72,6 +73,21 @@ export const getRoastSchema = z.object({
 
 export type GetRoastInput = z.input<typeof getRoastSchema>;
 
+/** Bounds published by Parchment for `/v1/roasts/{id}/chart-data?target_points=`. */
+export const ROAST_CHART_TARGET_POINTS = { minimum: 50, maximum: 1000 } as const;
+
+export const getRoastChartDataSchema = z.object({
+  id: z.number().int().min(1).max(POSTGRES_INT4_MAX),
+  targetPoints: z
+    .number()
+    .int()
+    .min(ROAST_CHART_TARGET_POINTS.minimum)
+    .max(ROAST_CHART_TARGET_POINTS.maximum)
+    .optional(),
+});
+
+export type GetRoastChartDataInput = z.input<typeof getRoastChartDataSchema>;
+
 export const createRoastSchema = z.object({
   coffeeId: z.number().int().min(1).max(POSTGRES_INT4_MAX),
   batchName: z.string().optional(),
@@ -79,6 +95,8 @@ export const createRoastSchema = z.object({
   ozOut: z.number().positive().optional(),
   roastDate: z.string().optional(),
   notes: z.string().optional(),
+  targets: z.string().optional(),
+  roasterType: z.string().optional(),
 });
 
 export type CreateRoastInput = z.input<typeof createRoastSchema>;
@@ -123,6 +141,26 @@ export async function getRoast(
   const client = await createParchmentClient('member', tokenOverride);
   const envelope = unwrapParchment(await client.roasts.get(String(id), opts), `Roast ${id}`);
   return envelope.data;
+}
+
+/**
+ * Fetch Parchment's sampled chart model for one owned roast. The canonical
+ * envelope is returned unchanged: series, events, and metadata (including the
+ * immutable `metadata.revision` used by profile comparisons).
+ */
+export async function getRoastChartData(
+  input: GetRoastChartDataInput,
+  tokenOverride?: string
+): Promise<RoastChartDataResponse> {
+  const parsed = getRoastChartDataSchema.parse(input);
+  const client = await createParchmentClient('member', tokenOverride);
+  return unwrapParchment(
+    await client.roasts.chartData(
+      String(parsed.id),
+      parsed.targetPoints === undefined ? undefined : { target_points: parsed.targetPoints }
+    ),
+    `Roast ${parsed.id} chart data`
+  );
 }
 
 export async function createRoast(

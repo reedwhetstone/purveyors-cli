@@ -6,6 +6,7 @@ import {
   getCatalog,
   getCatalogStats,
   getCatalogSimilarity,
+  getCatalogFacets,
   listCatalogFacets,
   rankCatalog,
   catalogRankPremium,
@@ -124,6 +125,9 @@ export function buildCatalogCommand(): Command {
     .option('--ids <n,n,...>', 'Fetch specific catalog IDs (comma-separated, ignores limit)')
     .option('--variety <text>', 'Filter by coffee variety/cultivar (partial match)')
     .option('--stocked-days <n>', 'Only show coffees stocked within N days')
+    .option('--supplier <name>', 'Filter by supplier/source name (partial match)')
+    .option('--drying-method <method>', 'Filter by drying method (matched by Parchment)')
+    .option('--flavor <keywords>', 'Comma-separated flavor keywords; matches any keyword')
     .option('--stocked', 'Only show currently stocked coffees')
     .option('--sort <field>', `Sort results by: ${catalogSortFields.join(', ')}`)
     .option('--offset <n>', 'Skip N results (for pagination)', '0')
@@ -150,6 +154,8 @@ Examples:
   purvey catalog search --ids "1182,1183,1200"
   purvey catalog search --variety "gesha" --stocked --pretty
   purvey catalog search --stocked-days 30 --pretty
+  purvey catalog search --supplier "Royal" --stocked --pretty
+  purvey catalog search --flavor "blueberry,jasmine" --drying-method "raised bed" --pretty
   purvey catalog search --origin "Ethiopia" --include-proof --json
 
 Sort fields:
@@ -171,6 +177,8 @@ Notes:
   --processing-confidence-min accepts a decimal from 0 to 1.
   --variety filters on cultivar_detail (partial match, case-insensitive).
   --stocked-days N shows only coffees stocked within the last N days.
+  --supplier, --drying-method, and --flavor map to the canonical /v1/catalog
+  supplier, dryingMethod, and flavorKeywords parameters; Parchment applies them.
   --ids fetches specific catalog items by ID, ignoring --limit and --offset.
   --offset + --limit enables pagination through large result sets.
   --include-proof uses the canonical /v1/catalog?include=proof response and does
@@ -261,6 +269,20 @@ Notes:
           CATALOG_SEARCH_MAX_LIMIT
         );
 
+        let flavor: string[] | undefined;
+        if (opts.flavor !== undefined) {
+          flavor = String(opts.flavor)
+            .split(',')
+            .map((keyword) => keyword.trim())
+            .filter(Boolean);
+          if (flavor.length === 0) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              `Invalid --flavor: "${String(opts.flavor)}". Provide at least one keyword.`
+            );
+          }
+        }
+
         const includeProof = opts.includeProof ? true : undefined;
         const data = await searchCatalog({
           origin: opts.origin as string | undefined,
@@ -271,6 +293,9 @@ Notes:
           ids: parsedIds,
           variety: opts.variety as string | undefined,
           stockedDays,
+          supplier: opts.supplier as string | undefined,
+          dryingMethod: opts.dryingMethod as string | undefined,
+          flavor,
           processingBaseMethod: opts.processingBaseMethod as string | undefined,
           fermentationType: opts.fermentationType as string | undefined,
           processAdditive: opts.processAdditive as string | undefined,
@@ -358,46 +383,52 @@ Notes:
 
   // ── catalog facets ───────────────────────────────────────────────────────
   catalog
-    .command('facets <field>')
-    .description('List distinct catalog facet values with counts')
+    .command('facets [field]')
+    .description('List counted catalog facet values for filter discovery')
     .option('--all', 'Use all visible catalog rows instead of default stocked-only scope')
-    .option('--limit <n>', 'Maximum facet values to return (1-100)', '60')
     .addHelpText(
       'after',
       `
 Examples:
   purvey catalog facets supplier --pretty
-  purvey catalog facets country --limit 25 --json
-  purvey catalog facets processing_base_method --pretty
+  purvey catalog facets country --all --json
+  purvey catalog facets --pretty      # every counted facet
 
 Fields:
   supplier, country, processing_base_method, fermentation_type, drying_method, grade, wholesale
 
 Notes:
-  Facet counts are computed from catalog rows visible to the current client.
+  Without a field, prints the canonical /v1/catalog/facets envelope (values, facets, meta) unchanged.
+  With a field, prints { field, facet, data, meta }: that facet's counted values and Parchment's meta.
+  Counts are computed by Parchment after visibility and entitlement filters; counts for
+  multi-valued dimensions can overlap, so do not sum them.
   By default only currently stocked catalog rows are included; use --all for all visible rows.
-  meta.stocked_only/scope, meta.rows_examined, and meta.truncated describe the canonical counted scope.
   Requires an authenticated viewer session.
 `
     )
     .action(
-      withErrorHandling(async (field: string, opts: Record<string, unknown>, cmd: Command) => {
-        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
-        if (!catalogFacetFields.includes(field as (typeof catalogFacetFields)[number])) {
-          throw new PrvrsError(
-            'INVALID_ARGUMENT',
-            `Invalid field: "${field}". Must be one of: ${catalogFacetFields.join(', ')}.`
-          );
-        }
-        const input = {
-          field: field as (typeof catalogFacetFields)[number],
-          stockedOnly: opts.all ? false : true,
-          limit: parseBoundedPositiveIntegerArg(opts.limit as string, '--limit', 1, 100),
-        };
-        const data = await listCatalogFacets(input);
+      withErrorHandling(
+        async (field: string | undefined, opts: Record<string, unknown>, cmd: Command) => {
+          const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+          const stockedOnly = opts.all ? false : true;
+          if (field === undefined) {
+            outputData(await getCatalogFacets({ stockedOnly }), globalOpts);
+            return;
+          }
+          if (!catalogFacetFields.includes(field as (typeof catalogFacetFields)[number])) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              `Invalid field: "${field}". Must be one of: ${catalogFacetFields.join(', ')}.`
+            );
+          }
+          const data = await listCatalogFacets({
+            field: field as (typeof catalogFacetFields)[number],
+            stockedOnly,
+          });
 
-        outputData(data, globalOpts);
-      })
+          outputData(data, globalOpts);
+        }
+      )
     );
 
   // ── catalog rank ─────────────────────────────────────────────────────────
@@ -409,6 +440,7 @@ Notes:
       `Ranking objective: ${catalogRankObjectives.join(', ')}`,
       'premium'
     )
+    .option('--supplier <name>', 'Filter by supplier/source name')
     .option('--country <country>', 'Filter by country')
     .option('--process <method>', 'Filter by processing method')
     .option('--stocked', 'Only include currently stocked coffees')
@@ -425,6 +457,7 @@ Examples:
   purvey catalog rank --objective premium --stocked --limit 10 --pretty
   purvey catalog rank --objective value --country Ethiopia --price-max 12 --json
   purvey catalog rank --objective rare_origin --stocked --pretty
+  purvey catalog rank --objective premium --supplier "Royal Coffee" --limit 5 --json
 
 Notes:
   Objectives: premium, value, fresh_arrival, rare_origin.
@@ -446,6 +479,7 @@ Notes:
         }
         const input = {
           objective: objective as (typeof catalogRankObjectives)[number],
+          supplier: opts.supplier as string | undefined,
           country: opts.country as string | undefined,
           process: opts.process as string | undefined,
           stockedOnly: opts.all ? false : opts.stocked ? true : true,

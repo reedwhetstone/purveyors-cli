@@ -123,7 +123,7 @@ The package runs from `dist/`, not `src/`; source tests alone do not prove packa
 - `tasting rate [bean-id]` uses an `inventory id` (green_coffee_inv.id). It is NOT a catalog ID.
 - `roast --coffee-id` expects an inventory ID, not a catalog ID.
 - `sales list --coffee-id` expects an inventory ID; `sales record --roast-id` expects a roast ID.
-- `reference-profile` commands use separate reference-profile and immutable revision UUIDs; they do not accept roast IDs. Export requires a saved generated revision, not an unsaved preview.
+- `reference-profile` commands use separate reference-profile and immutable revision UUIDs; only `compare` accepts roast IDs, through `roast:<roast-id>` selectors. Export requires a saved generated revision, not an unsaved preview.
 - `context.ts` and `manifest.ts` are easy to forget when command flags or output behavior change.
 - `inventory list`, `roast list`, and `sales list` all support `--offset` for pagination. Keep docs in sync when adding new list flags.
 - `roast import` and `roast watch` normalize file and directory path input by trimming whitespace, removing one layer of matching quotes, and unescaping common shell-escaped characters. Preserve this when changing Artisan workflows.

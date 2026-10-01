@@ -8,6 +8,7 @@ import ora from 'ora';
 import { validateSession } from '../lib/auth-client.js';
 import { writeCredentials, deleteCredentials } from '../lib/config.js';
 import { getParchmentBaseUrl } from '../lib/parchment-base.js';
+import { getParchmentIdentity } from '../lib/parchment.js';
 import { outputData, shouldUseInteractiveOutput, success, info, warn } from '../lib/output.js';
 import { withErrorHandling, AuthError, exitCodeForError } from '../lib/errors.js';
 import type { OutputOptions, StoredCredentials } from '../types/index.js';
@@ -420,6 +421,33 @@ Notes:
 `
     )
     .action(statusAction);
+
+  auth
+    .command('whoami')
+    .description(
+      'Show the canonical identity, plan, scopes, and capabilities for the active credential'
+    )
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey auth whoami --pretty
+  purvey auth whoami | jq '.capabilities.profileStudio'
+
+Notes:
+  Prints Parchment's GET /v1/me response unchanged: authenticated, userId, appRoles,
+  primaryAppRole, apiPlan, ppiAccess, apiScopes, and capabilities (for example
+  capabilities.profileStudio for Studio reference-profile access).
+  Uses PARCHMENT_API_KEY or PURVEYORS_API_KEY when set, otherwise the key stored by
+  'purvey auth login'. Requires a valid credential; use 'purvey auth status' for a local check.
+`
+    )
+    .action(
+      withErrorHandling(async (_: unknown, cmd: Command) => {
+        const opts = cmd.optsWithGlobals() as OutputOptions;
+        outputData(await getParchmentIdentity(), opts);
+      })
+    );
 
   auth
     .command('logout')

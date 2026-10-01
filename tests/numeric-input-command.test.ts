@@ -69,6 +69,51 @@ describe('strict numeric command input', () => {
 
   it.each([
     {
+      label: 'roast chart target points',
+      args: ['roast', 'chart', '7', '--target-points', '49', '--json'],
+      message: 'Invalid --target-points: "49"',
+    },
+    {
+      label: 'roast chart ID',
+      args: ['roast', 'chart', '7oops', '--json'],
+      message: 'Invalid roast ID: "7oops"',
+    },
+    {
+      label: 'comparison unit',
+      args: ['reference-profile', 'compare', 'roast:1', 'roast:2', '--unit', 'K', '--json'],
+      message: 'Invalid --unit: "K"',
+    },
+    {
+      label: 'comparison target points',
+      args: ['reference-profile', 'compare', 'roast:1', 'roast:2', '--target-points', '1001'],
+      message: 'Invalid --target-points: "1001"',
+    },
+    {
+      label: 'comparison selector',
+      args: ['reference-profile', 'compare', '42', 'roast:2', '--json'],
+      message: 'Invalid left selector: "42"',
+    },
+    {
+      label: 'inventory rank',
+      args: ['inventory', 'update', '7', '--rank', '1.5', '--json'],
+      message: 'Invalid --rank: "1.5"',
+    },
+    {
+      label: 'inventory source',
+      args: ['inventory', 'add', '--catalog-id', '1', '--manual-name', 'Lot', '--qty', '1'],
+      message: 'Pass either --catalog-id or --manual-name, not both.',
+    },
+  ])('rejects invalid $label before authentication', ({ args, message }) => {
+    const result = runCli(args);
+    const error = parseError(result.stderr);
+
+    expect(result.status).toBe(2);
+    expect(error).toMatchObject({ code: 'INVALID_ARGUMENT', exitCode: 2 });
+    expect(error.message).toContain(message);
+  });
+
+  it.each([
+    {
       label: 'inventory delete ID',
       args: ['inventory', 'delete', '7oops', '--yes', '--json'],
       message: 'Invalid inventory ID: "7oops"',

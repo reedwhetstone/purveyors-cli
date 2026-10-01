@@ -106,6 +106,11 @@ Use the right reference surface for the job:
 - `purvey context --json` and `purvey context --pretty` emit the same JSON payload as `purvey manifest`, but exist mainly for compatibility with tooling that already shells out to `context`.
 - `@purveyors/cli/manifest` exposes the same contract in-process for Node.js and agent runtimes.
 
+Manifest commands carry `sdkMethods`, the `@purveyors/sdk` operations whose canonical endpoints
+they consume, and, for writes, `confirmedActionEquivalents`, the Purveyors web assistant's
+confirmed-action types they perform with an API key. An agent that knows an SDK operation can
+use these fields to find the matching command.
+
 ## Package exports and integration boundary
 
 The npm package is both a binary and a reusable TypeScript surface for Node.js callers that specifically want CLI behavior. The CLI itself consumes `@purveyors/sdk`, which is the typed client for the canonical Parchment API. The SDK does not call or embed CLI functions.
@@ -288,6 +293,7 @@ fi
 - `purvey auth status --json`
 - `purvey auth status --pretty`
 - `purvey auth status --csv`
+- `purvey auth whoami`
 - `purvey auth logout`
 
 Examples:
@@ -297,6 +303,7 @@ purvey auth login
 purvey auth login --headless
 purvey auth status --pretty
 purvey auth status --csv
+purvey auth whoami | jq '.capabilities.profileStudio'
 purvey auth logout
 ```
 
@@ -306,13 +313,14 @@ Notes:
 - `auth login --headless` prints the approval URL without trying to open a local browser. Approve it from any browser; nothing is pasted back.
 - `auth status --json` is the safest mode for scripts.
 - `auth status --csv` is supported for spreadsheet-style checks, but JSON remains the better integration format.
+- `auth whoami` prints Parchment's `GET /v1/me` response unchanged for the credential the CLI would send: roles, API plan, scopes, Price Index access, and capabilities such as `capabilities.profileStudio`.
 
 ### catalog
 
 - `purvey catalog search`
 - `purvey catalog get <id>`
 - `purvey catalog stats`
-- `purvey catalog facets <field>`
+- `purvey catalog facets [field]`
 - `purvey catalog rank`
 - `purvey catalog rank-premium`
 - `purvey catalog supplier-list`
@@ -335,6 +343,9 @@ Notes:
 - `--ids <n,n,...>`; fetch specific catalog IDs, ignores limit and offset
 - `--variety <text>`; partial cultivar match
 - `--stocked-days <n>`; stocked within N days
+- `--supplier <name>`; partial supplier/source match
+- `--drying-method <method>`; drying-method filter, matched by Parchment
+- `--flavor <keywords>`; comma-separated flavor keywords, a coffee matches any keyword
 - `--stocked`; only currently stocked coffees
 - `--sort <price|price-desc|name|origin>`
 - `--offset <n>`; pagination offset
@@ -348,15 +359,16 @@ Notes:
 - `--stocked-only`; request only currently stocked coffees
 - `--mode <all|likely_same|similar_profile>`; default `all`
 
-`catalog facets <field>` options:
+`catalog facets [field]` options:
 
 - Fields: `supplier`, `country`, `processing_base_method`, `fermentation_type`, `drying_method`, `grade`, `wholesale`
+- Without a field, prints the canonical `/v1/catalog/facets` envelope (`values`, `facets`, `meta`) unchanged. With a field, prints `{ field, facet, data, meta }` for that counted facet.
 - `--all`; use all visible catalog rows instead of the default stocked-only scope.
-- `--limit <n>`; default `60`, max `100`
 
 `catalog rank` options:
 
 - `--objective <premium|value|fresh_arrival|rare_origin>`; default `premium`
+- `--supplier <name>`; optional supplier filter
 - `--country <country>`; optional country filter
 - `--process <method>`; optional process filter
 - `--stocked`; only include currently stocked coffees. This is the default unless `--all` is passed.
@@ -392,13 +404,16 @@ purvey catalog search --processing-base-method "Natural" --fermentation-type "An
 purvey catalog search --process-additive "hops" --processing-confidence-min 0.8 --pretty
 purvey catalog search --name "Gesha" --stocked --pretty
 purvey catalog search --ids "1182,1183,1200"
+purvey catalog search --supplier "Royal" --flavor "blueberry,jasmine" --stocked --pretty
 purvey catalog search --stocked --sort price --offset 10 --limit 10
 purvey catalog search --origin "Ethiopia" --include-proof --json
 PARCHMENT_API_KEY="$PURVEYORS_API_KEY" purvey catalog search --origin "Ethiopia" --include-proof --limit 5 --json
 purvey catalog similar 1182 --threshold 0.85 --stocked-only --pretty
 purvey catalog similar 1182 --json | jq '.data.groups.canonical_candidates'
 purvey catalog facets supplier --pretty
+purvey catalog facets --all --json
 purvey catalog rank --objective value --country Ethiopia --price-max 12 --json
+purvey catalog rank --objective premium --supplier "Royal Coffee" --limit 5 --json
 purvey catalog rank-premium --stocked --limit 10 --pretty
 purvey catalog supplier-rank --country Ethiopia --non-wholesale-only --min-coffees 3 --json
 purvey catalog supplier-detail "Royal Coffee" --pretty
@@ -412,11 +427,12 @@ Notes:
 - Catalog commands require an authenticated `viewer` role by default.
 - Structured process filters on `catalog search` require an authenticated `member` role.
 - Structured process filters use the canonical `/v1/catalog` query contract names while preserving the legacy `--process` label filter.
+- `--supplier`, `--drying-method`, and `--flavor` pass through to the canonical `/v1/catalog` `supplier`, `dryingMethod`, and `flavorKeywords` parameters; Parchment applies them, not the CLI.
 - `--include-proof` is an opt-in API-backed catalog read. It consumes the canonical proof summary returned by `/v1/catalog?include=proof`; the CLI does not compute proof fields locally or duplicate web/API proof logic.
 - If you want proof output against a specific API-key deployment, set `PARCHMENT_API_KEY` or `PURVEYORS_API_KEY`. Otherwise the CLI uses the key created by `purvey auth login`.
 - `catalog get` and `catalog similar` both take `coffee_catalog.catalog_id`.
 - `catalog rank` and `catalog rank-premium` read `coffee_catalog.purveyor_score` as the canonical quality signal; the CLI does not recompute the upstream Purveyor Score model.
-- `catalog facets` and `catalog rank` are generic agent/client intelligence surfaces. Facet counts come from the canonical API across the selected stocked/all-visible scope; ranking responses include sample metadata so callers do not mistake sampled rarity for whole-catalog guarantees.
+- `catalog facets` and `catalog rank` are generic agent/client intelligence surfaces. Facet values, counts, and metadata come from the canonical API unchanged across the selected stocked/all-visible scope; counts for multi-valued dimensions can overlap, so do not sum them. Ranking responses include sample metadata so callers do not mistake sampled rarity for whole-catalog guarantees.
 - Catalog intelligence responses include `meta.sample_limited`, `meta.sample_order`, `meta.truncated`, and rows-examined style metadata where relevant so agents can distinguish ranked samples from full supplier aggregates. Supplier aggregate responses also include `meta.rows_examined`.
 - Supplier aggregate commands summarize catalog row counts, stocked counts, Purveyor Score coverage, average score, average confidence, price range, origin/process coverage, and representative top coffees with score qualifiers.
 - `catalog similar` uses the beta canonical `/v1/catalog/{id}/similar` API contract, not the legacy direct RPC path.
@@ -587,7 +603,8 @@ Notes:
 
 `inventory add` flags:
 
-- `--catalog-id <id>`; required in flag mode
+- `--catalog-id <id>`; the catalog lot to add
+- `--manual-name <name>`; name for a coffee that is not in the catalog (flag mode needs exactly one of `--catalog-id` or `--manual-name`)
 - `--qty <lbs>`; required in flag mode
 - `--cost <dollars>`
 - `--tax-ship <dollars>`
@@ -602,6 +619,7 @@ Notes:
 - `--tax-ship <dollars>`
 - `--notes <text>`
 - `--stocked <true|false>`
+- `--rank <n>`; owner-assigned integer rank
 
 `inventory delete <id>` options:
 
@@ -612,8 +630,10 @@ Examples:
 ```bash
 purvey inventory list --stocked --pretty
 purvey inventory add --catalog-id 128 --qty 10 --cost 8.50
+purvey inventory add --manual-name "Farm-gate Ethiopia lot 7" --qty 12 --cost 96
 purvey inventory add --form
 purvey inventory update 7 --stocked false
+purvey inventory update 7 --rank 1
 purvey inventory delete 7 --yes
 ```
 
@@ -627,6 +647,7 @@ Notes:
 
 - `purvey roast list`
 - `purvey roast get <id>`
+- `purvey roast chart <id>`
 - `purvey roast create`
 - `purvey roast update <id>`
 - `purvey roast delete <id>`
@@ -651,6 +672,14 @@ Notes:
 - `--include-temps`
 - `--include-events`
 
+`roast chart <id>` options:
+
+- `--target-points <n>`; approximate samples per series, `50` to `1000` (Parchment defaults to `400`)
+
+`roast chart` prints Parchment's canonical chart-data envelope unchanged: sampled series,
+events, and metadata. `data.metadata.revision` is the immutable chart revision that
+`reference-profile compare` accepts as `roast:<id>@<revision>`.
+
 `roast create` flags:
 
 - `--coffee-id <id>`; required in flag mode
@@ -659,6 +688,8 @@ Notes:
 - `--oz-out <oz>`
 - `--roast-date <YYYY-MM-DD>`
 - `--notes <text>`
+- `--targets <text>`
+- `--roaster-type <text>`
 - `--form`
 
 `roast update <id>` flags:
@@ -695,6 +726,7 @@ Examples:
 ```bash
 purvey roast list --catalog-id 128 --pretty
 purvey roast get 123 --include-temps --pretty
+purvey roast chart 123 --target-points 120 --json
 purvey roast create --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz-in 16
 purvey roast import ~/artisan/ethiopia.alog --coffee-id 7 --roast-targets "Aim for 18% development"
 purvey roast watch ~/artisan/ --auto-match
@@ -714,6 +746,7 @@ Notes:
 - `purvey reference-profile list [--include-archived]`
 - `purvey reference-profile get <profile-id>`
 - `purvey reference-profile chart <profile-id> <revision-id>`
+- `purvey reference-profile compare <left> <right> [--unit F|C] [--target-points <n>]`
 - `purvey reference-profile import <file>`
 - `purvey reference-profile preview <profile-id> <revision-id> --request <file>`
 - `purvey reference-profile save <profile-id> <revision-id> --request <file>`
@@ -747,6 +780,20 @@ be ordered and each nonzero `delta` is bounded from -20 to 20. For example:
     ]
   }
 }
+```
+
+The request file may also carry optional provenance for the plan: `userGoal` (up to 600
+characters), `modelRecommendation` (up to 800), and `userEdits` (up to 800).
+
+`compare` returns Parchment's charge-aligned measured deltas between two immutable
+revisions. Each side is a selector: `revision:<uuid>` (an exact reference revision),
+`profile:<uuid>` (that profile's current revision), `roast:<roast-id>` (the roast's current
+chart revision), or `roast:<roast-id>@<revision>` (an exact chart revision from `roast chart`).
+`--unit` defaults to `F` and `--target-points` defaults to `400` (`50` to `1000`).
+
+```bash
+purvey reference-profile compare roast:123 profile:5ea1af6f-234c-43a9-9bf8-5678dd24f854 --pretty
+purvey reference-profile compare roast:123 roast:124 --unit C --json
 ```
 
 Example flow:
