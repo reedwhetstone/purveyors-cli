@@ -10,6 +10,7 @@ vi.mock('../src/lib/parchment.js', async (importOriginal) => {
 
 import { createParchmentClient } from '../src/lib/parchment.js';
 import {
+  compareProfiles,
   exportGeneratedReferenceProfile,
   getReferenceProfile,
   getReferenceProfileChart,
@@ -17,6 +18,7 @@ import {
   listReferenceProfiles,
   parseReferenceProfileImportRequest,
   parseReferenceProfileGenerationRequest,
+  parseProfileComparisonSelector,
   parseReferenceProfileId,
   previewReferenceProfile,
   resolveReferenceProfileIdempotencyKey,
@@ -199,5 +201,127 @@ describe('reference profile SDK data plane', () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  });
+});
+
+describe('reference profile provenance and comparison', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('accepts the bounded provenance fields the web agent sends with a generation request', () => {
+    const withProvenance = {
+      ...request,
+      userGoal: 'Stretch development without scorching',
+      modelRecommendation: 'Raise BT 3 degrees between 5:00 and 7:00',
+      userEdits: 'Start the change 30 seconds later',
+    };
+    expect(parseReferenceProfileGenerationRequest(withProvenance)).toEqual(withProvenance);
+    expect(() =>
+      parseReferenceProfileGenerationRequest({ ...request, userGoal: 'x'.repeat(601) })
+    ).toThrow();
+    expect(() =>
+      parseReferenceProfileGenerationRequest({ ...request, modelRecommendation: '' })
+    ).toThrow();
+  });
+
+  it('parses revision, profile, and roast comparison selectors', () => {
+    expect(parseProfileComparisonSelector(`revision:${revisionId}`, 'left')).toEqual({
+      kind: 'revision',
+      revisionId,
+    });
+    expect(parseProfileComparisonSelector(`profile:${profileId}`, 'left')).toEqual({
+      kind: 'profile',
+      profileId,
+    });
+    expect(parseProfileComparisonSelector('roast:42', 'right')).toEqual({
+      kind: 'roast',
+      roastId: 42,
+    });
+    expect(parseProfileComparisonSelector('roast:42@rev-a1', 'right')).toEqual({
+      kind: 'roast',
+      roastId: 42,
+      roastRevision: 'rev-a1',
+    });
+    for (const invalid of ['42', 'roast:0', 'roast:42@', 'revision:nope', 'profile:', 'roast:x']) {
+      expect(() => parseProfileComparisonSelector(invalid, 'left')).toThrow(
+        'Invalid left selector'
+      );
+    }
+  });
+
+  it('resolves current revisions and returns the canonical comparison envelope', async () => {
+    const envelope = { data: { alignment: 'charge', targetUnit: 'C' }, meta: {} };
+    const client = {
+      referenceProfiles: {
+        get: vi.fn().mockResolvedValue(ok({ data: { currentRevisionId: revisionId } })),
+        compare: vi.fn().mockResolvedValue(ok(envelope)),
+      },
+      roasts: {
+        chartData: vi.fn().mockResolvedValue(ok({ data: { metadata: { revision: 'rev-42' } } })),
+      },
+    };
+    vi.mocked(createParchmentClient).mockResolvedValue(client as never);
+
+    await expect(
+      compareProfiles({
+        left: { kind: 'roast', roastId: 42 },
+        right: { kind: 'profile', profileId },
+        targetUnit: 'C',
+      })
+    ).resolves.toEqual(envelope);
+
+    expect(createParchmentClient).toHaveBeenCalledWith('member');
+    expect(client.roasts.chartData).toHaveBeenCalledWith('42');
+    expect(client.referenceProfiles.get).toHaveBeenCalledWith(profileId);
+    expect(client.referenceProfiles.compare).toHaveBeenCalledWith({
+      left: { type: 'executed_roast', roastId: 42, roastRevision: 'rev-42' },
+      right: { type: 'reference_revision', revisionId },
+      alignment: 'charge',
+      targetUnit: 'C',
+      targetPoints: 400,
+    });
+  });
+
+  it('uses exact revisions without extra reads and rejects roasts without a chart revision', async () => {
+    const client = {
+      referenceProfiles: {
+        get: vi.fn(),
+        compare: vi.fn().mockResolvedValue(ok({ data: {}, meta: {} })),
+      },
+      roasts: {
+        chartData: vi.fn().mockResolvedValue(ok({ data: { metadata: { revision: null } } })),
+      },
+    };
+    vi.mocked(createParchmentClient).mockResolvedValue(client as never);
+
+    await compareProfiles({
+      left: { kind: 'revision', revisionId },
+      right: { kind: 'roast', roastId: 7, roastRevision: 'rev-7' },
+      targetUnit: 'F',
+      targetPoints: 120,
+    });
+    expect(client.referenceProfiles.get).not.toHaveBeenCalled();
+    expect(client.roasts.chartData).not.toHaveBeenCalled();
+    expect(client.referenceProfiles.compare).toHaveBeenCalledWith(
+      expect.objectContaining({
+        right: { type: 'executed_roast', roastId: 7, roastRevision: 'rev-7' },
+        targetPoints: 120,
+      })
+    );
+
+    await expect(
+      compareProfiles({
+        left: { kind: 'roast', roastId: 9 },
+        right: { kind: 'revision', revisionId },
+        targetUnit: 'F',
+      })
+    ).rejects.toThrow('Roast 9 does not have an immutable chart revision');
+    await expect(
+      compareProfiles({
+        left: { kind: 'revision', revisionId },
+        right: { kind: 'revision', revisionId },
+        targetUnit: 'F',
+        targetPoints: 49,
+      })
+    ).rejects.toThrow('Invalid target points: 49');
   });
 });

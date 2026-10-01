@@ -31,6 +31,7 @@ import {
   computeSupplierAggregates,
   summarizePurveyorScore,
   catalogRankPremium,
+  getCatalogFacets,
   listCatalogFacets,
   rankCatalog,
   supplierList,
@@ -561,22 +562,38 @@ describe('catalog intelligence helpers', () => {
     expect(aggregates[0]?.top_coffees[0]?.id).toBe(1);
   });
 
-  it('reads counted facets through the canonical SDK endpoint', async () => {
+  it('selects one counted facet from the canonical SDK envelope without re-counting', async () => {
+    const values = Array.from({ length: 70 }, (_, index) => ({
+      value: `Supplier ${index}`,
+      count: index + 1,
+    }));
+    const meta = { resource: 'catalog-facets', access: { stocked: true } };
     const facets = vi.fn().mockResolvedValue({
-      data: {
-        facets: { sources: [{ value: 'Royal Coffee', count: 4 }] },
-        values: {},
-        meta: { access: {} },
-      },
+      data: { facets: { sources: values }, values: {}, meta },
       response: new Response(null, { status: 200 }),
     });
     vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { facets } } as never);
 
-    const response = await listCatalogFacets({ field: 'supplier', stockedOnly: true, limit: 10 });
+    const response = await listCatalogFacets({ field: 'supplier', stockedOnly: true });
 
     expect(facets).toHaveBeenCalledWith({ stocked: 'true' });
-    expect(response.data).toEqual([{ value: 'Royal Coffee', count: 4 }]);
-    expect(response.meta).toMatchObject({ sample_limited: false, rows_examined: 4 });
+    expect(response).toEqual({ field: 'supplier', facet: 'sources', data: values, meta });
+  });
+
+  it('returns the full canonical facets envelope unchanged', async () => {
+    const envelope = {
+      facets: { countries: [{ value: 'Ethiopia', count: 3 }] },
+      values: { countries: ['Ethiopia'] },
+      meta: { resource: 'catalog-facets', access: { stocked: null } },
+    };
+    const facets = vi.fn().mockResolvedValue({
+      data: envelope,
+      response: new Response(null, { status: 200 }),
+    });
+    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { facets } } as never);
+
+    await expect(getCatalogFacets({ stockedOnly: false })).resolves.toEqual(envelope);
+    expect(facets).toHaveBeenCalledWith({ stocked: 'all' });
   });
 
   it('forwards deterministic ranking inputs to the canonical SDK endpoint', async () => {
@@ -606,6 +623,18 @@ describe('catalog intelligence helpers', () => {
       })
     );
     expect(response).toEqual(envelope);
+  });
+
+  it('forwards the canonical supplier ranking filter', async () => {
+    const rank = vi.fn().mockResolvedValue({
+      data: { data: [], meta: {} },
+      response: new Response(null, { status: 200 }),
+    });
+    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { rank } } as never);
+
+    await rankCatalog({ objective: 'premium', supplier: 'Royal Coffee' });
+
+    expect(rank).toHaveBeenCalledWith(expect.objectContaining({ supplier: 'Royal Coffee' }));
   });
 });
 
@@ -738,16 +767,23 @@ describe('searchCatalogSchema', () => {
     expect(result.stockedDays).toBe(14);
   });
 
-  it('rejects retired catalog filters instead of silently stripping them', () => {
+  it('accepts canonical supplier, drying-method, and flavor-keyword filters', () => {
+    expect(
+      searchCatalogSchema.parse({
+        supplier: 'Royal Coffee',
+        dryingMethod: 'raised bed',
+        flavor: ['berry'],
+      })
+    ).toMatchObject({ supplier: 'Royal Coffee', dryingMethod: 'raised bed', flavor: ['berry'] });
     expect(() => searchCatalogSchema.parse({ flavor: 'berry' })).toThrow();
-    expect(() => searchCatalogSchema.parse({ supplier: 'Royal Coffee' })).toThrow();
-    expect(() => searchCatalogSchema.parse({ dryingMethod: 'raised bed' })).toThrow();
+    expect(() => searchCatalogSchema.parse({ flavor: [] })).toThrow();
+    expect(() => searchCatalogSchema.parse({ sortNewest: true })).toThrow();
   });
 });
 
 describe('catalog ranking schemas', () => {
-  it('rejects retired supplier filters instead of silently stripping them', () => {
-    expect(() => catalogRankSchema.parse({ supplier: 'Royal Coffee' })).toThrow();
+  it('accepts the canonical rank supplier filter but keeps rank-premium strict', () => {
+    expect(catalogRankSchema.parse({ supplier: 'Royal Coffee' }).supplier).toBe('Royal Coffee');
     expect(() => catalogRankPremiumSchema.parse({ supplier: 'Royal Coffee' })).toThrow();
   });
 });
@@ -980,9 +1016,9 @@ describe('catalog command auth and structured filter parsing', () => {
       value: 'not-a-field',
     },
     {
-      args: ['facets', 'supplier', '--limit', '101'],
-      message: 'Invalid --limit',
-      value: '101',
+      args: ['search', '--flavor', ' , '],
+      message: 'Invalid --flavor',
+      value: ' , ',
     },
     {
       args: ['rank', '--objective', 'fastest'],
@@ -1140,12 +1176,48 @@ describe('searchCatalog', () => {
     expect(data[0]?.proof).toEqual(proof);
   });
 
-  it('rejects retired catalog flags as unknown Commander options', async () => {
-    for (const args of [
-      ['search', '--flavor', 'berry'],
-      ['search', '--supplier', 'Royal'],
-      ['search', '--drying-method', 'sun'],
-    ]) {
+  it('maps supplier, drying-method, and flavor flags to canonical /v1/catalog parameters', async () => {
+    const list = vi.fn().mockResolvedValue({
+      data: { data: [makeItem()], pagination: {}, meta: {} },
+      response: new Response(null, { status: 200 }),
+    });
+    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { list } } as never);
+
+    await runCatalogCommand([
+      'search',
+      '--supplier',
+      'Royal',
+      '--drying-method',
+      'raised bed',
+      '--flavor',
+      'blueberry, jasmine',
+    ]);
+
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({
+        supplier: 'Royal',
+        dryingMethod: 'raised bed',
+        flavorKeywords: ['blueberry', 'jasmine'],
+      })
+    );
+  });
+
+  it('prints the full canonical facets envelope when no field is given', async () => {
+    const envelope = { facets: {}, values: {}, meta: { resource: 'catalog-facets' } };
+    const facets = vi.fn().mockResolvedValue({
+      data: envelope,
+      response: new Response(null, { status: 200 }),
+    });
+    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { facets } } as never);
+
+    await runCatalogCommand(['facets', '--all']);
+
+    expect(facets).toHaveBeenCalledWith({ stocked: 'all' });
+    expect(outputData).toHaveBeenCalledWith(envelope, expect.any(Object));
+  });
+
+  it('rejects the removed client-side facets --limit flag', async () => {
+    for (const args of [['facets', 'supplier', '--limit', '10']]) {
       const errors: string[] = [];
       const command = buildCatalogCommand();
       command.exitOverride();
@@ -1163,7 +1235,7 @@ describe('searchCatalog', () => {
         await expect(
           command.parseAsync(['node', 'catalog', ...args], { from: 'node' })
         ).rejects.toThrow('process.exit:1');
-        expect(errors.join('')).toContain(`unknown option '${args[1]}'`);
+        expect(errors.join('')).toContain(`unknown option '${args[2]}'`);
       } finally {
         exitSpy.mockRestore();
       }

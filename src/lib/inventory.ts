@@ -60,14 +60,25 @@ export const getInventorySchema = z.object({
 
 export type GetInventoryInput = z.input<typeof getInventorySchema>;
 
-export const addInventorySchema = z.object({
-  catalogId: z.number().int().min(1).max(POSTGRES_INT4_MAX),
-  qty: z.number().positive(),
-  cost: z.number().optional(),
-  taxShip: z.number().optional(),
-  notes: z.string().optional(),
-  purchaseDate: z.string().optional(),
-});
+export const POSTGRES_INT4_MIN = -2_147_483_648;
+
+/**
+ * Add a lot from a catalog row (`catalogId`) or a manual coffee (`manualName`)
+ * that has no catalog row. Exactly one source is required.
+ */
+export const addInventorySchema = z
+  .object({
+    catalogId: z.number().int().min(1).max(POSTGRES_INT4_MAX).optional(),
+    manualName: z.string().trim().min(1).optional(),
+    qty: z.number().positive(),
+    cost: z.number().optional(),
+    taxShip: z.number().optional(),
+    notes: z.string().optional(),
+    purchaseDate: z.string().optional(),
+  })
+  .refine((v) => (v.catalogId === undefined) !== (v.manualName === undefined), {
+    message: 'Provide exactly one of catalogId or manualName.',
+  });
 
 export type AddInventoryInput = z.input<typeof addInventorySchema>;
 
@@ -78,9 +89,11 @@ export const updateInventorySchema = z
     taxShip: z.number().optional(),
     notes: z.string().optional(),
     stocked: z.boolean().optional(),
+    rank: z.number().int().min(POSTGRES_INT4_MIN).max(POSTGRES_INT4_MAX).optional(),
   })
   .refine((v) => Object.keys(v).some((k) => v[k as keyof typeof v] !== undefined), {
-    message: 'No update fields provided. Pass at least one of: qty, cost, taxShip, notes, stocked.',
+    message:
+      'No update fields provided. Pass at least one of: qty, cost, taxShip, notes, stocked, rank.',
   });
 
 export type UpdateInventoryInput = z.input<typeof updateInventorySchema>;
@@ -153,10 +166,13 @@ export async function addInventory(
   input: AddInventoryInput,
   tokenOverride?: string
 ): Promise<InventoryItem> {
-  const parsed = addInventorySchema.parse(input);
+  const { catalogId, manualName, ...lot } = addInventorySchema.parse(input);
   const client = await createParchmentClient('member', tokenOverride);
+  const options = { idempotencyKey: randomUUID() };
   const envelope = unwrapParchment(
-    await client.inventory.create(parsed, { idempotencyKey: randomUUID() }),
+    manualName !== undefined
+      ? await client.inventory.create({ ...lot, manualCoffee: { name: manualName } }, options)
+      : await client.inventory.create({ ...lot, catalogId: catalogId as number }, options),
     'Inventory create'
   );
   return envelope.data as InventoryItem;

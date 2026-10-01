@@ -11,12 +11,15 @@ import {
   addInventory,
   updateInventory,
   deleteInventory,
+  POSTGRES_INT4_MIN,
 } from '../lib/inventory.js';
 import type { InventoryItem, DeleteInventoryResult } from '../lib/inventory.js';
 import { pickCatalogItem, guardCancel } from '../lib/interactive/forms.js';
 import {
   parseStrictFiniteNumber,
   parseStrictInt4Id,
+  parseStrictInteger,
+  POSTGRES_INT4_MAX,
   parseStrictOffset,
   parseStrictPositiveCount,
 } from '../lib/strict-number.js';
@@ -143,7 +146,8 @@ Notes:
   inventory
     .command('add')
     .description('Add a new green coffee inventory item')
-    .option('--catalog-id <id>', '[REQUIRED] Coffee catalog entry ID (coffee_catalog.catalog_id)')
+    .option('--catalog-id <id>', 'Coffee catalog entry ID (coffee_catalog.catalog_id)')
+    .option('--manual-name <name>', 'Name for a coffee that is not in the catalog')
     .option('--qty <lbs>', '[REQUIRED] Quantity purchased in pounds')
     .option('--cost <dollars>', 'Bean cost in dollars (optional)')
     .option('--tax-ship <dollars>', 'Tax and shipping cost in dollars (optional)')
@@ -157,9 +161,10 @@ Examples:
   purvey inventory add --catalog-id 128 --qty 10 --cost 8.50 --pretty
   purvey inventory add --catalog-id 42 --qty 5 --cost 6.25 --tax-ship 4.00
   purvey inventory add --catalog-id 77 --qty 25 --purchase-date 2026-03-01
+  purvey inventory add --manual-name "Farm-gate Ethiopia lot 7" --qty 12 --cost 96
   purvey inventory add --form      # interactive wizard
 
-Required flags: --catalog-id, --qty
+Required flags: --qty and exactly one of --catalog-id or --manual-name
   Use 'purvey catalog search' to find a --catalog-id.
   Use --form if you prefer to browse and select interactively.
   Requires authentication (member role).
@@ -172,7 +177,8 @@ Required flags: --catalog-id, --qty
         // Auto-enter form mode if config form-mode is true and required args are missing
         const formMode =
           opts.form ||
-          (!(opts.catalogId && opts.qty) && (await getConfigValue('form-mode')) === 'true');
+          (!((opts.catalogId || opts.manualName) && opts.qty) &&
+            (await getConfigValue('form-mode')) === 'true');
         if (formMode) {
           const { credentialContext } = await requireAuth('member');
           p.intro('Add Bean to Inventory');
@@ -246,10 +252,21 @@ Required flags: --catalog-id, --qty
         }
 
         // ── Flag-based mode ────────────────────────────────────────────────
-        if (!opts.catalogId) {
+        if (opts.catalogId && opts.manualName !== undefined) {
           throw new PrvrsError(
             'INVALID_ARGUMENT',
-            'Missing --catalog-id. Use --form for interactive mode.'
+            'Pass either --catalog-id or --manual-name, not both.'
+          );
+        }
+        const manualName =
+          opts.manualName !== undefined ? String(opts.manualName).trim() : undefined;
+        if (manualName === '') {
+          throw new PrvrsError('INVALID_ARGUMENT', '--manual-name cannot be blank.');
+        }
+        if (!opts.catalogId && manualName === undefined) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            'Missing --catalog-id (or --manual-name for a coffee not in the catalog). Use --form for interactive mode.'
           );
         }
         if (!opts.qty) {
@@ -259,7 +276,10 @@ Required flags: --catalog-id, --qty
           );
         }
 
-        const catalogId = parseInventoryId(opts.catalogId as string, '--catalog-id');
+        const catalogId =
+          manualName === undefined
+            ? parseInventoryId(opts.catalogId as string, '--catalog-id')
+            : undefined;
 
         const qty = parseStrictFiniteNumber(opts.qty as string);
         if (!Number.isFinite(qty) || qty <= 0) {
@@ -282,7 +302,7 @@ Required flags: --catalog-id, --qty
         }
 
         const data = await addInventory({
-          catalogId,
+          ...(manualName === undefined ? { catalogId } : { manualName }),
           qty,
           cost,
           taxShip,
@@ -304,6 +324,7 @@ Required flags: --catalog-id, --qty
     .option('--tax-ship <dollars>', 'Updated tax/shipping cost')
     .option('--notes <text>', 'Updated notes')
     .option('--stocked <bool>', 'Mark as stocked: true or false')
+    .option('--rank <n>', 'Owner-assigned integer rank for this lot')
     .addHelpText(
       'after',
       `
@@ -312,6 +333,7 @@ Examples:
   purvey inventory update 7 --stocked false
   purvey inventory update 7 --cost 9.00 --notes "bulk discount applied"
   purvey inventory update 42 --stocked true --qty 15
+  purvey inventory update 42 --rank 1
 
 Notes:
   At least one flag required. Pass only the fields you want to change.
@@ -355,16 +377,28 @@ Notes:
           stocked = stockedStr === 'true';
         }
 
+        let rank: number | undefined;
+        if (opts.rank !== undefined) {
+          rank = parseStrictInteger(String(opts.rank), POSTGRES_INT4_MIN, POSTGRES_INT4_MAX);
+          if (!Number.isFinite(rank)) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              `Invalid --rank: "${String(opts.rank)}". Must be an integer.`
+            );
+          }
+        }
+
         if (
           qty === undefined &&
           cost === undefined &&
           taxShip === undefined &&
           opts.notes === undefined &&
-          stocked === undefined
+          stocked === undefined &&
+          rank === undefined
         ) {
           throw new PrvrsError(
             'INVALID_ARGUMENT',
-            'No update fields provided. Pass at least one of: --qty, --cost, --tax-ship, --notes, --stocked.'
+            'No update fields provided. Pass at least one of: --qty, --cost, --tax-ship, --notes, --stocked, --rank.'
           );
         }
 
@@ -374,6 +408,7 @@ Notes:
           taxShip,
           notes: opts.notes as string | undefined,
           stocked,
+          rank,
         });
 
         success(`Inventory item ${itemId} updated.`);

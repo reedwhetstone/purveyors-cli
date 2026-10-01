@@ -6,7 +6,15 @@ import { outputData, info, success } from '../lib/output.js';
 import { withErrorHandling, PrvrsError, AuthError } from '../lib/errors.js';
 import { requireAuth } from '../lib/auth-guard.js';
 import { confirm, todayIso } from '../lib/prompts.js';
-import { listRoasts, getRoast, createRoast, deleteRoast, updateRoast } from '../lib/roast.js';
+import {
+  listRoasts,
+  getRoast,
+  getRoastChartData,
+  createRoast,
+  deleteRoast,
+  updateRoast,
+  ROAST_CHART_TARGET_POINTS,
+} from '../lib/roast.js';
 import type {
   RoastProfile,
   TemperatureEntry,
@@ -58,6 +66,18 @@ function parseRoastListCount(value: string, flag: '--limit' | '--offset'): numbe
     throw new PrvrsError(
       'INVALID_ARGUMENT',
       `Invalid ${flag}: "${value}". Must be ${requirement}.`
+    );
+  }
+  return parsed;
+}
+
+function parseRoastChartTargetPoints(value: string): number {
+  const parsed = parseStrictPositiveCount(value);
+  const { minimum, maximum } = ROAST_CHART_TARGET_POINTS;
+  if (!Number.isFinite(parsed) || parsed < minimum || parsed > maximum) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `Invalid --target-points: "${value}". Must be an integer between ${minimum} and ${maximum}.`
     );
   }
   return parsed;
@@ -365,6 +385,45 @@ Notes:
       })
     );
 
+  // ── roast chart <id> ──────────────────────────────────────────────────────
+  roast
+    .command('chart <id>')
+    .description('Fetch the sampled chart model for one roast (series, events, revision)')
+    .option(
+      '--target-points <n>',
+      `Approximate samples per series (${ROAST_CHART_TARGET_POINTS.minimum}-${ROAST_CHART_TARGET_POINTS.maximum}; Parchment defaults to 400)`
+    )
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey roast chart 123 --pretty
+  purvey roast chart 123 --target-points 120 --json
+  purvey roast chart 123 | jq '.data.metadata.revision'
+
+Notes:
+  <id> is roast_data.roast_id (integer).
+  Returns Parchment's canonical chart-data envelope unchanged: sampled series,
+  discrete events, and metadata. data.metadata.revision identifies the immutable
+  chart revision accepted by 'purvey reference-profile compare roast:<id>@<revision>'.
+  Requires authentication (member role); API keys need the roast:read scope.
+`
+    )
+    .action(
+      withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        const data = await getRoastChartData({
+          id: parseRoastInt4Id(id, 'roast ID'),
+          targetPoints:
+            opts.targetPoints === undefined
+              ? undefined
+              : parseRoastChartTargetPoints(String(opts.targetPoints)),
+        });
+
+        outputData(data, globalOpts);
+      })
+    );
+
   // ── roast create ──────────────────────────────────────────────────────────
   roast
     .command('create')
@@ -375,6 +434,8 @@ Notes:
     .option('--oz-out <oz>', 'Roasted weight in ounces')
     .option('--roast-date <YYYY-MM-DD>', 'Roast date (defaults to today)')
     .option('--notes <text>', 'Roast notes')
+    .option('--targets <text>', 'Roast targets (planning goals for this roast)')
+    .option('--roaster-type <text>', 'Roaster model or type')
     .option('--form', 'Interactive form mode (browse and select bean)')
     .addHelpText(
       'after',
@@ -384,6 +445,7 @@ Examples:
   purvey roast create --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz-in 16
   purvey roast create --coffee-id 42 --oz-in 12 --oz-out 9.8 --roast-date 2026-03-15
   purvey roast create --coffee-id 7 --notes "Extended drying phase, aimed for medium roast"
+  purvey roast create --coffee-id 7 --targets "FC at 390F, 18% development" --roaster-type "Aillio Bullet"
   purvey roast create --form     # interactive wizard
 
 Required flags: --coffee-id (green_coffee_inv.id)
@@ -505,6 +567,8 @@ Required flags: --coffee-id (green_coffee_inv.id)
           ozOut,
           roastDate: (opts.roastDate as string | undefined) ?? todayIso(),
           notes: opts.notes as string | undefined,
+          targets: opts.targets as string | undefined,
+          roasterType: opts.roasterType as string | undefined,
         });
 
         success(`Roast profile ${data.roast_id} created.`);

@@ -1,7 +1,7 @@
 # Purveyors CLI Architecture Retrospective
 
 _Created: 2026-03-14_
-_Refreshed: 2026-09-22_
+_Refreshed: 2026-10-01_
 _Status: Historical architecture note for the shipped `purvey` CLI_
 
 ## Why this file exists
@@ -19,14 +19,14 @@ not optional DX polish. The CLI and coffee-app are separate consumers of
 
 Current command groups:
 
-- `auth`: `login`, `status`, `logout`
-- `catalog`: `search`, `get`, `stats`, `similar`
+- `auth`: `login`, `status`, `whoami`, `logout`
+- `catalog`: `search`, `get`, `stats`, `facets`, `rank`, `rank-premium`, `supplier-list`, `supplier-detail`, `supplier-rank`, `similar`
 - `market`: `signals`, `stats`, `metadata`, `overview`, `evidence` for Market Index decision-surface reads through `@purveyors/sdk`
 - `price-index`: Parchment Price Index aggregate snapshots, plus `comparisons`, `comparison`, and `history` for matched 30-day comparisons with verbatim significance and chart history, through `@purveyors/sdk`
 - `procurement`: saved sourcing brief reads and matches through `@purveyors/sdk`
-- `reference-profile`: Studio reference list, import, chart, preview, save, and export through `@purveyors/sdk`
+- `reference-profile`: Studio reference list, import, chart, compare, preview, save, and export through `@purveyors/sdk`
 - `inventory`: `list`, `get`, `add`, `update`, `delete`
-- `roast`: `list`, `get`, `create`, `update`, `delete`, `import`, `watch`
+- `roast`: `list`, `get`, `chart`, `create`, `update`, `delete`, `import`, `watch`
 - `sales`: `list`, `record`, `update`, `delete` through canonical SDK sales and roast endpoints
 - `tasting`: `get`, `rate`
 - `config`: `list`, `get`, `set`, `reset`
@@ -34,6 +34,25 @@ Current command groups:
 - `manifest`: preferred machine-readable CLI contract
 
 The command surface is implemented explicitly in `src/program.ts` and `src/commands/*.ts`. It is not generated dynamically at runtime.
+
+## Web-agent parity
+
+The CLI must be able to do everything the Purveyors web assistant (Cherry) can do through the
+Parchment SDK. It may do more, never less. The web assistant reads through a
+`ParchmentClient`-shaped adapter in Parchment and writes through session-only confirmed
+actions that API keys cannot call, so parity is defined per capability:
+
+- every SDK method the assistant can call is consumed by at least one CLI command, declared in
+  that command's manifest `sdkMethods`
+- every confirmed action has an API-key command that performs the same write, declared in its
+  manifest `confirmedActionEquivalents`
+
+`tests/web-agent-parity.test.ts` enforces this against a checked-in capability list annotated
+with the Parchment commit it mirrors. When the assistant gains a capability, the test fails until a
+command covers it. The only documented exception is `create_roast_from_reference`: Parchment
+creates that roast from the private Artisan source stored with a reference profile, and no
+API-key route exposes that source. `roast import` reaches the same outcome when the original
+`.alog` file is available.
 
 ## Agent-first product stance
 
@@ -124,7 +143,9 @@ Both `roast import` and `roast watch` forward the original `.alog` source to Par
 upload, chart, preview, save, and export operations. Parchment owns source parsing,
 revision calculation, lineage, entitlement checks, persistence, and export serialization.
 The CLI validates the bounded request shape but does not transform chart data or generate
-`.alog` content. Generated references remain plans outside executed roast history; exports
+`.alog` content. `reference-profile compare` resolves `profile:` and bare `roast:` selectors to
+their current immutable revisions through Parchment, then returns the canonical comparison
+envelope unchanged. Generated references remain plans outside executed roast history; exports
 are unsigned, and the CLI does not claim verified Artisan 4.2 playback compatibility.
 
 ### Output and reference surfaces
@@ -146,6 +167,8 @@ Catalog intelligence boundaries:
 - `catalog similar <id>` consumes the beta canonical `/v1/catalog/{id}/similar` contract, not the legacy direct RPC path, and requires member access or a paid API tier.
 - Similarity output must keep `canonical_candidates` separate from `similar_recommendations` and preserve blocker, proof, pricing, score-dimension, `classification_version`, and `query_strategy` metadata for agents.
 - Structured process filters map to canonical `/v1/catalog` query names and require member access through a valid scoped key.
+- `catalog search --supplier`, `--drying-method`, and `--flavor`, and `catalog rank --supplier`, pass through to canonical query parameters (`supplier`, `dryingMethod`, `flavorKeywords`); Parchment applies them. See the 2026-10-01 update in ADR-004.
+- `catalog facets` returns Parchment's counted facets and metadata unchanged. It does not truncate, re-count, or sum facet counts.
 - Catalog reads and intelligence helpers, inventory CRUD, roast CRUD and classification, reference-profile operations, sales CRUD, tasting reads and writes, role resolution, `market`, `price-index`, and `procurement` are SDK-backed canonical API operations. They default to `api.purveyors.io` and accept `PARCHMENT_API_BASE_URL` for alternate deployments. Most surfaces use `PARCHMENT_API_KEY`/`PURVEYORS_API_KEY` when provided and otherwise send the scoped API key created by `purvey auth login`; interactive roast auto-classification pins that logged-in identity so its inventory candidates and owner-bound classifier authorization cannot diverge. Owner data requires the matching owner-bound API-key scope. `catalog:read` is the canonical scope for catalog, Market Index, Price Index, and procurement reads. Market and price-index history public teaser slices are unauthenticated; filtered and non-public market slices, market evidence, price-index comparisons, and history windows over 90 days require Parchment Intelligence access enforced server-side.
 - Procurement brief creation is intentionally absent from the CLI read surface until the Phase 2 write contract ships.
 

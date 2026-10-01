@@ -26,3 +26,13 @@ Catalog contract alignment is cleaner and proof output has one typed source of
 truth. The four filters are temporarily unavailable in the CLI, including the
 shared supplier filters on catalog ranking commands; bounded-output variants can
 be re-evaluated after upstream support exists.
+
+## Update (2026-10-01)
+
+Parchment's canonical `/v1/catalog` contract now accepts `supplier`, `dryingMethod`, and
+`flavorKeywords`, and `/v1/catalog/rank` accepts `supplier`. The Purveyors web assistant uses
+these filters, and the CLI must not offer less than the assistant. `catalog search --supplier`,
+`--drying-method`, and `--flavor`, and `catalog rank --supplier`, are restored as direct
+passthroughs to those parameters. The CLI does not filter rows itself, so the decision above
+still holds. `--sort=newest` stays retired, and `catalog rank-premium` still has no supplier
+filter.

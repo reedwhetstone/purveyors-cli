@@ -16,6 +16,7 @@ vi.mock('../src/lib/auth-guard.js', () => ({
 
 import {
   createParchmentClient,
+  getParchmentIdentity,
   resolveParchmentSessionTokenIfAvailable,
 } from '../src/lib/parchment.js';
 
@@ -57,5 +58,56 @@ describe('createParchmentClient', () => {
     requireAuthMock.mockRejectedValue(new AuthError('Not logged in.'));
 
     await expect(resolveParchmentSessionTokenIfAvailable('member')).resolves.toBeUndefined();
+  });
+});
+
+describe('getParchmentIdentity', () => {
+  afterEach(() => {
+    sdkCreateClient.mockReset();
+    sdkCreateClient.mockImplementation((options: unknown) => ({ options }));
+    delete process.env.PARCHMENT_API_KEY;
+  });
+
+  it('returns the canonical /v1/me principal for the active credential unchanged', async () => {
+    process.env.PARCHMENT_API_KEY = 'env-key';
+    const principal = {
+      authenticated: true,
+      primaryAppRole: 'member',
+      capabilities: { profileStudio: { available: true, reason: 'available' } },
+    };
+    const me = vi.fn().mockResolvedValue({
+      data: principal,
+      response: new Response(null, { status: 200 }),
+    });
+    sdkCreateClient.mockImplementation(((options: unknown) => ({ options, me })) as never);
+
+    await expect(getParchmentIdentity()).resolves.toEqual(principal);
+    expect(sdkCreateClient).toHaveBeenCalledWith({
+      baseUrl: 'https://api.purveyors.io',
+      token: 'env-key',
+    });
+    expect(requireAuthMock).not.toHaveBeenCalled();
+  });
+
+  it('returns the anonymous principal without credentials instead of failing auth', async () => {
+    requireAuthMock.mockRejectedValue(new AuthError('Not logged in.'));
+    const principal = {
+      authenticated: false,
+      authKind: 'anonymous',
+      userId: null,
+      capabilities: { profileStudio: { available: false, reason: 'authentication_required' } },
+    };
+    const me = vi.fn().mockResolvedValue({
+      data: principal,
+      response: new Response(null, { status: 200 }),
+    });
+    sdkCreateClient.mockImplementation(((options: unknown) => ({ options, me })) as never);
+
+    await expect(getParchmentIdentity()).resolves.toEqual(principal);
+    expect(sdkCreateClient).toHaveBeenCalledWith({
+      baseUrl: 'https://api.purveyors.io',
+      token: undefined,
+    });
+    expect(me).toHaveBeenCalledOnce();
   });
 });

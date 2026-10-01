@@ -131,4 +131,35 @@ describe('inventory SDK data plane', () => {
     });
     expect(createParchmentClient).not.toHaveBeenCalled();
   });
+
+  it('creates a manual coffee lot when no catalog row exists', async () => {
+    const create = vi.fn().mockResolvedValue(ok({ data: item(9) }, 201));
+    vi.mocked(createParchmentClient).mockResolvedValue({ inventory: { create } } as never);
+
+    await addInventory({ manualName: 'Farm-gate lot 7', qty: 12, cost: 96 });
+
+    expect(create).toHaveBeenCalledWith(
+      { qty: 12, cost: 96, manualCoffee: { name: 'Farm-gate lot 7' } },
+      { idempotencyKey: expect.any(String) }
+    );
+  });
+
+  it('requires exactly one of catalogId or manualName', async () => {
+    await expect(addInventory({ qty: 1 })).rejects.toThrow(
+      'Provide exactly one of catalogId or manualName.'
+    );
+    await expect(addInventory({ catalogId: 1, manualName: 'Both', qty: 1 })).rejects.toThrow(
+      'Provide exactly one of catalogId or manualName.'
+    );
+    expect(createParchmentClient).not.toHaveBeenCalled();
+  });
+
+  it('updates the owner-assigned rank', async () => {
+    const update = vi.fn().mockResolvedValue(ok({ data: { ...item(4), rank: 1 } }));
+    vi.mocked(createParchmentClient).mockResolvedValue({ inventory: { update } } as never);
+
+    await updateInventory(4, { rank: 1 });
+
+    expect(update).toHaveBeenCalledWith(4, { rank: 1 });
+  });
 });

@@ -1,4 +1,8 @@
-import { createParchmentClient as createSdkClient, type ParchmentClient } from '@purveyors/sdk';
+import {
+  createParchmentClient as createSdkClient,
+  type ParchmentClient,
+  type components,
+} from '@purveyors/sdk';
 import { requireAuth, type RequiredRole } from './auth-guard.js';
 import { AuthError, PrvrsError } from './errors.js';
 import { getParchmentBaseUrl } from './parchment-base.js';
@@ -94,6 +98,20 @@ export async function createOptionalParchmentClient(): Promise<ParchmentClient> 
   const apiKey = process.env.PARCHMENT_API_KEY || process.env.PURVEYORS_API_KEY;
   const token = apiKey || (await resolveParchmentSessionTokenIfAvailable('viewer'));
   return createSdkClient({ baseUrl: getParchmentBaseUrl(), token });
+}
+
+/** Canonical `GET /v1/me` principal: identity, roles, plan, scopes, and capabilities. */
+export type ParchmentIdentity = components['schemas']['MeResponse'];
+
+/**
+ * Read the canonical principal for the credential the CLI would send (an
+ * explicit environment API key, otherwise the stored `purvey auth login` key).
+ * Credentials are optional, like the rest of the `auth` family: with none,
+ * Parchment returns its anonymous principal. The response is returned unchanged.
+ */
+export async function getParchmentIdentity(): Promise<ParchmentIdentity> {
+  const client = await createOptionalParchmentClient();
+  return unwrapParchment(await client.me(), 'Identity');
 }
 
 /** openapi-fetch result shape: `{ data?, error?, response }`. */

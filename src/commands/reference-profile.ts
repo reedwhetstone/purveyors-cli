@@ -3,13 +3,18 @@ import { readFile, stat } from 'node:fs/promises';
 import { Command } from 'commander';
 import { PrvrsError, withErrorHandling } from '../lib/errors.js';
 import {
+  compareProfiles,
   exportGeneratedReferenceProfile,
   getReferenceProfile,
   getReferenceProfileChart,
   importReferenceProfile,
   listReferenceProfiles,
+  parseProfileComparisonSelector,
   parseReferenceProfileImportRequest,
   previewReferenceProfile,
+  PROFILE_COMPARISON_TARGET_POINTS,
+  profileComparisonUnits,
+  type ProfileComparisonUnit,
   readReferenceProfileGenerationRequest,
   REFERENCE_PROFILE_SOURCE_MAX_BYTES,
   saveGeneratedReferenceProfile,
@@ -17,6 +22,7 @@ import {
 } from '../lib/reference-profiles.js';
 import { normalizePathInput } from '../lib/path-input.js';
 import { outputData } from '../lib/output.js';
+import { parseStrictPositiveCount } from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
 
 function idempotencyKeyOption(command: Command, description: string): Command {
@@ -29,7 +35,7 @@ function idempotencyKeyOption(command: Command, description: string): Command {
 /** `purvey reference-profile` — owner-scoped Studio plans through Parchment's SDK. */
 export function buildReferenceProfileCommand(): Command {
   const referenceProfile = new Command('reference-profile').description(
-    'Preview, save, and export Studio Artisan reference plans through Parchment'
+    'Compare, preview, save, and export Studio Artisan reference plans through Parchment'
   );
 
   referenceProfile
@@ -92,6 +98,68 @@ Example:
         ) => {
           const globalOpts = cmd.optsWithGlobals() as OutputOptions;
           const data = await getReferenceProfileChart(profileId, revisionId);
+          outputData(data, globalOpts);
+        }
+      )
+    );
+
+  referenceProfile
+    .command('compare <left> <right>')
+    .description('Compare two immutable roast or reference revisions with measured deltas')
+    .option('--unit <F|C>', 'Temperature unit for the comparison series', 'F')
+    .option(
+      '--target-points <n>',
+      `Samples per aligned series (${PROFILE_COMPARISON_TARGET_POINTS.minimum}-${PROFILE_COMPARISON_TARGET_POINTS.maximum})`,
+      String(PROFILE_COMPARISON_TARGET_POINTS.default)
+    )
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey reference-profile compare roast:123 profile:5ea1af6f-234c-43a9-9bf8-5678dd24f854 --pretty
+  purvey reference-profile compare roast:123 roast:124 --unit C --json
+  purvey reference-profile compare revision:8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 roast:123@2026-09-30T14:22:05.123456+00:00 --pretty
+
+Selectors:
+  revision:<uuid>          exact reference-profile revision
+  profile:<uuid>           the reference profile's current revision
+  roast:<roast-id>         the executed roast's current chart revision
+  roast:<roast-id>@<rev>   an exact executed-roast chart revision (data.metadata.revision from 'purvey roast chart')
+
+Notes:
+  Parchment aligns both sides at charge and returns measured deltas and milestones unchanged.
+  A reference profile is a plan or comparison reference, never executed roast history.
+  Requires a member credential and Studio access; entitlement is enforced by Parchment.`
+    )
+    .action(
+      withErrorHandling(
+        async (left: string, right: string, opts: Record<string, unknown>, cmd: Command) => {
+          const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+          const unit = String(opts.unit).trim().toUpperCase();
+          if (!profileComparisonUnits.includes(unit as ProfileComparisonUnit)) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              `Invalid --unit: "${String(opts.unit)}". Must be one of: ${profileComparisonUnits.join(', ')}.`
+            );
+          }
+          const targetPoints = parseStrictPositiveCount(String(opts.targetPoints));
+          if (
+            !Number.isFinite(targetPoints) ||
+            targetPoints < PROFILE_COMPARISON_TARGET_POINTS.minimum ||
+            targetPoints > PROFILE_COMPARISON_TARGET_POINTS.maximum
+          ) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              `Invalid --target-points: "${String(opts.targetPoints)}". Must be an integer between ${PROFILE_COMPARISON_TARGET_POINTS.minimum} and ${PROFILE_COMPARISON_TARGET_POINTS.maximum}.`
+            );
+          }
+
+          const data = await compareProfiles({
+            left: parseProfileComparisonSelector(left, 'left'),
+            right: parseProfileComparisonSelector(right, 'right'),
+            targetUnit: unit as ProfileComparisonUnit,
+            targetPoints,
+          });
           outputData(data, globalOpts);
         }
       )
@@ -165,8 +233,9 @@ Notes:
 Example:
   purvey reference-profile preview 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --pretty
 
-The request file is also the exact body accepted by save. Parchment recalculates from the
-immutable parent; preview never changes or stores the source.`
+The request file is also the exact body accepted by save: title, optional notes, optional
+userGoal/modelRecommendation/userEdits provenance, and changes.temperatureAdjustments.
+Parchment recalculates from the immutable parent; preview never changes or stores the source.`
     );
   previewCommand.action(
     withErrorHandling(
