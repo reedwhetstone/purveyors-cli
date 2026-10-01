@@ -88,4 +88,26 @@ describe('getParchmentIdentity', () => {
     });
     expect(requireAuthMock).not.toHaveBeenCalled();
   });
+
+  it('returns the anonymous principal without credentials instead of failing auth', async () => {
+    requireAuthMock.mockRejectedValue(new AuthError('Not logged in.'));
+    const principal = {
+      authenticated: false,
+      authKind: 'anonymous',
+      userId: null,
+      capabilities: { profileStudio: { available: false, reason: 'authentication_required' } },
+    };
+    const me = vi.fn().mockResolvedValue({
+      data: principal,
+      response: new Response(null, { status: 200 }),
+    });
+    sdkCreateClient.mockImplementation(((options: unknown) => ({ options, me })) as never);
+
+    await expect(getParchmentIdentity()).resolves.toEqual(principal);
+    expect(sdkCreateClient).toHaveBeenCalledWith({
+      baseUrl: 'https://api.purveyors.io',
+      token: undefined,
+    });
+    expect(me).toHaveBeenCalledOnce();
+  });
 });

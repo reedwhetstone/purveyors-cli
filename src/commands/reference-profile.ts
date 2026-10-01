@@ -118,7 +118,7 @@ Example:
 Examples:
   purvey reference-profile compare roast:123 profile:5ea1af6f-234c-43a9-9bf8-5678dd24f854 --pretty
   purvey reference-profile compare roast:123 roast:124 --unit C --json
-  purvey reference-profile compare revision:8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 roast:123@<chart-revision> --pretty
+  purvey reference-profile compare revision:8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 roast:123@2026-09-30T14:22:05.123456+00:00 --pretty
 
 Selectors:
   revision:<uuid>          exact reference-profile revision

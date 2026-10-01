@@ -64,7 +64,9 @@ export interface CliCommandContract {
   auth: CliAuthRequirement;
   /**
    * Parchment SDK client operations (`namespace.method`, or `me`) whose canonical
-   * endpoints this command consumes. Lets agents map an SDK capability to a command.
+   * endpoints this command consumes, including flag-dependent selector reads.
+   * Interactive `--form` pickers are not listed. Lets agents map an SDK capability
+   * to a command.
    */
   sdkMethods?: string[];
   /**
@@ -291,11 +293,12 @@ const commandGroups: CliCommandGroupContract[] = [
         name: 'whoami',
         summary:
           'Show the canonical identity, plan, scopes, and capabilities for the active credential',
-        auth: 'viewer',
+        auth: 'none',
         sdkMethods: ['me'],
         notes: [
           'Prints the GET /v1/me response unchanged, including capabilities.profileStudio.',
           'Uses PARCHMENT_API_KEY or PURVEYORS_API_KEY when set, otherwise the stored login key.',
+          'Without a credential it prints the anonymous principal (authenticated: false).',
         ],
         examples: [
           'purvey auth whoami --pretty',
@@ -886,7 +889,7 @@ const commandGroups: CliCommandGroupContract[] = [
         name: 'import',
         summary: 'Import an Artisan .alog roast file',
         auth: 'member',
-        sdkMethods: ['roasts.import', 'roasts.replaceArtisanImport', 'roasts.clearArtisanImport'],
+        sdkMethods: ['roasts.import'],
         arguments: [{ name: 'file', description: 'Path to Artisan .alog file', required: false }],
         options: [
           { flags: '--coffee-id <id>', requiredInFlagMode: true },
@@ -901,7 +904,7 @@ const commandGroups: CliCommandGroupContract[] = [
         name: 'watch',
         summary: 'Watch a directory for new Artisan .alog files',
         auth: 'member',
-        sdkMethods: ['roasts.import'],
+        sdkMethods: ['roasts.import', 'inventory.list', 'roasts.classify'],
         arguments: [{ name: 'directory', description: 'Directory to watch', required: false }],
         options: [
           { flags: '--coffee-id <inventory_id>' },
@@ -951,7 +954,7 @@ const commandGroups: CliCommandGroupContract[] = [
         name: 'record',
         summary: 'Record a new sale',
         auth: 'member',
-        sdkMethods: ['sales.create'],
+        sdkMethods: ['sales.create', 'roasts.list', 'roasts.get'],
         confirmedActionEquivalents: ['record_sale'],
         options: [
           { flags: '--roast-id <id>' },

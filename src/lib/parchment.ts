@@ -106,10 +106,11 @@ export type ParchmentIdentity = components['schemas']['MeResponse'];
 /**
  * Read the canonical principal for the credential the CLI would send (an
  * explicit environment API key, otherwise the stored `purvey auth login` key).
- * The response is returned unchanged.
+ * Credentials are optional, like the rest of the `auth` family: with none,
+ * Parchment returns its anonymous principal. The response is returned unchanged.
  */
 export async function getParchmentIdentity(): Promise<ParchmentIdentity> {
-  const client = await createParchmentClient('viewer');
+  const client = await createOptionalParchmentClient();
   return unwrapParchment(await client.me(), 'Identity');
 }
 

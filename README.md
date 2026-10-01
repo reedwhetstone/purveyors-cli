@@ -313,7 +313,7 @@ Notes:
 - `auth login --headless` prints the approval URL without trying to open a local browser. Approve it from any browser; nothing is pasted back.
 - `auth status --json` is the safest mode for scripts.
 - `auth status --csv` is supported for spreadsheet-style checks, but JSON remains the better integration format.
-- `auth whoami` prints Parchment's `GET /v1/me` response unchanged for the credential the CLI would send: roles, API plan, scopes, Price Index access, and capabilities such as `capabilities.profileStudio`.
+- `auth whoami` prints Parchment's `GET /v1/me` response unchanged for the credential the CLI would send: roles, API plan, scopes, Price Index access, and capabilities such as `capabilities.profileStudio`. Like the rest of `auth`, it needs no existing credential; without one it prints Parchment's anonymous principal (`authenticated: false`).
 
 ### catalog
 

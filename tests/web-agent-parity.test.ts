@@ -108,6 +108,21 @@ describe('CLI covers every web-agent capability', () => {
     }
   });
 
+  it('declares the selector and classification reads a command performs', () => {
+    const sdkMethodsFor = (path: string) =>
+      manifestCommands().find((entry) => entry.path === path)?.command.sdkMethods;
+    // recordSale resolves its target through roasts.list, plus roasts.get for --roast-id.
+    expect(sdkMethodsFor('sales record')).toEqual(
+      expect.arrayContaining(['sales.create', 'roasts.list', 'roasts.get'])
+    );
+    // --coffee-id reads the inventory item; --auto-match lists stock and calls classify.
+    expect(sdkMethodsFor('roast watch')).toEqual(
+      expect.arrayContaining(['roasts.import', 'inventory.list', 'roasts.classify'])
+    );
+    // No command path replaces or clears an Artisan import.
+    expect(sdkMethodsFor('roast import')).toEqual(['roasts.import']);
+  });
+
   it('declares only known confirmed actions as equivalents', () => {
     const actions: readonly string[] = WEB_AGENT_CAPABILITIES.confirmedActions;
     for (const { path, command } of manifestCommands()) {

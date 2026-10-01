@@ -439,7 +439,8 @@ Notes:
   primaryAppRole, apiPlan, ppiAccess, apiScopes, and capabilities (for example
   capabilities.profileStudio for Studio reference-profile access).
   Uses PARCHMENT_API_KEY or PURVEYORS_API_KEY when set, otherwise the key stored by
-  'purvey auth login'. Requires a valid credential; use 'purvey auth status' for a local check.
+  'purvey auth login'. With no credential it prints Parchment's anonymous principal
+  (authenticated: false). Use 'purvey auth status' for a local check.
 `
     )
     .action(
