@@ -47,9 +47,9 @@ actions that API keys cannot call, so parity is defined per capability:
 - every confirmed action has an API-key command that performs the same write, declared in its
   manifest `confirmedActionEquivalents`
 
-`tests/web-agent-parity.test.ts` enforces this against a checked-in capability list annotated
-with the Parchment commit it mirrors. When the assistant gains a capability, the test fails until a
-command covers it. The only documented exception is `create_roast_from_reference`: Parchment
+`tests/web-agent-parity.test.ts` enforces this against `CHAT_AGENT_CAPABILITIES` and
+`CHAT_AGENT_CONFIRMED_ACTION_TYPES`, which Parchment owns and publishes in `@purveyors/sdk`.
+When an SDK upgrade gives the assistant a capability, the test fails until a command covers it. The only documented exception is `create_roast_from_reference`: Parchment
 creates that roast from the private Artisan source stored with a reference profile, and no
 API-key route exposes that source. `roast import` reaches the same outcome when the original
 `.alog` file is available.

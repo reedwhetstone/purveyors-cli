@@ -1,8 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { createParchmentClient, type ConfirmedActionExecuteRequest } from '@purveyors/sdk';
+import {
+  CHAT_AGENT_CAPABILITIES,
+  CHAT_AGENT_CONFIRMED_ACTION_TYPES,
+  createParchmentClient,
+  type ConfirmedActionExecuteRequest,
+} from '@purveyors/sdk';
 import { getCliManifest, type CliCommandContract } from '../src/lib/manifest.js';
-// Swap this import for the SDK's export once @purveyors/sdk publishes the list.
-import { WEB_AGENT_CAPABILITIES } from './fixtures/web-agent-capabilities.js';
+
+// Parchment owns the web agent's capability list and publishes it with the SDK,
+// so an SDK upgrade that gives Cherry a new capability fails here until the CLI
+// covers it.
+const WEB_AGENT_CAPABILITIES = {
+  sdkMethods: CHAT_AGENT_CAPABILITIES,
+  confirmedActions: CHAT_AGENT_CONFIRMED_ACTION_TYPES,
+} as const;
 
 /**
  * Rule: the CLI may do more than the Cherry web agent, never less. Every SDK
@@ -18,7 +29,7 @@ const KNOWN_CLI_GAPS: Record<string, string> = {
     'Parchment creates the roast from the private Artisan source stored with the reference, and only the session-only confirmed-action route can read it. `roast import` covers the same outcome only when the original .alog file is available locally.',
 };
 
-// Compile-time guard: the checked-in action list covers every SDK action type.
+// Compile-time guard: the published action list covers every SDK action type.
 type UnlistedConfirmedAction = Exclude<
   ConfirmedActionExecuteRequest['actionType'],
   (typeof WEB_AGENT_CAPABILITIES)['confirmedActions'][number]
