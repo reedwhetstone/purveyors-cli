@@ -23,9 +23,10 @@ function parseJson(text: string) {
  * Run the CLI with an isolated HOME and no Parchment credentials. `baseUrl`
  * pins an unreachable API so the public (no-auth) slices can be exercised
  * deterministically: the request is attempted anonymously and fails on
- * connection, never on auth, and never touches production.
+ * connection, never on auth, and never touches production. `extraEnv` supplies
+ * an explicit environment credential when a case needs one.
  */
-function runCli(args: string[], baseUrl?: string) {
+function runCli(args: string[], baseUrl?: string, extraEnv: Record<string, string> = {}) {
   const home = mkdtempSync(resolve(tmpdir(), 'purvey-market-home-'));
   const tsxBin = resolve(repoRoot, 'node_modules', '.bin', 'tsx');
   return spawnSync(tsxBin, ['src/index.ts', ...args], {
@@ -39,18 +40,21 @@ function runCli(args: string[], baseUrl?: string) {
       PARCHMENT_API_KEY: '',
       PURVEYORS_API_KEY: '',
       ...(baseUrl ? { PARCHMENT_API_BASE_URL: baseUrl } : {}),
+      ...extraEnv,
     },
   });
 }
 
 describe('market command', () => {
-  it('lists the three subcommands in help output', () => {
+  it('lists the five subcommands in help output', () => {
     const result = runCli(['market', '--help']);
     const stdout = stripAnsi(result.stdout);
     expect(result.status).toBe(0);
     expect(stdout).toContain('signals');
     expect(stdout).toContain('stats');
     expect(stdout).toContain('metadata');
+    expect(stdout).toContain('overview');
+    expect(stdout).toContain('evidence');
   }, 15000);
 
   it('documents signals flags in help output', () => {
@@ -119,4 +123,33 @@ describe('market command', () => {
     expect(result.status).not.toBe(3); // not an auth error — anonymous is allowed
     expect(result.status).not.toBe(0); // the unreachable host still fails the call
   }, 15000);
+
+  it.each([['overview'], ['evidence']])(
+    'fails market %s locally with the auth exit when no credentials exist',
+    (subcommand) => {
+      // Unreachable API: overview requires a signed-in viewer and evidence a member,
+      // so a credential-less call must fail on the local auth check (exit 3), not
+      // on the network call (exit 1).
+      const result = runCli(['market', subcommand, '--json'], 'http://127.0.0.1:1');
+      const stderr = parseJson(result.stderr);
+      expect(result.status).toBe(3);
+      expect(stderr).toMatchObject({ code: 'AUTH_ERROR', exitCode: 3 });
+    },
+    15000
+  );
+
+  it.each([['overview'], ['evidence']])(
+    'sends an explicit environment API key for market %s and leaves entitlement to the API',
+    (subcommand) => {
+      // An env API key takes precedence over the stored session, so the request is
+      // attempted and fails on the unreachable host rather than a local auth check.
+      const result = runCli(['market', subcommand, '--json'], 'http://127.0.0.1:1', {
+        PARCHMENT_API_KEY: 'test-key',
+      });
+      expect(result.status).not.toBe(2);
+      expect(result.status).not.toBe(3);
+      expect(result.status).not.toBe(0);
+    },
+    15000
+  );
 });

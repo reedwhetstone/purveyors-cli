@@ -1015,7 +1015,7 @@ const commandGroups: CliCommandGroupContract[] = [
   {
     name: 'market',
     summary:
-      'Market Index decision surface: value signals, movement stats, and metadata trends via the canonical API',
+      'Market Index decision surface: value signals, movement stats, metadata trends, overview, and evidence via the canonical API',
     auth: 'mixed',
     subcommands: [
       {
@@ -1093,12 +1093,35 @@ const commandGroups: CliCommandGroupContract[] = [
           'purvey market metadata --dimension score --origin "Ethiopia" --grain month --json',
         ],
       },
+      {
+        name: 'overview',
+        summary: 'Aggregate-only green-coffee market overview over the public catalog',
+        auth: 'viewer',
+        notes: [
+          'Backed by the canonical API GET /v1/market/overview via @purveyors/sdk.',
+          'The API rejects anonymous requests; any signed-in session or API key with catalog read access receives the same public evidence.',
+          'Emits the API response verbatim: daily change, coverage, movement, process distribution, and origin price distributions.',
+        ],
+        examples: ['purvey market overview --pretty'],
+      },
+      {
+        name: 'evidence',
+        summary:
+          'Named arrivals, delistings, comparable lots, and supplier health and price ranges',
+        auth: 'member',
+        notes: [
+          'Backed by the canonical API GET /v1/market/evidence via @purveyors/sdk.',
+          'Requires Parchment Intelligence plus catalog read access, enforced server-side (401/403 on denial).',
+        ],
+        examples: ['purvey market evidence --json'],
+      },
     ],
   },
   {
     name: 'price-index',
-    summary: 'Parchment Price Index aggregate snapshots; requires price-index (PPI) access',
-    auth: 'member',
+    summary:
+      'Parchment Price Index snapshots, matched 30-day comparisons, and chart history via the canonical API',
+    auth: 'mixed',
     command: {
       name: 'price-index',
       summary: 'Fetch Parchment Price Index aggregate snapshots from the canonical API',
@@ -1130,6 +1153,72 @@ const commandGroups: CliCommandGroupContract[] = [
         'purvey price-index --from 2026-01-01 --to 2026-06-30 --pretty',
       ],
     },
+    subcommands: [
+      {
+        name: 'comparisons',
+        summary: 'Available exact 30-day matched price comparisons with significance',
+        auth: 'member',
+        options: [{ flags: '--wholesale <true|false|all>' }],
+        notes: [
+          'Backed by the canonical API GET /v1/price-index/comparisons via @purveyors/sdk.',
+          'Requires Parchment Intelligence access, enforced server-side.',
+          'The API discovers origins with an exact 30-day matched comparison; an empty comparisons list means none qualify.',
+          'Each comparison carries significance verbatim; classification (quiet|normal|notable|exceptional) is null until eight baseline windows exist, meaning not enough history, never quiet.',
+        ],
+        examples: [
+          'purvey price-index comparisons --pretty',
+          'purvey price-index comparisons --wholesale all --json',
+        ],
+      },
+      {
+        name: 'comparison',
+        summary: 'Matched-listing price comparison for one origin between two exact dates',
+        auth: 'member',
+        options: [
+          { flags: '--origin <origin>', notes: ['required'] },
+          { flags: '--from <date>', notes: ['required; ISO date YYYY-MM-DD'] },
+          { flags: '--to <date>', notes: ['required; ISO date within 365 days of --from'] },
+          { flags: '--wholesale <true|false>' },
+        ],
+        notes: [
+          'Backed by the canonical API GET /v1/price-index/comparison via @purveyors/sdk.',
+          'Requires Parchment Intelligence access, enforced server-side.',
+          'status insufficient_fresh_coverage returns a null changePercent, never zero.',
+        ],
+        examples: [
+          'purvey price-index comparison --origin "Ethiopia" --from 2026-08-31 --to 2026-09-30 --pretty',
+        ],
+      },
+      {
+        name: 'history',
+        summary: 'Tier-one price-index chart history; windows up to 90 days are public',
+        auth: 'none',
+        options: [
+          {
+            flags: '--window-days <n>',
+            description: `Trailing window in days, ${CLI_NUMERIC_BOUNDS.priceIndexHistoryWindowDays.minimum}-${CLI_NUMERIC_BOUNDS.priceIndexHistoryWindowDays.maximum}`,
+            minimum: CLI_NUMERIC_BOUNDS.priceIndexHistoryWindowDays.minimum,
+            maximum: CLI_NUMERIC_BOUNDS.priceIndexHistoryWindowDays.maximum,
+          },
+          { flags: '--page <n>' },
+          {
+            flags: '--limit <n>',
+            description: `Results per page, ${CLI_NUMERIC_BOUNDS.priceIndexHistoryLimit.minimum}-${CLI_NUMERIC_BOUNDS.priceIndexHistoryLimit.maximum}`,
+            minimum: CLI_NUMERIC_BOUNDS.priceIndexHistoryLimit.minimum,
+            maximum: CLI_NUMERIC_BOUNDS.priceIndexHistoryLimit.maximum,
+          },
+          { flags: '--order <asc|desc>' },
+        ],
+        notes: [
+          'Backed by the canonical API GET /v1/price-index/history via @purveyors/sdk.',
+          'Windows up to 90 days (the default) run without credentials; 91-365 days require Parchment Intelligence access, enforced server-side.',
+        ],
+        examples: [
+          'purvey price-index history --pretty',
+          'purvey price-index history --window-days 365 --limit 500 --json',
+        ],
+      },
+    ],
   },
   {
     name: 'procurement',
@@ -1676,11 +1765,9 @@ function renderCommandGroups(groups: CliCommandGroupContract[]): string[] {
   for (const group of groups) {
     if (group.command) {
       lines.push(...renderCommandEntry(group.command, '', group.name));
-      lines.push('');
-      continue;
+    } else {
+      lines.push(group.name);
     }
-
-    lines.push(group.name);
     for (const subcommand of group.subcommands ?? []) {
       lines.push(...renderCommandEntry(subcommand));
     }

@@ -2,7 +2,11 @@ import { Command } from 'commander';
 import type { MarketSignalsQuery, PriceIndexStatsQuery, MetadataIndexQuery } from '@purveyors/sdk';
 import { outputData } from '../lib/output.js';
 import { withErrorHandling, PrvrsError } from '../lib/errors.js';
-import { createOptionalParchmentClient, unwrapParchment } from '../lib/parchment.js';
+import {
+  createOptionalParchmentClient,
+  createParchmentClient,
+  unwrapParchment,
+} from '../lib/parchment.js';
 import { CLI_NUMERIC_BOUNDS } from '../lib/numeric-contracts.js';
 import { parseStrictPositiveCount } from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
@@ -88,7 +92,7 @@ function collectSignalTypes(rawValue: string, previous: string[]): string[] {
  */
 export function buildMarketCommand(): Command {
   const market = new Command('market').description(
-    'Market Index decision surface: value signals, movement stats, and metadata trends'
+    'Market Index decision surface: value signals, movement stats, metadata trends, overview, and evidence'
   );
 
   // market signals
@@ -243,6 +247,56 @@ Notes:
 
         const client = await createOptionalParchmentClient();
         const data = unwrapParchment(await client.market.metadataIndex(query), 'market metadata');
+        outputData(data, globalOpts);
+      })
+    );
+
+  // market overview
+  market
+    .command('overview')
+    .description('Aggregate green-coffee market overview (any signed-in session or API key)')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey market overview --pretty
+  purvey market overview --json
+
+Notes:
+  Aggregate-only daily change, live catalog coverage, movement velocity, processing mix,
+  and origin price distributions. The API rejects anonymous requests; any signed-in
+  session or API key with catalog read access receives the same public evidence.
+  Related: 'purvey market evidence' (named lots and supplier evidence).`
+    )
+    .action(
+      withErrorHandling(async (_opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        const client = await createParchmentClient('viewer');
+        const data = unwrapParchment(await client.market.overview(), 'market overview');
+        outputData(data, globalOpts);
+      })
+    );
+
+  // market evidence
+  market
+    .command('evidence')
+    .description('Named arrivals, delistings, comparable lots, and supplier evidence (entitled)')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey market evidence --pretty
+  purvey market evidence --json
+
+Notes:
+  Requires Parchment Intelligence plus catalog read access, enforced by the API.
+  Related: 'purvey market overview' (aggregate-only public evidence).`
+    )
+    .action(
+      withErrorHandling(async (_opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        const client = await createParchmentClient('member');
+        const data = unwrapParchment(await client.market.evidence(), 'market evidence');
         outputData(data, globalOpts);
       })
     );

@@ -58,6 +58,11 @@ function flattenCommanderLeafCommands(
       continue;
     }
 
+    // A group with its own action (bare `purvey price-index`) is runnable too.
+    if ((subcommand as unknown as { _actionHandler: unknown })._actionHandler) {
+      commands.set(path.join(' '), subcommand);
+    }
+
     for (const entry of flattenCommanderLeafCommands(subcommand, path)) {
       commands.set(entry[0], entry[1]);
     }
@@ -150,6 +155,8 @@ describe('CLI manifest contract', () => {
       ['catalog supplier-rank', '--min-coffees', CLI_NUMERIC_BOUNDS.supplierMinCoffees],
       ['market signals', '--limit', CLI_NUMERIC_BOUNDS.marketSignalsLimit],
       ['price-index', '--limit', CLI_NUMERIC_BOUNDS.priceIndexLimit],
+      ['price-index history', '--limit', CLI_NUMERIC_BOUNDS.priceIndexHistoryLimit],
+      ['price-index history', '--window-days', CLI_NUMERIC_BOUNDS.priceIndexHistoryWindowDays],
       ['procurement matches', '--limit', CLI_NUMERIC_BOUNDS.procurementMatchesLimit],
     ] as const;
 
@@ -238,7 +245,7 @@ describe('CLI manifest contract', () => {
       'No pre-existing credentials required for: auth, config, context, manifest.'
     );
     expect(text).toContain('Local-only commands: config, context, manifest.');
-    expect(text).toContain('Mixed public and entitled access: market.');
+    expect(text).toContain('Mixed public and entitled access: market, price-index.');
     expect(text).toContain(
       'Mixed-access public teaser slices can run without credentials; filtered or non-public slices require a valid scoped key and server-side entitlements.'
     );
@@ -375,7 +382,7 @@ describe('CLI manifest contract', () => {
       'No pre-existing credentials required for: auth, config, context, manifest.'
     );
     expect(output).toContain('Local-only commands: config, context, manifest.');
-    expect(output).toContain('Mixed public and entitled access: market.');
+    expect(output).toContain('Mixed public and entitled access: market, price-index.');
     expect(output.trim().startsWith('{')).toBe(false);
   }, 15000);
 });
