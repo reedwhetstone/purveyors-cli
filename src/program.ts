@@ -14,6 +14,7 @@ import { buildProcurementCommand } from './commands/procurement.js';
 import { buildReferenceProfileCommand } from './commands/reference-profile.js';
 import { buildRoastCommand } from './commands/roast.js';
 import { buildSalesCommand } from './commands/sales.js';
+import { buildSkillCommand } from './commands/skill.js';
 import { buildTastingCommand } from './commands/tasting.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -136,6 +137,8 @@ Local and reference commands (no pre-existing credentials required):
   config reset      Reset config to defaults
   context           Output the dense human-readable operator reference; use --json/--pretty only for manifest parity
   manifest          Output the preferred stable machine-readable CLI contract for agents/scripts
+  skill print       Print the agent skill (SKILL.md, workflows.md) generated from the manifest
+  skill install     Install them for Claude Code, Codex/Cursor (~/.agents/skills), or AGENTS.md
 
 Global Options:
   --json            Output compact JSON explicitly
@@ -160,6 +163,7 @@ Examples:
   $ purvey context
   $ purvey manifest
   $ purvey manifest --pretty
+  $ purvey skill install --target claude
   $ purvey context --json > cli-manifest.json
 
 CLI docs:            https://purveyors.io/docs/cli/overview
@@ -185,6 +189,7 @@ Module import:    @purveyors/cli/manifest
   program.addCommand(buildReferenceProfileCommand());
   program.addCommand(buildRoastCommand());
   program.addCommand(buildSalesCommand());
+  program.addCommand(buildSkillCommand(version));
   program.addCommand(buildTastingCommand());
 
   applyProcessBoundarySettings(program);

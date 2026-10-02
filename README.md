@@ -11,7 +11,7 @@ Use `purvey --help` for quick command discovery, `purvey context` for the dense 
 - Official binary: `purvey`
 - Package: `@purveyors/cli`
 - Runtime: Node.js 20+
-- No pre-existing credentials required: `auth`, `config`, `context`, `manifest`
+- No pre-existing credentials required: `auth`, `config`, `context`, `manifest`, `skill`
 - Viewer role required: `catalog` (excluding structured process filters on `catalog search`)
 - Member role required: `procurement`, `inventory`, `roast`, `sales`, `tasting`
 - Mixed public and entitled access: `market` and `price-index` public teaser slices are unauthenticated; filtered, non-public, and evidence slices require a credential and, where entitled, Parchment Intelligence access
@@ -19,6 +19,7 @@ Use `purvey --help` for quick command discovery, `purvey context` for the dense 
 - Dense human-readable reference: `purvey context`
 - Compatibility JSON alias: `purvey context --json`
 - In-process machine contract: `@purveyors/cli/manifest`
+- Agent instructions generated from the manifest: `purvey skill print`, `purvey skill install`
 
 ## Installation
 
@@ -105,6 +106,7 @@ Use the right reference surface for the job:
 - `purvey context` is the dense human-readable operator reference for reviewers and interactive use.
 - `purvey context --json` and `purvey context --pretty` emit the same JSON payload as `purvey manifest`, but exist mainly for compatibility with tooling that already shells out to `context`.
 - `@purveyors/cli/manifest` exposes the same contract in-process for Node.js and agent runtimes.
+- `purvey skill print` renders an agent skill from the manifest: a compact SKILL.md plus workflows.md with the step-by-step workflows. `purvey skill install` puts it where Claude Code, Codex, or Cursor will load it, or adds a short block to a repository AGENTS.md.
 
 Manifest commands carry `sdkMethods`, the `@purveyors/sdk` operations whose canonical endpoints
 they consume, and, for writes, `confirmedActionEquivalents`, the Purveyors web assistant's
@@ -142,7 +144,7 @@ Export discipline:
 
 ## Authentication and access model
 
-No pre-existing credentials are required for `auth`, `config`, `context`, or `manifest`.
+No pre-existing credentials are required for `auth`, `config`, `context`, `manifest`, or `skill`.
 
 Remote data commands require a valid owner-bound API key with the required scope:
 
@@ -204,7 +206,7 @@ The `reference-profile` commands also require Studio access; the API enforces th
 
 Market Index teaser slices are public. Filtered `market signals`, origin/process/wholesale `market stats`, non-public `market metadata`, `market evidence`, `price-index comparisons`, `price-index comparison`, and `price-index history` windows over 90 days require Parchment Intelligence access; API-key denial is enforced by the canonical API. The stored login key carries `catalog:read`, which is also the canonical read scope for Market Index, Price Index, and procurement.
 
-`auth`, `config`, `context`, and `manifest` remain available without pre-existing credentials.
+`auth`, `config`, `context`, `manifest`, and `skill` remain available without pre-existing credentials.
 
 Commands that require a higher role exit with code `3` on auth failure. That includes missing, revoked, or invalid credentials and an insufficient role.
 
@@ -964,6 +966,39 @@ Notes:
 - Use `purvey manifest` for new automation and treat `purvey context --json` as a compatibility alias.
 - `--csv` is not supported.
 
+### skill
+
+- `purvey skill print [--file SKILL.md|workflows.md|all]`
+- `purvey skill print --agents-md`
+- `purvey skill install --target <claude|agents|agents-md> [--scope user|project] [--force] [--dry-run] [--link-claude-md]`
+
+The skill is a folder in the open [Agent Skills](https://agentskills.io/specification) format, rendered from `purvey manifest` so it changes only when the CLI contract changes:
+
+- `SKILL.md` loads whenever the skill triggers. It covers when to use `purvey`, headless sign-in, output and exit codes, the ID map, an index of workflows, and working rules, and points to `purvey manifest` for everything else.
+- `workflows.md` holds the step-by-step command sequence for each manifest workflow. `SKILL.md` links to it and tells the agent to read it before a multi-step task, so it is loaded only when needed ([Claude Code](https://code.claude.com/docs/en/skills#add-supporting-files), [Agent Skills](https://agentskills.io/specification#progressive-disclosure)).
+
+`skill print` writes `SKILL.md` to stdout; `--file workflows.md` prints the other file. `--json` or `--pretty` wraps one file as `{ name, file, cliVersion, bytes, content }`, and `--file all --json` prints both as `{ name, cliVersion, files: [{ file, bytes, content }] }`. `--agents-md` prints a shorter block for a repository's AGENTS.md instead.
+
+`skill install` writes the same content to a location an agent loads:
+
+| Target      | User scope (default)                                           | Project scope (`--scope project`)                 | Loaded by                                                       |
+| ----------- | -------------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------- |
+| `claude`    | `SKILL.md` and `workflows.md` in `~/.claude/skills/purveyors/` | the same files in `.claude/skills/purveyors/`     | Claude Code                                                     |
+| `agents`    | `SKILL.md` and `workflows.md` in `~/.agents/skills/purveyors/` | the same files in `.agents/skills/purveyors/`     | Codex, Cursor, and other Agent Skills clients (not Claude Code) |
+| `agents-md` | n/a                                                            | one block in `AGENTS.md` in the current directory | Codex and Cursor; Claude Code only as described below           |
+
+Notes:
+
+- No credentials or network access are needed.
+- Prints `{ target, scope, path, action, written, dryRun, cliVersion, bytes }` as JSON; `action` is `create`, `update`, `unchanged`, `append`, or `overwrite`.
+- `claude` and `agents` also print `files: [{ file, path, action, written, bytes }]`, one entry per file. The top-level `path` is `SKILL.md`, `action` is the most significant file action (`overwrite`, then `update`, `create`, `unchanged`), `written` is true when any file changed, and `bytes` is the total.
+- Re-running is safe. Identical files are left alone, an unedited file from an earlier CLI version is updated in place, and a missing `workflows.md` is created, so a `SKILL.md`-only install from an earlier version upgrades cleanly. Rerun after upgrading the CLI.
+- Each file is checked on its own. A file with local edits, or one `purvey` did not write, is refused with exit code `6` unless you pass `--force`; the refusal names every such file and writes nothing. `--dry-run` reports the paths and actions without writing.
+- `agents-md` adds one marked block to `AGENTS.md` (creating the file if needed) and leaves the rest of the file untouched.
+- Claude Code loads skills only from `.claude/skills`, so use `--target claude` for it. It does not read `.agents/`.
+- Claude Code reads `AGENTS.md` only as a fallback: when a `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` exists in the current directory or any directory above it, it reads those instead, unless one imports `@AGENTS.md` ([Claude Code docs](https://code.claude.com/docs/en/memory#agents-md)). `agents-md` reports this as `claudeCode: { visible, via, reason, claudeMdFiles }` in its JSON output and prints a warning on stderr when Claude Code will not see the block. It does not change your `CLAUDE.md` unless you ask.
+- `--link-claude-md` (with `agents-md`) adds that import: one `@AGENTS.md` line appended to `./CLAUDE.md` (or `@../AGENTS.md` to `./.claude/CLAUDE.md`), creating `./CLAUDE.md` if neither exists. It is a no-op when Claude Code already sees the block, honors `--dry-run`, and never edits `CLAUDE.local.md` or a parent directory's `CLAUDE.md`. `claudeCode.link` reports `{ path, action, written }`, where `action` is `create`, `append`, `unchanged`, or `not-needed`.
+
 ### In-process manifest export
 
 - `@purveyors/cli/manifest`
@@ -1055,10 +1090,12 @@ Use the right ID for the right command.
 Recommended bootstrap order:
 
 ```bash
-purvey manifest
-purvey context
+purvey skill install --target claude   # Claude Code; Codex and Cursor: --target agents
 purvey auth login --headless
+purvey manifest
 ```
+
+The installed skill gives a coding agent the sign-in flow, output contract, and ID map up front, the step-by-step workflows in `workflows.md` when a task needs them, and `purvey manifest` for the full contract.
 
 Use `purvey manifest` as the authoritative machine-readable entry point. Keep `purvey context` for dense operator context, or use `purvey context --json` only when you need compatibility with an existing wrapper.
 
@@ -1105,7 +1142,7 @@ Use the [ID reference](#id-reference) section above. `catalog_id` and inventory 
 
 **Pagination only shows the first page**
 
-All list commands default to 20 results. Use `--limit` and `--offset`.
+Only `catalog search` (default 10 results), `inventory list`, `roast list`, and `sales list` (default 20) page with `--limit` and `--offset`.
 
 ```bash
 purvey inventory list --limit 20 --offset 0

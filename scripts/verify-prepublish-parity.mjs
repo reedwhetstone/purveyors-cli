@@ -80,11 +80,16 @@ export const REQUIRED_README_SNIPPETS = [
   'purvey context --json',
   '@purveyors/cli/manifest',
   '@purveyors/cli/cherry',
-  'No pre-existing credentials are required for `auth`, `config`, `context`, or `manifest`.',
+  'purvey skill install',
+  'No pre-existing credentials are required for `auth`, `config`, `context`, `manifest`, or `skill`.',
 ];
+
+// Mirrors AGENT_SKILL_FILES in src/lib/agent-skill.ts: every file `purvey skill install` writes.
+const AGENT_SKILL_FILES = ['SKILL.md', 'workflows.md'];
 
 export const REQUIRED_HELP_SNIPPETS = [
   'manifest',
+  'skill install',
   'Human reference:  purvey context',
   'JSON manifest:    purvey manifest',
 ];
@@ -533,7 +538,7 @@ export function assertManifestSurface(manifest, label) {
     ? manifest.commandGroups.map((group) => group?.name)
     : [];
 
-  for (const requiredGroup of ['context', 'manifest']) {
+  for (const requiredGroup of ['context', 'manifest', 'skill']) {
     assert(
       commandGroupNames.includes(requiredGroup),
       `${label} is missing command group ${requiredGroup}`
@@ -547,6 +552,34 @@ function runSourceCli(args) {
 
 function runPackedCli(packFixture, args) {
   return run('node', [packFixture.cliPath, ...args], { cwd: packFixture.packageDir });
+}
+
+// Install the packed skill into a throwaway HOME: proves the tarball carries
+// everything `skill install` needs, without credentials or network access.
+function runPackedSkillInstall(packFixture) {
+  const homeDir = mkdtempSync(join(tmpdir(), 'purvey-prepublish-home-'));
+  try {
+    const result = run('node', [packFixture.cliPath, 'skill', 'install', '--target', 'agents'], {
+      cwd: packFixture.packageDir,
+      env: {
+        HOME: homeDir,
+        USERPROFILE: homeDir,
+        PURVEYORS_API_KEY: '',
+        PARCHMENT_API_KEY: '',
+      },
+    });
+    const installed = parseJsonStdout(result, 'packed skill install smoke check');
+    return {
+      installed,
+      files: (installed.files ?? []).map((file) => ({
+        ...file,
+        content: readFileSync(file.path, 'utf8'),
+      })),
+      homeDir,
+    };
+  } finally {
+    rmSync(homeDir, { recursive: true, force: true });
+  }
 }
 
 function runPackedManifestImport(packFixture) {
@@ -685,6 +718,38 @@ export function verifyPrepublishParity() {
       runPackedCli(packFixture, ['context', '--json']),
       'packed context --json smoke check'
     );
+    const packedSkillFiles = new Map();
+    for (const file of AGENT_SKILL_FILES) {
+      const sourceSkillResult = runSourceCli(['skill', 'print', '--file', file]);
+      const packedSkillResult = runPackedCli(packFixture, ['skill', 'print', '--file', file]);
+      assertSuccessfulRun(sourceSkillResult, `source skill print --file ${file} smoke check`);
+      assertSuccessfulRun(packedSkillResult, `packed skill print --file ${file} smoke check`);
+      assertTextEqual(
+        packedSkillResult.stdout,
+        sourceSkillResult.stdout,
+        `Source and packed ${file}`
+      );
+      packedSkillFiles.set(file, packedSkillResult.stdout);
+    }
+    const packedSkillInstall = runPackedSkillInstall(packFixture);
+    assert(
+      packedSkillInstall.installed.action === 'create' &&
+        packedSkillInstall.installed.path.startsWith(packedSkillInstall.homeDir),
+      `Packed skill install must create the skill under the temp HOME, got ${JSON.stringify(packedSkillInstall.installed)}`
+    );
+    assertDeepEqual(
+      packedSkillInstall.files.map((file) => [file.file, file.action, file.written]),
+      AGENT_SKILL_FILES.map((file) => [file, 'create', true]),
+      'Packed skill install files'
+    );
+    for (const installedFile of packedSkillInstall.files) {
+      assertTextEqual(
+        installedFile.content,
+        packedSkillFiles.get(installedFile.file),
+        `Packed installed ${installedFile.file} and packed skill print --file ${installedFile.file}`
+      );
+    }
+
     const importedManifest = parseJsonStdout(
       runPackedManifestImport(packFixture),
       'packed self-import manifest smoke check'
@@ -765,6 +830,7 @@ export function verifyPrepublishParity() {
         'source manifest/context parity',
         'packed manifest/context parity',
         'packed self-import manifest parity',
+        'source vs packed SKILL.md and workflows.md parity and packed skill install',
         'packed self-import subpath member parity',
         'packed primary Cherry callable contract',
         'packed legacy AI callable contract',

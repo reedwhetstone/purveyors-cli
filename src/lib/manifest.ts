@@ -1152,6 +1152,96 @@ const commandGroups: CliCommandGroupContract[] = [
     },
   },
   {
+    name: 'skill',
+    summary: 'Print or install agent instructions generated from this manifest',
+    auth: 'none',
+    subcommands: [
+      {
+        name: 'print',
+        summary: 'Write the generated SKILL.md, workflows.md, or the AGENTS.md block to stdout',
+        auth: 'none',
+        options: [
+          {
+            flags: '--file <file>',
+            description: 'Skill file to print: SKILL.md, workflows.md, or all',
+            defaultValue: 'SKILL.md',
+            notes: [
+              'The skill is a folder: SKILL.md, which agents load when the skill triggers, and workflows.md, the step-by-step workflows SKILL.md points to',
+              'all needs --json or --pretty',
+            ],
+          },
+          {
+            flags: '--agents-md',
+            description: 'Print the compact AGENTS.md block instead of the skill',
+          },
+        ],
+        notes: [
+          'Prints one file as Markdown by default; --json or --pretty wraps it as { name, file, cliVersion, bytes, content }, or every file with --file all as { name, cliVersion, files: [{ file, bytes, content }] }.',
+          '--csv is not supported, and --agents-md cannot be combined with --file.',
+          'Rendered from this manifest, so it changes only when the CLI contract changes.',
+        ],
+        examples: [
+          'purvey skill print',
+          'purvey skill print --file workflows.md',
+          'purvey skill print --file all --json',
+          'purvey skill print --agents-md',
+        ],
+      },
+      {
+        name: 'install',
+        summary:
+          'Install the generated instructions for Claude Code, Agent Skills clients such as Codex and Cursor, or a repository AGENTS.md',
+        auth: 'none',
+        options: [
+          {
+            flags: '--target <target>',
+            description: 'claude, agents, or agents-md',
+            notes: [
+              'required',
+              'claude: SKILL.md and workflows.md in ~/.claude/skills/purveyors/ (project scope: .claude/skills/purveyors/); use this for Claude Code, which loads skills only from .claude/skills',
+              'agents: SKILL.md and workflows.md in ~/.agents/skills/purveyors/, read by Codex, Cursor, and other Agent Skills clients (project scope: .agents/skills/purveyors/); Claude Code does not read .agents/',
+              'agents-md: ./AGENTS.md in the current directory; adds or refreshes one marked block and leaves the rest of the file alone. Claude Code reads AGENTS.md only when no CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md exists in the current directory or above it; see --link-claude-md',
+            ],
+          },
+          {
+            flags: '--scope <scope>',
+            description:
+              'user (home directory) or project (current directory); defaults to user, or project for agents-md',
+          },
+          {
+            flags: '--force',
+            description: 'Replace skill files or an AGENTS.md block that have local edits',
+          },
+          { flags: '--dry-run', description: 'Report the path and action without writing' },
+          {
+            flags: '--link-claude-md',
+            description:
+              'agents-md only: add an @AGENTS.md import to ./CLAUDE.md so Claude Code loads the block',
+            notes: [
+              'Appends one @AGENTS.md line to ./CLAUDE.md, or @../AGENTS.md to ./.claude/CLAUDE.md, and creates ./CLAUDE.md when neither exists',
+              'Only acts when a CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md on the path hides AGENTS.md and none imports it; idempotent and honors --dry-run',
+              'Never edits CLAUDE.local.md or a CLAUDE.md in a parent directory',
+            ],
+          },
+        ],
+        notes: [
+          'Needs no credentials and makes no network calls.',
+          'Emits { target, scope, path, action, written, dryRun, cliVersion, bytes } as JSON on stdout; action is create, update, unchanged, append, or overwrite.',
+          'claude and agents also emit files: [{ file, path, action, written, bytes }] for SKILL.md and workflows.md. The top-level path is SKILL.md, action is the most significant file action (overwrite, update, create, then unchanged), written is true when any file was written, and bytes is the total.',
+          'agents-md also emits claudeCode: { visible, via, reason, claudeMdFiles, link? }. visible is false when a CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md in the current directory or above it keeps Claude Code from reading AGENTS.md and none of them imports it; a warning then goes to stderr.',
+          'Re-running is safe: an identical file is left unchanged, an unedited file from an earlier CLI version is updated in place, and a missing workflows.md (for example after a SKILL.md-only install) is created.',
+          'A file with local edits, or one purvey did not write, is refused with exit 6 unless --force is passed. Every skill file is checked before any is written, so a refusal changes nothing.',
+        ],
+        examples: [
+          'purvey skill install --target claude',
+          'purvey skill install --target agents --dry-run',
+          'purvey skill install --target agents-md',
+          'purvey skill install --target agents-md --link-claude-md',
+        ],
+      },
+    ],
+  },
+  {
     name: 'market',
     summary:
       'Market Index decision surface: value signals, movement stats, metadata trends, overview, and evidence via the canonical API',
@@ -1682,6 +1772,14 @@ const workflows: CliWorkflowContract[] = [
     ],
   },
   {
+    title: 'Check prices and market moves',
+    commands: [
+      'purvey market signals --summary --pretty',
+      'purvey market stats --origin "Colombia" --window 30d --json',
+      'purvey price-index history --window-days 90 --json',
+    ],
+  },
+  {
     title: 'Import a roast from Artisan',
     commands: [
       'purvey inventory list --stocked --pretty',
@@ -1729,13 +1827,15 @@ const errorPatterns: CliErrorPatternContract[] = [
     exitCodes: [EXIT_CODES.INVALID_ARGUMENT, EXIT_CODES.NOT_FOUND],
     guidance: [
       'Verify whether the command wants catalog_id, inventory_id, roast_id, sale_id, reference_profile_id, or reference_revision_id.',
-      'See the ID MAP section.',
+      'See the ID map.',
     ],
   },
   {
     title: 'Missing required args in write commands',
     exitCodes: [EXIT_CODES.INVALID_ARGUMENT],
-    guidance: ['Pass the required flags or use --form.'],
+    guidance: [
+      'Pass the required positional arguments and flags shown by `--help`; `--form` is an interactive terminal alternative.',
+    ],
   },
   {
     title: 'Parser mistakes like unknown options or commands',
@@ -1756,14 +1856,31 @@ const errorPatterns: CliErrorPatternContract[] = [
     guidance: ['`roast watch` forbids using --auto-match together with --coffee-id.'],
   },
   {
-    title: 'Pagination only returning the first 20 results',
+    title: 'Pagination only returning the first page',
     exitCodes: [],
     guidance: [
-      'All list commands default to --limit 20.',
-      'Use --offset to page, for example `--limit 20 --offset 40` returns items 41-60.',
+      `Only these commands page with --offset (default --limit): ${paginatedCommands(commandGroups).join(', ')}.`,
+      'For example `--limit 20 --offset 40` returns items 41-60.',
     ],
   },
 ];
+
+/** Commands that take both --limit and --offset, so pagination guidance cannot name one that lacks them. */
+function paginatedCommands(groups: CliCommandGroupContract[]): string[] {
+  const paged: string[] = [];
+  for (const group of groups) {
+    const commands = [...(group.command ? [group.command] : []), ...(group.subcommands ?? [])];
+    for (const command of commands) {
+      const options = command.options ?? [];
+      const limit = options.find((option) => option.flags.startsWith('--limit '));
+      if (limit && options.some((option) => option.flags.startsWith('--offset '))) {
+        const name = command === group.command ? group.name : `${group.name} ${command.name}`;
+        paged.push(limit.defaultValue === undefined ? name : `${name} ${limit.defaultValue}`);
+      }
+    }
+  }
+  return paged;
+}
 
 export function getCliManifest(): CliManifest {
   return {
@@ -1862,9 +1979,16 @@ function renderRoles(
     'Commands that talk to purveyors.io generally require authentication unless listed above as public, local-only, or mixed-access teaser slices.',
     ...roleContracts.map((role) => `${role.role.padEnd(7, ' ')} ${role.description}`),
     '',
-    'Both roles are granted on sign-in through purveyors.io.',
+    'viewer comes with any purveyors.io sign-in; member requires a membership (https://purveyors.io/account).',
   ];
 }
+
+/** Device-approval steps for `purvey auth login --headless`, shared by context text and the agent skill. */
+export const HEADLESS_LOGIN_STEPS = [
+  'CLI prints a purveyors.io approval URL',
+  'User opens it in any browser, signs in, and approves access',
+  'CLI completes automatically; nothing is pasted back',
+] as const;
 
 function renderAuthSection(): string[] {
   return [
@@ -1876,9 +2000,7 @@ function renderAuthSection(): string[] {
     '',
     'Headless login:',
     '  purvey auth login --headless',
-    '  1. CLI prints a purveyors.io approval URL',
-    '  2. User opens it in any browser, signs in, and approves access',
-    '  3. CLI completes automatically; nothing is pasted back',
+    ...HEADLESS_LOGIN_STEPS.map((step, index) => `  ${index + 1}. ${step}`),
     '',
     'Status:',
     '  purvey auth status',

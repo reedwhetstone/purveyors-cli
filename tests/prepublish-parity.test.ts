@@ -112,6 +112,7 @@ describe('prepublish parity guardrail', () => {
         'purvey manifest',
         'purvey context --json',
         '@purveyors/cli/manifest',
+        'purvey skill install',
       ])
     );
     expect(REQUIRED_PACKAGE_EXPORTS).toEqual(

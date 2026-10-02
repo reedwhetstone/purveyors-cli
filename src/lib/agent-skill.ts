@@ -1,0 +1,855 @@
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { PrvrsError } from './errors.js';
+import {
+  HEADLESS_LOGIN_STEPS,
+  getCliManifest,
+  type CliAuthRequirement,
+  type CliCommandGroupContract,
+  type CliManifest,
+} from './manifest.js';
+
+/**
+ * Agent instructions rendered from the CLI manifest. The manifest stays the
+ * single source of truth: commands, flags, auth, output, exit codes, ID types,
+ * and workflows all come from `getCliManifest()`, so the skill cannot drift
+ * from the contract it describes.
+ */
+
+export const AGENT_SKILL_NAME = 'purveyors';
+export const AGENT_SKILL_FILE = 'SKILL.md';
+/**
+ * Supporting file in the same skill folder. Agent Skills clients load SKILL.md
+ * when the skill triggers and read other files only when SKILL.md points to
+ * them, so the step-by-step workflows, which grow with the manifest, live here.
+ * See https://code.claude.com/docs/en/skills#add-supporting-files and
+ * https://agentskills.io/specification#progressive-disclosure
+ */
+export const AGENT_WORKFLOWS_FILE = 'workflows.md';
+/** Every file in the skill folder, SKILL.md first. */
+export const AGENT_SKILL_FILES = [AGENT_SKILL_FILE, AGENT_WORKFLOWS_FILE] as const;
+export type AgentSkillFile = (typeof AGENT_SKILL_FILES)[number];
+/** Upper bound for the rendered SKILL.md, enforced by tests. */
+export const AGENT_SKILL_MAX_BYTES = 8 * 1024;
+/** Upper bound for the rendered workflows.md, enforced by tests. */
+export const AGENT_WORKFLOWS_MAX_BYTES = 16 * 1024;
+
+const SKILL_TOPICS =
+  'green coffee sourcing, the purveyors.io coffee catalog, green coffee prices and market moves, green inventory, roast logging and Artisan .alog files, sales, and tasting notes';
+
+export const AGENT_SKILL_DESCRIPTION = `${capitalize(SKILL_TOPICS)}, through the \`purvey\` CLI. Use when the user wants to find or compare green coffees or suppliers, check prices or market signals, track inventory, log, import, or plan roasts, record sales, or rate coffees.`;
+
+export const SKILL_TARGETS = ['claude', 'agents', 'agents-md'] as const;
+export const SKILL_SCOPES = ['user', 'project'] as const;
+export type SkillTarget = (typeof SKILL_TARGETS)[number];
+export type SkillScope = (typeof SKILL_SCOPES)[number];
+export type SkillInstallAction = 'create' | 'update' | 'unchanged' | 'append' | 'overwrite';
+
+export interface SkillInstallFileResult {
+  file: AgentSkillFile;
+  path: string;
+  action: SkillInstallAction;
+  written: boolean;
+  bytes: number;
+}
+
+export interface SkillInstallResult {
+  target: SkillTarget;
+  scope: SkillScope;
+  /** SKILL.md for claude and agents, AGENTS.md for agents-md. */
+  path: string;
+  /** For claude and agents, summarizes `files`: overwrite, then update, then create, then unchanged. */
+  action: SkillInstallAction;
+  /** True when any file was written. */
+  written: boolean;
+  dryRun: boolean;
+  cliVersion: string;
+  /** Total bytes across the installed content. */
+  bytes: number;
+  /** claude and agents only: each file in the skill folder, SKILL.md first. */
+  files?: SkillInstallFileResult[];
+  /** agents-md only: whether Claude Code will load the AGENTS.md block. */
+  claudeCode?: ClaudeCodeVisibility;
+}
+
+export type ClaudeMdLinkAction = 'create' | 'append' | 'unchanged' | 'not-needed';
+
+/**
+ * Claude Code reads AGENTS.md only as a fallback: when a CLAUDE.md,
+ * .claude/CLAUDE.md, or CLAUDE.local.md sits in the project directory or any
+ * directory above it, it reads those instead, unless one imports AGENTS.md.
+ * See https://code.claude.com/docs/en/memory#agents-md
+ */
+export interface ClaudeCodeVisibility {
+  visible: boolean;
+  /** How Claude Code loads the block: AGENTS.md directly, a CLAUDE.md import, or not at all. */
+  via: 'agents-md' | 'claude-md-import' | null;
+  reason: string;
+  /** CLAUDE.md files on the path that take precedence over AGENTS.md. */
+  claudeMdFiles: string[];
+  /** Present with --link-claude-md. */
+  link?: { path: string | null; action: ClaudeMdLinkAction; written: boolean };
+}
+
+const ACCESS_LABELS: Record<CliCommandGroupContract['auth'], string> = {
+  none: 'no sign-in',
+  viewer: 'sign-in',
+  member: 'member role',
+  mixed: 'mixed access',
+};
+
+// Per-command labels, used when a group's commands differ in access.
+const COMMAND_ACCESS_LABELS: Record<CliAuthRequirement, string> = {
+  none: 'public default view',
+  viewer: 'sign-in',
+  member: 'member role',
+};
+
+// Error patterns whose guidance another skill section already gives in full.
+const ERROR_PATTERNS_COVERED_ELSEWHERE = new Set([
+  'Not logged in',
+  'Wrong ID type',
+  'Parser mistakes like unknown options or commands',
+  'Missing required args in write commands',
+]);
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function sha256(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+/**
+ * List a group's commands. When access differs across them, label each run of
+ * commands with its own access so an agent never picks a protected command
+ * expecting the public slice.
+ */
+function renderGroupCommands(group: CliCommandGroupContract): string {
+  const commands = [
+    ...(group.command ? [{ name: `${group.name} itself`, auth: group.command.auth }] : []),
+    ...(group.subcommands ?? []).map(({ name, auth }) => ({ name, auth })),
+  ];
+  if (commands.every((command) => command.auth === group.auth)) {
+    return commands.map((command) => command.name).join(', ');
+  }
+
+  const byAccess = new Map<CliAuthRequirement, string[]>();
+  for (const command of commands) {
+    byAccess.set(command.auth, [...(byAccess.get(command.auth) ?? []), command.name]);
+  }
+  return [...byAccess]
+    .map(([auth, names]) => `${names.join(', ')} (${COMMAND_ACCESS_LABELS[auth]})`)
+    .join('; ');
+}
+
+/** Drop transport boilerplate that matters to maintainers, not to an agent choosing a command. */
+function agentSummary(summary: string): string {
+  return summary.replace(/ (?:via|through|from) the canonical API$/, '');
+}
+
+function renderWhenToUse(manifest: CliManifest): string[] {
+  // Credential-free groups (auth, config, context, manifest, skill) are setup
+  // and reference surfaces, covered in their own sections below.
+  const dataGroups = manifest.commandGroups.filter((group) => group.auth !== 'none');
+  return [
+    '## When to use it',
+    '',
+    `Use \`${manifest.binary}\` for any Purveyors task instead of scraping purveyors.io or guessing API calls. Command groups and their access:`,
+    '',
+    ...dataGroups.map(
+      (group) =>
+        `- **${group.name}** (${ACCESS_LABELS[group.auth]}): ${agentSummary(group.summary)}. Commands: ${renderGroupCommands(group)}.`
+    ),
+  ];
+}
+
+function renderSetup(manifest: CliManifest): string[] {
+  return [
+    '## Set up and sign in',
+    '',
+    `1. Install (${manifest.nodeVersion}): \`npm install -g ${manifest.packageName}\`, then check \`purvey --version\`.`,
+    '2. Check for an existing login: `purvey auth status --json` prints `"authenticated": true` and the role, or exits 3 when signed out.',
+    '3. If not signed in, run `purvey auth login --headless`. It prints the URL at once, then waits:',
+    ...HEADLESS_LOGIN_STEPS.map((step, index) => `   ${index + 1}. ${step}`),
+    '',
+    '   If your shell tool shows output only after a command exits, run it in the background to read the URL. Show the URL to the user; sign-in is done when the command exits 0. Rerun it if the request expires.',
+    '4. Never ask the user to paste an API key, token, or password into the chat. The CLI stores its own scoped key in ' +
+      `\`${manifest.files.credentials}\`; \`PURVEYORS_API_KEY\` or \`PARCHMENT_API_KEY\` in the environment overrides it.`,
+    '5. "sign-in" commands work for any signed-in account; "member role" needs a Purveyors membership; "public default view" runs signed out, but filters and longer windows need Parchment Intelligence. reference-profile needs Studio access. Missing access exits 3; relay the message to the user instead of retrying.',
+  ];
+}
+
+function renderOutput(manifest: CliManifest): string[] {
+  const { structuredErrors } = manifest.outputContract;
+  const fields = (names: string[]) => names.map((field) => `\`${field}\``).join(', ');
+  return [
+    '## Output, errors, and exit codes',
+    '',
+    '- stdout carries the result as compact JSON by default; parse it rather than scraping text. Leave off `--pretty` when parsing.',
+    `- In a non-interactive shell, a failure prints one JSON envelope on ${structuredErrors.channel} with ${fields(structuredErrors.guaranteedFields)} and sometimes ${fields(structuredErrors.optionalFields)}. Progress messages also go to ${structuredErrors.channel}.`,
+    `- Exit codes: ${manifest.exitCodes.map((code) => `\`${code.exitCode}\` ${code.description}`).join('; ')}.`,
+  ];
+}
+
+function renderIdMap(manifest: CliManifest): string[] {
+  return [
+    '## ID map',
+    '',
+    'IDs are not interchangeable. Pass the type each command expects:',
+    '',
+    ...manifest.idTypes.map((id) => `- \`${id.name}\`: ${id.usedBy.join(', ')}`),
+  ];
+}
+
+/** SKILL.md names each workflow and points to workflows.md for the steps. */
+function renderWorkflowIndex(manifest: CliManifest): string[] {
+  return [
+    '## Workflows',
+    '',
+    `Before a multi-step task, read [${AGENT_WORKFLOWS_FILE}](${AGENT_WORKFLOWS_FILE}) next to this file (if missing: \`purvey skill print --file ${AGENT_WORKFLOWS_FILE}\`). It has the commands for:`,
+    '',
+    ...manifest.workflows.map((workflow) => `- ${workflow.title}`),
+  ];
+}
+
+function renderWorkflowsBody(manifest: CliManifest): string {
+  const lines = [
+    `# Purveyors workflows (\`${manifest.binary}\` CLI)`,
+    '',
+    `Command sequences for multi-step tasks. [${AGENT_SKILL_FILE}](${AGENT_SKILL_FILE}) covers sign-in, access, the ID map, and the working rules; they apply here too.`,
+    '',
+    '- IDs and file paths below are placeholders. Take real IDs from search or list output, and check the ID map for the type each command takes.',
+    '- Leave off `--pretty` when parsing.',
+    '- Confirm with the user before a step that changes their data.',
+  ];
+  for (const workflow of manifest.workflows) {
+    lines.push('', `## ${workflow.title}`, '', '```sh', ...workflow.commands, '```');
+  }
+  lines.push('');
+  return lines.join('\n');
+}
+
+function renderRules(manifest: CliManifest): string[] {
+  return [
+    '## Working rules',
+    '',
+    '- Give every value on the command line: positional arguments per `--help`, flags for the rest. Do not use `--form`, which prompts interactively.',
+    '- Confirm with the user before commands that change their data: add, create, update, delete, record, rate, import, save, and watch.',
+    ...manifest.errorPatterns
+      .filter((pattern) => !ERROR_PATTERNS_COVERED_ELSEWHERE.has(pattern.title))
+      .map(
+        (pattern) =>
+          `- ${pattern.title}${pattern.exitCodes.length > 0 ? ` (exit ${pattern.exitCodes.join('/')})` : ''}: ${pattern.guidance.join(' ')}`
+      ),
+  ];
+}
+
+function renderReference(manifest: CliManifest): string[] {
+  return [
+    '## Full contract',
+    '',
+    `\`${manifest.machineSurfaces.shellManifest}\` prints the full contract as JSON: every command, argument, flag, default, auth requirement, and example. Check it before using a flag not shown here:`,
+    '',
+    '```sh',
+    'purvey manifest | jq \'.commandGroups[] | select(.name == "catalog")\'',
+    'purvey catalog search --help',
+    '```',
+    '',
+    `\`${manifest.machineSurfaces.humanReference}\` prints it as dense text. Docs: ${manifest.docs
+      .filter((link) => new URL(link.url).hostname.endsWith('purveyors.io'))
+      .map((link) => `[${link.label}](${link.url})`)
+      .join(', ')}.`,
+    '',
+    `After upgrading the CLI, refresh this file and ${AGENT_WORKFLOWS_FILE}: rerun \`purvey skill install\` with the same \`--target\` (\`claude\` for Claude Code, \`agents\` for Codex and Cursor).`,
+  ];
+}
+
+function renderSkillBody(manifest: CliManifest, version: string): string {
+  return [
+    '---',
+    `name: ${AGENT_SKILL_NAME}`,
+    `description: ${JSON.stringify(AGENT_SKILL_DESCRIPTION)}`,
+    'metadata:',
+    `  generated-by: ${JSON.stringify(`${manifest.packageName} ${version}`)}`,
+    '---',
+    '',
+    `# Purveyors (\`${manifest.binary}\` CLI)`,
+    '',
+    ...renderWhenToUse(manifest),
+    '',
+    ...renderSetup(manifest),
+    '',
+    ...renderOutput(manifest),
+    '',
+    ...renderIdMap(manifest),
+    '',
+    ...renderWorkflowIndex(manifest),
+    '',
+    ...renderRules(manifest),
+    '',
+    ...renderReference(manifest),
+    '',
+  ].join('\n');
+}
+
+/**
+ * The trailing comment records a hash of everything above it, so `install` can
+ * tell an unedited earlier copy (safe to update) from one with local edits
+ * (needs --force).
+ */
+function seal(body: string, version: string, printCommand: string): string {
+  return `${body}<!-- generated by @purveyors/cli ${version} (${printCommand}); sha256:${sha256(body)} -->\n`;
+}
+
+const SKILL_SEAL_PATTERN =
+  /<!-- generated by @purveyors\/cli \S+ \(purvey skill print[^)]*\); sha256:([0-9a-f]{64}) -->\n?$/;
+
+/** Render SKILL.md in the open Agent Skills format. */
+export function renderAgentSkill(
+  version: string,
+  manifest: CliManifest = getCliManifest()
+): string {
+  return seal(renderSkillBody(manifest, version), version, 'purvey skill print');
+}
+
+/** Render workflows.md, the supporting file SKILL.md points to for step-by-step workflows. */
+export function renderAgentWorkflows(
+  version: string,
+  manifest: CliManifest = getCliManifest()
+): string {
+  return seal(
+    renderWorkflowsBody(manifest),
+    version,
+    `purvey skill print --file ${AGENT_WORKFLOWS_FILE}`
+  );
+}
+
+/** Render one file of the skill folder. */
+export function renderAgentSkillFile(
+  file: AgentSkillFile,
+  version: string,
+  manifest: CliManifest = getCliManifest()
+): string {
+  return file === AGENT_SKILL_FILE
+    ? renderAgentSkill(version, manifest)
+    : renderAgentWorkflows(version, manifest);
+}
+
+function isUnmodifiedGeneratedSkill(text: string): boolean {
+  const match = SKILL_SEAL_PATTERN.exec(text);
+  return Boolean(match && sha256(text.slice(0, match.index)) === match[1]);
+}
+
+const AGENTS_MD_BEGIN = '<!-- BEGIN purvey agent instructions';
+const AGENTS_MD_END = '<!-- END purvey agent instructions -->';
+const AGENTS_MD_BEGIN_PATTERN =
+  /^<!-- BEGIN purvey agent instructions: generated by @purveyors\/cli \S+ \(purvey skill print --agents-md\); sha256:([0-9a-f]{64}) -->$/;
+
+function renderAgentsMdInner(manifest: CliManifest): string {
+  const exitCodes = manifest.exitCodes
+    .map((code) => `${code.exitCode} ${code.code.toLowerCase().replace(/_/g, ' ')}`)
+    .join(', ');
+  return [
+    `## Purveyors coffee data (\`${manifest.binary}\` CLI)`,
+    '',
+    `- Use \`${manifest.binary}\` for ${SKILL_TOPICS}. Install with \`npm install -g ${manifest.packageName}\`.`,
+    '- Sign in with `purvey auth login --headless`: show the user the approval URL it prints and wait for it to exit 0. Never ask for an API key, token, or password in chat.',
+    `- stdout is JSON; failures print a JSON envelope on stderr. Exit codes: ${exitCodes}.`,
+    `- IDs are not interchangeable (${manifest.idTypes.map((id) => `\`${id.name}\``).join(', ')}); check which one a command takes.`,
+    '- Do not use `--form`. Confirm with the user before commands that change their data.',
+    `- Full contract: \`${manifest.machineSurfaces.shellManifest}\`. For the fuller guide with workflows as a skill, run \`purvey skill install --target claude\` in Claude Code, or \`--target agents\` in Codex, Cursor, and other Agent Skills tools.`,
+    '',
+  ].join('\n');
+}
+
+/** Render the marked AGENTS.md block; markers let `install` refresh it in place. */
+export function renderAgentsMdBlock(
+  version: string,
+  manifest: CliManifest = getCliManifest()
+): string {
+  const inner = renderAgentsMdInner(manifest);
+  return `${AGENTS_MD_BEGIN}: generated by @purveyors/cli ${version} (purvey skill print --agents-md); sha256:${sha256(inner)} -->\n${inner}${AGENTS_MD_END}\n`;
+}
+
+interface ExistingAgentsMdBlock {
+  start: number;
+  end: number;
+  unmodified: boolean;
+}
+
+function findAgentsMdBlock(text: string, path: string): ExistingAgentsMdBlock | null {
+  const start = text.indexOf(AGENTS_MD_BEGIN);
+  if (start === -1) {
+    return null;
+  }
+
+  const endMarker = text.indexOf(AGENTS_MD_END, start);
+  const beginLineEnd = text.indexOf('\n', start);
+  if (
+    endMarker === -1 ||
+    beginLineEnd === -1 ||
+    beginLineEnd > endMarker ||
+    text.indexOf(AGENTS_MD_BEGIN, start + 1) !== -1
+  ) {
+    throw new PrvrsError(
+      'CONFIG_ERROR',
+      `${path} has an incomplete or repeated purvey agent instructions block. Fix or remove its BEGIN/END markers, then re-run.`,
+      { path, reason: 'malformed-block' }
+    );
+  }
+
+  let end = endMarker + AGENTS_MD_END.length;
+  if (text[end] === '\n') {
+    end += 1;
+  }
+
+  const match = AGENTS_MD_BEGIN_PATTERN.exec(text.slice(start, beginLineEnd));
+  const inner = text.slice(beginLineEnd + 1, endMarker);
+  return { start, end, unmodified: Boolean(match && sha256(inner) === match[1]) };
+}
+
+export function resolveSkillInstallPath(
+  target: SkillTarget,
+  scope: SkillScope,
+  roots: { home?: string; cwd?: string } = {}
+): string {
+  const home = roots.home ?? homedir();
+  const cwd = roots.cwd ?? process.cwd();
+
+  if (target === 'agents-md') {
+    return join(cwd, 'AGENTS.md');
+  }
+
+  const base = scope === 'user' ? home : cwd;
+  const toolDir = target === 'claude' ? '.claude' : '.agents';
+  return join(base, toolDir, 'skills', AGENT_SKILL_NAME, AGENT_SKILL_FILE);
+}
+
+function parseTarget(value: string | undefined): SkillTarget {
+  if (!value) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `--target is required: ${SKILL_TARGETS.join(', ')}. Use claude for Claude Code, agents for Codex, Cursor, and other Agent Skills clients, or agents-md for this repository's AGENTS.md.`
+    );
+  }
+  if (!(SKILL_TARGETS as readonly string[]).includes(value)) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `Unknown --target "${value}". Use one of: ${SKILL_TARGETS.join(', ')}.`
+    );
+  }
+  return value as SkillTarget;
+}
+
+function parseScope(target: SkillTarget, value: string | undefined): SkillScope {
+  if (value !== undefined && !(SKILL_SCOPES as readonly string[]).includes(value)) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `Unknown --scope "${value}". Use one of: ${SKILL_SCOPES.join(', ')}.`
+    );
+  }
+  if (target === 'agents-md') {
+    if (value === 'user') {
+      throw new PrvrsError(
+        'INVALID_ARGUMENT',
+        'AGENTS.md is repository-level. Run from the repository root without --scope, or with --scope project.'
+      );
+    }
+    return 'project';
+  }
+  return (value as SkillScope | undefined) ?? 'user';
+}
+
+async function readExisting(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, 'utf8');
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      return null;
+    }
+    if (code === 'EISDIR') {
+      throw new PrvrsError('CONFIG_ERROR', `${path} is a directory, not a file.`, { path });
+    }
+    throw error;
+  }
+}
+
+function refuseOverwrite(path: string, what: string): never {
+  throw new PrvrsError(
+    'CONFIG_ERROR',
+    `${what} at ${path} has local edits or was not written by purvey. Keep it, or re-run with --force to replace it.`,
+    { path, reason: 'modified' }
+  );
+}
+
+/** Returns null when the file has local edits and `force` is off. */
+function planSkillFile(
+  existing: string | null,
+  desired: string,
+  force: boolean
+): { action: SkillInstallAction; content: string } | null {
+  if (existing === null) return { action: 'create', content: desired };
+  if (existing === desired) return { action: 'unchanged', content: desired };
+  if (isUnmodifiedGeneratedSkill(existing)) return { action: 'update', content: desired };
+  if (force) return { action: 'overwrite', content: desired };
+  return null;
+}
+
+interface PlannedSkillFile {
+  file: AgentSkillFile;
+  path: string;
+  action: SkillInstallAction;
+  content: string;
+}
+
+/**
+ * Plan every file in the skill folder before writing any of them, so a refusal
+ * leaves the folder exactly as it was. A folder from a single-file install has
+ * no workflows.md yet; that file is simply created.
+ */
+async function planSkillFolder(
+  skillPath: string,
+  version: string,
+  manifest: CliManifest,
+  force: boolean
+): Promise<PlannedSkillFile[]> {
+  const planned: PlannedSkillFile[] = [];
+  const refused: string[] = [];
+  for (const file of AGENT_SKILL_FILES) {
+    const path = join(dirname(skillPath), file);
+    const plan = planSkillFile(
+      await readExisting(path),
+      renderAgentSkillFile(file, version, manifest),
+      force
+    );
+    if (plan) {
+      planned.push({ file, path, ...plan });
+    } else {
+      refused.push(path);
+    }
+  }
+
+  if (refused.length > 0) {
+    const files = refused.map((path) => basename(path)).join(' and ');
+    const [verb, past, pronoun] =
+      refused.length > 1 ? ['have', 'were', 'them'] : ['has', 'was', 'it'];
+    throw new PrvrsError(
+      'CONFIG_ERROR',
+      `${files} in ${dirname(skillPath)} ${verb} local edits or ${past} not written by purvey. Nothing was written. Keep ${pronoun}, or re-run with --force to replace ${pronoun}.`,
+      { path: refused[0], paths: refused, reason: 'modified' }
+    );
+  }
+  return planned;
+}
+
+const ACTION_RANK: SkillInstallAction[] = ['overwrite', 'update', 'create', 'unchanged'];
+
+function summarizeActions(actions: SkillInstallAction[]): SkillInstallAction {
+  return ACTION_RANK.find((action) => actions.includes(action)) ?? 'unchanged';
+}
+
+function planAgentsMd(
+  existing: string | null,
+  block: string,
+  path: string,
+  force: boolean
+): { action: SkillInstallAction; content: string } {
+  if (existing === null) return { action: 'create', content: block };
+
+  const current = findAgentsMdBlock(existing, path);
+  if (!current) {
+    const separator = existing.length === 0 ? '' : existing.endsWith('\n') ? '\n' : '\n\n';
+    return { action: 'append', content: `${existing}${separator}${block}` };
+  }
+
+  const content = existing.slice(0, current.start) + block + existing.slice(current.end);
+  if (content === existing) return { action: 'unchanged', content };
+  if (current.unmodified) return { action: 'update', content };
+  if (force) return { action: 'overwrite', content };
+  return refuseOverwrite(path, 'The purvey block in AGENTS.md');
+}
+
+// ─── Claude Code and AGENTS.md ───────────────────────────────────────────────
+
+export const CLAUDE_CODE_AGENTS_MD_DOCS = 'https://code.claude.com/docs/en/memory#agents-md';
+
+/** Per directory, any of these makes Claude Code read CLAUDE.md files instead of AGENTS.md. */
+const CLAUDE_MD_NAMES = ['CLAUDE.md', join('.claude', 'CLAUDE.md'), 'CLAUDE.local.md'];
+
+/** Claude Code expands imports up to four hops deep. */
+const MAX_IMPORT_HOPS = 4;
+
+async function readIfFile(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+async function canonicalPath(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/**
+ * CLAUDE.md files in `cwd` and every directory above it, nearest first. The
+ * user-level ~/.claude/CLAUDE.md loads alongside AGENTS.md, so it does not count.
+ */
+async function findClaudeMdFiles(cwd: string, home: string): Promise<string[]> {
+  const userClaudeMd = resolve(home, '.claude', 'CLAUDE.md');
+  const found: string[] = [];
+  let dir = resolve(cwd);
+  for (;;) {
+    for (const name of CLAUDE_MD_NAMES) {
+      const path = join(dir, name);
+      if (path !== userClaudeMd && (await readIfFile(path)) !== null) {
+        found.push(path);
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return found;
+    dir = parent;
+  }
+}
+
+/** `@path` imports, skipping fenced blocks, code spans, and HTML comments. */
+function importPaths(text: string, fromDir: string, home: string): string[] {
+  const prose = text
+    .replace(/^(```|~~~)[\s\S]*?^\1/gm, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/`[^`\n]*`/g, '');
+  return [...prose.matchAll(/(?:^|\s)@((?:\\ |\S)+)/g)].map(([, raw]) => {
+    const path = raw.replace(/\\ /g, ' ');
+    return path.startsWith('~/') ? join(home, path.slice(2)) : resolve(fromDir, path);
+  });
+}
+
+async function importsFile(
+  file: string,
+  target: string,
+  home: string,
+  hops = MAX_IMPORT_HOPS,
+  seen = new Set<string>()
+): Promise<boolean> {
+  if (hops === 0 || seen.has(file)) return false;
+  seen.add(file);
+  const text = await readIfFile(file);
+  if (text === null) return false;
+  for (const path of importPaths(text, dirname(file), home)) {
+    if (
+      (await canonicalPath(path)) === target ||
+      (await importsFile(path, target, home, hops - 1, seen))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function detectClaudeCodeVisibility(
+  agentsMdPath: string,
+  cwd: string,
+  home: string
+): Promise<{ visibility: ClaudeCodeVisibility; importedBy: string | null }> {
+  const claudeMdFiles = await findClaudeMdFiles(cwd, home);
+  const target = await canonicalPath(agentsMdPath);
+  for (const file of claudeMdFiles) {
+    // A CLAUDE.md symlinked to AGENTS.md loads the same content.
+    if ((await canonicalPath(file)) === target || (await importsFile(file, target, home))) {
+      return {
+        visibility: {
+          visible: true,
+          via: 'claude-md-import',
+          reason: `${file} imports AGENTS.md, so Claude Code loads the block.`,
+          claudeMdFiles,
+        },
+        importedBy: file,
+      };
+    }
+  }
+
+  if (claudeMdFiles.length === 0) {
+    return {
+      visibility: {
+        visible: true,
+        via: 'agents-md',
+        reason:
+          'No CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md in this directory or above it, so Claude Code v2.1.277 or later reads AGENTS.md directly.',
+        claudeMdFiles,
+      },
+      importedBy: null,
+    };
+  }
+
+  return {
+    visibility: {
+      visible: false,
+      via: null,
+      reason: `Claude Code reads ${claudeMdFiles.join(', ')} instead of AGENTS.md and finds no @AGENTS.md import. Re-run with --link-claude-md to add an @AGENTS.md import, or install the skill with --target claude. See ${CLAUDE_CODE_AGENTS_MD_DOCS}`,
+      claudeMdFiles,
+    },
+    importedBy: null,
+  };
+}
+
+/**
+ * Plan the `@AGENTS.md` import for --link-claude-md. It goes into this
+ * directory's CLAUDE.md (or .claude/CLAUDE.md), creating CLAUDE.md when only a
+ * CLAUDE.local.md or a parent directory's CLAUDE.md exists. Files above the
+ * project may be shared by other projects, and CLAUDE.local.md is personal, so
+ * neither is edited.
+ */
+async function planClaudeMdLink(
+  agentsMdPath: string,
+  cwd: string,
+  detected: { visibility: ClaudeCodeVisibility; importedBy: string | null }
+): Promise<{ path: string | null; action: ClaudeMdLinkAction; content?: string }> {
+  if (detected.importedBy) return { path: detected.importedBy, action: 'unchanged' };
+  if (detected.visibility.visible) return { path: null, action: 'not-needed' };
+
+  const rootClaudeMd = join(resolve(cwd), 'CLAUDE.md');
+  const dotClaudeMd = join(resolve(cwd), '.claude', 'CLAUDE.md');
+  const files = detected.visibility.claudeMdFiles;
+  const path =
+    files.includes(rootClaudeMd) || !files.includes(dotClaudeMd) ? rootClaudeMd : dotClaudeMd;
+  const line = `@${relative(dirname(path), agentsMdPath).split(sep).join('/')}\n`;
+
+  const existing = await readExisting(path);
+  if (existing === null) return { path, action: 'create', content: line };
+  const separator = existing.length === 0 ? '' : existing.endsWith('\n') ? '\n' : '\n\n';
+  return { path, action: 'append', content: `${existing}${separator}${line}` };
+}
+
+async function writeFileAtomically(path: string, content: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const tempPath = `${path}.purvey-${process.pid}.tmp`;
+  await writeFile(tempPath, content, 'utf8');
+  await rename(tempPath, path);
+}
+
+export interface SkillInstallOptions {
+  target?: string;
+  scope?: string;
+  force?: boolean;
+  dryRun?: boolean;
+  /** agents-md only: add an `@AGENTS.md` import so Claude Code loads the block past a CLAUDE.md. */
+  linkClaudeMd?: boolean;
+  version: string;
+  manifest?: CliManifest;
+  home?: string;
+  cwd?: string;
+}
+
+/**
+ * Install the generated instructions. Never touches credentials or the network.
+ * claude and agents write both files of the skill folder; agents-md writes one
+ * block. Identical content is left alone, unedited earlier output is updated,
+ * and anything else needs `force`. For agents-md, also reports whether Claude Code
+ * will load the block, and with `linkClaudeMd` makes sure it does.
+ */
+export async function installAgentSkill(options: SkillInstallOptions): Promise<SkillInstallResult> {
+  const target = parseTarget(options.target);
+  const scope = parseScope(target, options.scope);
+  if (options.linkClaudeMd && target !== 'agents-md') {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      '--link-claude-md applies only to --target agents-md. Claude Code loads --target claude skills directly.'
+    );
+  }
+  const path = resolveSkillInstallPath(target, scope, options);
+  const manifest = options.manifest ?? getCliManifest();
+  const force = Boolean(options.force);
+  const dryRun = Boolean(options.dryRun);
+
+  if (target !== 'agents-md') {
+    const planned = await planSkillFolder(path, options.version, manifest, force);
+    const files: SkillInstallFileResult[] = [];
+    // SKILL.md goes last, so it never points to a workflows.md that failed to write.
+    for (const plan of [...planned].reverse()) {
+      const written = !dryRun && plan.action !== 'unchanged';
+      if (written) {
+        await writeFileAtomically(plan.path, plan.content);
+      }
+      files.unshift({
+        file: plan.file,
+        path: plan.path,
+        action: plan.action,
+        written,
+        bytes: Buffer.byteLength(plan.content, 'utf8'),
+      });
+    }
+    return {
+      target,
+      scope,
+      path,
+      action: summarizeActions(files.map((file) => file.action)),
+      written: files.some((file) => file.written),
+      dryRun,
+      cliVersion: options.version,
+      bytes: files.reduce((total, file) => total + file.bytes, 0),
+      files,
+    };
+  }
+
+  const plan = planAgentsMd(
+    await readExisting(path),
+    renderAgentsMdBlock(options.version, manifest),
+    path,
+    force
+  );
+  const written = !dryRun && plan.action !== 'unchanged';
+  if (written) {
+    await writeFileAtomically(path, plan.content);
+  }
+
+  return {
+    target,
+    scope,
+    path,
+    action: plan.action,
+    written,
+    dryRun,
+    cliVersion: options.version,
+    bytes: Buffer.byteLength(plan.content, 'utf8'),
+    claudeCode: await resolveClaudeCode(path, options, dryRun),
+  };
+}
+
+async function resolveClaudeCode(
+  agentsMdPath: string,
+  options: SkillInstallOptions,
+  dryRun: boolean
+): Promise<ClaudeCodeVisibility> {
+  const cwd = options.cwd ?? process.cwd();
+  const detected = await detectClaudeCodeVisibility(agentsMdPath, cwd, options.home ?? homedir());
+  if (!options.linkClaudeMd) return detected.visibility;
+
+  const link = await planClaudeMdLink(agentsMdPath, cwd, detected);
+  if (link.content === undefined) {
+    return {
+      ...detected.visibility,
+      link: { path: link.path, action: link.action, written: false },
+    };
+  }
+
+  if (!dryRun) {
+    // Write through a symlinked CLAUDE.md rather than replacing the link.
+    await writeFileAtomically(await canonicalPath(link.path!), link.content);
+  }
+  return {
+    visible: true,
+    via: 'claude-md-import',
+    reason: `${link.path} ${dryRun ? 'would import' : 'now imports'} AGENTS.md, so Claude Code loads the block.`,
+    claudeMdFiles: detected.visibility.claudeMdFiles,
+    link: { path: link.path, action: link.action, written: !dryRun },
+  };
+}
