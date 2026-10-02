@@ -970,17 +970,17 @@ Notes:
 
 - `purvey skill print`
 - `purvey skill print --agents-md`
-- `purvey skill install --target <claude|agents|agents-md> [--scope user|project] [--force] [--dry-run]`
+- `purvey skill install --target <claude|agents|agents-md> [--scope user|project] [--force] [--dry-run] [--link-claude-md]`
 
 `skill print` writes a SKILL.md in the open [Agent Skills](https://agentskills.io/specification) format to stdout. It is rendered from `purvey manifest`, so it changes only when the CLI contract changes. It covers when to use `purvey`, headless sign-in, output and exit codes, the ID map, and the manifest's workflows, and points to `purvey manifest` for everything else. `--agents-md` prints a shorter block for a repository's AGENTS.md instead. `--json` or `--pretty` wraps either as `{ name, file, cliVersion, bytes, content }`.
 
 `skill install` writes the same content to a location an agent loads:
 
-| Target      | User scope (default)                  | Project scope (`--scope project`)    | Loaded by                                            |
-| ----------- | ------------------------------------- | ------------------------------------ | ---------------------------------------------------- |
-| `claude`    | `~/.claude/skills/purveyors/SKILL.md` | `.claude/skills/purveyors/SKILL.md`  | Claude Code                                          |
-| `agents`    | `~/.agents/skills/purveyors/SKILL.md` | `.agents/skills/purveyors/SKILL.md`  | Codex, Cursor, and other Agent Skills clients        |
-| `agents-md` | n/a                                   | `AGENTS.md` in the current directory | Agents that read AGENTS.md, such as Codex and Cursor |
+| Target      | User scope (default)                  | Project scope (`--scope project`)    | Loaded by                                                       |
+| ----------- | ------------------------------------- | ------------------------------------ | --------------------------------------------------------------- |
+| `claude`    | `~/.claude/skills/purveyors/SKILL.md` | `.claude/skills/purveyors/SKILL.md`  | Claude Code                                                     |
+| `agents`    | `~/.agents/skills/purveyors/SKILL.md` | `.agents/skills/purveyors/SKILL.md`  | Codex, Cursor, and other Agent Skills clients (not Claude Code) |
+| `agents-md` | n/a                                   | `AGENTS.md` in the current directory | Codex and Cursor; Claude Code only as described below           |
 
 Notes:
 
@@ -989,6 +989,9 @@ Notes:
 - Re-running is safe. Identical content is left alone, and an unedited file from an earlier CLI version is updated in place. Rerun after upgrading the CLI.
 - A file with local edits, or one `purvey` did not write, is refused with exit code `6` unless you pass `--force`. `--dry-run` reports the path and action without writing.
 - `agents-md` adds one marked block to `AGENTS.md` (creating the file if needed) and leaves the rest of the file untouched.
+- Claude Code loads skills only from `.claude/skills`, so use `--target claude` for it. It does not read `.agents/`.
+- Claude Code reads `AGENTS.md` only as a fallback: when a `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` exists in the current directory or any directory above it, it reads those instead, unless one imports `@AGENTS.md` ([Claude Code docs](https://code.claude.com/docs/en/memory#agents-md)). `agents-md` reports this as `claudeCode: { visible, via, reason, claudeMdFiles }` in its JSON output and prints a warning on stderr when Claude Code will not see the block. It does not change your `CLAUDE.md` unless you ask.
+- `--link-claude-md` (with `agents-md`) adds that import: one `@AGENTS.md` line appended to `./CLAUDE.md` (or `@../AGENTS.md` to `./.claude/CLAUDE.md`), creating `./CLAUDE.md` if neither exists. It is a no-op when Claude Code already sees the block, honors `--dry-run`, and never edits `CLAUDE.local.md` or a parent directory's `CLAUDE.md`. `claudeCode.link` reports `{ path, action, written }`, where `action` is `create`, `append`, `unchanged`, or `not-needed`.
 
 ### In-process manifest export
 
@@ -1081,7 +1084,7 @@ Use the right ID for the right command.
 Recommended bootstrap order:
 
 ```bash
-purvey skill install --target claude   # or: --target agents, --target agents-md
+purvey skill install --target claude   # Claude Code; Codex and Cursor: --target agents
 purvey auth login --headless
 purvey manifest
 ```

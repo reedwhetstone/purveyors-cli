@@ -247,6 +247,13 @@ describe('generated agent skill', () => {
     expect(named).not.toContain('reference-profile list');
   });
 
+  it('sends Claude Code to --target claude and Codex or Cursor to --target agents', () => {
+    expect(skill).toContain('(`claude` for Claude Code, `agents` for Codex and Cursor)');
+    expect(agentsMd).toContain(
+      '`purvey skill install --target claude` in Claude Code, or `--target agents` in Codex, Cursor'
+    );
+  });
+
   it('points to `purvey manifest` as the full contract', () => {
     expect(skill).toContain('`purvey manifest` prints the full contract');
     expect(agentsMd).toContain('Full contract: `purvey manifest`');
@@ -440,6 +447,154 @@ describe('purvey skill install', () => {
       installAgentSkill({ target: 'agents-md', version, home, cwd: project, force: true })
     ).rejects.toMatchObject({ code: 'CONFIG_ERROR' });
   });
+});
+
+describe('Claude Code visibility for the AGENTS.md block', () => {
+  const install = (extra: { linkClaudeMd?: boolean; dryRun?: boolean; cwd?: string } = {}) =>
+    installAgentSkill({ target: 'agents-md', version, home, cwd: project, ...extra });
+
+  it('reports the block visible when no CLAUDE.md is on the path, and links nothing', async () => {
+    const result = await install({ linkClaudeMd: true });
+    expect(result.claudeCode).toEqual({
+      visible: true,
+      via: 'agents-md',
+      reason: expect.stringContaining('reads AGENTS.md directly'),
+      claudeMdFiles: [],
+      link: { path: null, action: 'not-needed', written: false },
+    });
+    expect(existsSync(join(project, 'CLAUDE.md'))).toBe(false);
+  });
+
+  it('reports a CLAUDE.md without the import and leaves it alone by default', async () => {
+    const claudeMd = join(project, 'CLAUDE.md');
+    writeFileSync(claudeMd, '# Rules\n\nRead AGENTS.md before you start.\n');
+
+    const result = await install();
+    expect(result.claudeCode).toEqual({
+      visible: false,
+      via: null,
+      reason: expect.stringContaining('--link-claude-md'),
+      claudeMdFiles: [claudeMd],
+    });
+    expect(readFileSync(claudeMd, 'utf8')).toBe('# Rules\n\nRead AGENTS.md before you start.\n');
+  });
+
+  it('appends one @AGENTS.md line with --link-claude-md, honoring --dry-run and re-runs', async () => {
+    const claudeMd = join(project, 'CLAUDE.md');
+    const original = '# Rules\n\nUse pnpm.\n';
+    writeFileSync(claudeMd, original);
+
+    const dryRun = await install({ linkClaudeMd: true, dryRun: true });
+    expect(dryRun.claudeCode?.link).toEqual({ path: claudeMd, action: 'append', written: false });
+    expect(readFileSync(claudeMd, 'utf8')).toBe(original);
+    expect(existsSync(join(project, 'AGENTS.md'))).toBe(false);
+
+    const linked = await install({ linkClaudeMd: true });
+    expect(linked.claudeCode).toEqual(
+      expect.objectContaining({
+        visible: true,
+        via: 'claude-md-import',
+        link: { path: claudeMd, action: 'append', written: true },
+      })
+    );
+    expect(readFileSync(claudeMd, 'utf8')).toBe(`${original}\n@AGENTS.md\n`);
+
+    const again = await install({ linkClaudeMd: true });
+    expect(again.claudeCode?.link).toEqual({ path: claudeMd, action: 'unchanged', written: false });
+    expect(readFileSync(claudeMd, 'utf8')).toBe(`${original}\n@AGENTS.md\n`);
+  });
+
+  it('recognizes an existing import, including one reached through another import', async () => {
+    const claudeMd = join(project, 'CLAUDE.md');
+    writeFileSync(claudeMd, '# Rules\n\n@AGENTS.md\n');
+    expect((await install()).claudeCode).toEqual(
+      expect.objectContaining({ visible: true, via: 'claude-md-import' })
+    );
+
+    // A path in backticks is literal text, not an import.
+    writeFileSync(claudeMd, 'Instructions live in `@AGENTS.md`.\n');
+    expect((await install()).claudeCode?.visible).toBe(false);
+
+    mkdirSync(join(project, 'docs'));
+    writeFileSync(join(project, 'docs', 'agents.md'), 'See @../AGENTS.md\n');
+    writeFileSync(claudeMd, '- Agent rules: @docs/agents.md\n');
+    expect((await install()).claudeCode?.visible).toBe(true);
+  });
+
+  it('counts a CLAUDE.md in a parent directory but links only inside the project', async () => {
+    const parentClaudeMd = join(sandbox, 'CLAUDE.md');
+    writeFileSync(parentClaudeMd, '# Workspace rules\n');
+
+    const hidden = await install();
+    expect(hidden.claudeCode).toEqual(
+      expect.objectContaining({ visible: false, claudeMdFiles: [parentClaudeMd] })
+    );
+
+    const linked = await install({ linkClaudeMd: true });
+    const projectClaudeMd = join(project, 'CLAUDE.md');
+    expect(linked.claudeCode?.link).toEqual({
+      path: projectClaudeMd,
+      action: 'create',
+      written: true,
+    });
+    expect(readFileSync(projectClaudeMd, 'utf8')).toBe('@AGENTS.md\n');
+    expect(readFileSync(parentClaudeMd, 'utf8')).toBe('# Workspace rules\n');
+
+    // A parent CLAUDE.md that imports this project's AGENTS.md also works.
+    rmSync(projectClaudeMd);
+    writeFileSync(parentClaudeMd, '@project/AGENTS.md\n');
+    expect((await install()).claudeCode).toEqual(
+      expect.objectContaining({ visible: true, via: 'claude-md-import' })
+    );
+  });
+
+  it('never edits CLAUDE.local.md and links .claude/CLAUDE.md with a relative import', async () => {
+    const localMd = join(project, 'CLAUDE.local.md');
+    writeFileSync(localMd, 'My sandbox URL\n');
+    expect((await install()).claudeCode?.visible).toBe(false);
+    expect((await install({ linkClaudeMd: true })).claudeCode?.link?.action).toBe('create');
+    expect(readFileSync(localMd, 'utf8')).toBe('My sandbox URL\n');
+    expect(readFileSync(join(project, 'CLAUDE.md'), 'utf8')).toBe('@AGENTS.md\n');
+
+    rmSync(join(project, 'CLAUDE.md'));
+    const dotClaudeMd = join(project, '.claude', 'CLAUDE.md');
+    mkdirSync(dirname(dotClaudeMd));
+    writeFileSync(dotClaudeMd, '# Rules');
+    expect((await install({ linkClaudeMd: true })).claudeCode?.link?.path).toBe(dotClaudeMd);
+    expect(readFileSync(dotClaudeMd, 'utf8')).toBe('# Rules\n\n@../AGENTS.md\n');
+    expect((await install()).claudeCode?.visible).toBe(true);
+  });
+
+  it('ignores the user-level ~/.claude/CLAUDE.md, which loads alongside AGENTS.md', async () => {
+    const repo = join(home, 'repo');
+    mkdirSync(repo);
+    mkdirSync(join(home, '.claude'));
+    writeFileSync(join(home, '.claude', 'CLAUDE.md'), '# Personal rules\n');
+    expect((await install({ cwd: repo })).claudeCode).toEqual(
+      expect.objectContaining({ visible: true, via: 'agents-md', claudeMdFiles: [] })
+    );
+  });
+
+  it('warns on stderr from the CLI and rejects --link-claude-md for other targets', () => {
+    writeFileSync(join(project, 'CLAUDE.md'), '# Rules\n');
+    const result = runCli(['skill', 'install', '--target', 'agents-md']);
+    expect(result.status).toBe(EXIT_CODES.OK);
+    expect(result.json).toEqual(
+      expect.objectContaining({
+        claudeCode: expect.objectContaining({ visible: false, via: null }),
+      })
+    );
+    expect(result.stderr).toContain('Claude Code will not load this block');
+
+    const linked = runCli(['skill', 'install', '--target', 'agents-md', '--link-claude-md']);
+    expect(linked.status).toBe(EXIT_CODES.OK);
+    expect(linked.stderr).toBe('');
+    expect(readFileSync(join(project, 'CLAUDE.md'), 'utf8')).toBe('# Rules\n\n@AGENTS.md\n');
+
+    expect(runCli(['skill', 'install', '--target', 'claude', '--link-claude-md']).status).toBe(
+      EXIT_CODES.INVALID_ARGUMENT
+    );
+  }, 30000);
 });
 
 describe('purvey skill print', () => {

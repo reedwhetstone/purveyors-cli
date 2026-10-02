@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { PrvrsError } from './errors.js';
 import {
   HEADLESS_LOGIN_STEPS,
@@ -43,6 +43,27 @@ export interface SkillInstallResult {
   dryRun: boolean;
   cliVersion: string;
   bytes: number;
+  /** agents-md only: whether Claude Code will load the AGENTS.md block. */
+  claudeCode?: ClaudeCodeVisibility;
+}
+
+export type ClaudeMdLinkAction = 'create' | 'append' | 'unchanged' | 'not-needed';
+
+/**
+ * Claude Code reads AGENTS.md only as a fallback: when a CLAUDE.md,
+ * .claude/CLAUDE.md, or CLAUDE.local.md sits in the project directory or any
+ * directory above it, it reads those instead, unless one imports AGENTS.md.
+ * See https://code.claude.com/docs/en/memory#agents-md
+ */
+export interface ClaudeCodeVisibility {
+  visible: boolean;
+  /** How Claude Code loads the block: AGENTS.md directly, a CLAUDE.md import, or not at all. */
+  via: 'agents-md' | 'claude-md-import' | null;
+  reason: string;
+  /** CLAUDE.md files on the path that take precedence over AGENTS.md. */
+  claudeMdFiles: string[];
+  /** Present with --link-claude-md. */
+  link?: { path: string | null; action: ClaudeMdLinkAction; written: boolean };
 }
 
 const ACCESS_LABELS: Record<CliCommandGroupContract['auth'], string> = {
@@ -200,7 +221,7 @@ function renderReference(manifest: CliManifest): string[] {
       .map((link) => `[${link.label}](${link.url})`)
       .join(', ')}.`,
     '',
-    'After upgrading the CLI, refresh this file: rerun `purvey skill install` with the same `--target`.',
+    'After upgrading the CLI, refresh this file: rerun `purvey skill install` with the same `--target` (`claude` for Claude Code, `agents` for Codex and Cursor).',
   ];
 }
 
@@ -274,7 +295,7 @@ function renderAgentsMdInner(manifest: CliManifest): string {
     `- stdout is JSON; failures print a JSON envelope on stderr. Exit codes: ${exitCodes}.`,
     `- IDs are not interchangeable (${manifest.idTypes.map((id) => `\`${id.name}\``).join(', ')}); check which one a command takes.`,
     '- Do not use `--form`. Confirm with the user before commands that change their data.',
-    `- Full contract: \`${manifest.machineSurfaces.shellManifest}\`. Fuller guide with workflows: \`purvey skill print\`.`,
+    `- Full contract: \`${manifest.machineSurfaces.shellManifest}\`. For the fuller guide with workflows as a skill, run \`purvey skill install --target claude\` in Claude Code, or \`--target agents\` in Codex, Cursor, and other Agent Skills tools.`,
     '',
   ].join('\n');
 }
@@ -434,6 +455,161 @@ function planAgentsMd(
   return refuseOverwrite(path, 'The purvey block in AGENTS.md');
 }
 
+// ─── Claude Code and AGENTS.md ───────────────────────────────────────────────
+
+export const CLAUDE_CODE_AGENTS_MD_DOCS = 'https://code.claude.com/docs/en/memory#agents-md';
+
+/** Per directory, any of these makes Claude Code read CLAUDE.md files instead of AGENTS.md. */
+const CLAUDE_MD_NAMES = ['CLAUDE.md', join('.claude', 'CLAUDE.md'), 'CLAUDE.local.md'];
+
+/** Claude Code expands imports up to four hops deep. */
+const MAX_IMPORT_HOPS = 4;
+
+async function readIfFile(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+async function canonicalPath(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/**
+ * CLAUDE.md files in `cwd` and every directory above it, nearest first. The
+ * user-level ~/.claude/CLAUDE.md loads alongside AGENTS.md, so it does not count.
+ */
+async function findClaudeMdFiles(cwd: string, home: string): Promise<string[]> {
+  const userClaudeMd = resolve(home, '.claude', 'CLAUDE.md');
+  const found: string[] = [];
+  let dir = resolve(cwd);
+  for (;;) {
+    for (const name of CLAUDE_MD_NAMES) {
+      const path = join(dir, name);
+      if (path !== userClaudeMd && (await readIfFile(path)) !== null) {
+        found.push(path);
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return found;
+    dir = parent;
+  }
+}
+
+/** `@path` imports, skipping fenced blocks, code spans, and HTML comments. */
+function importPaths(text: string, fromDir: string, home: string): string[] {
+  const prose = text
+    .replace(/^(```|~~~)[\s\S]*?^\1/gm, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/`[^`\n]*`/g, '');
+  return [...prose.matchAll(/(?:^|\s)@((?:\\ |\S)+)/g)].map(([, raw]) => {
+    const path = raw.replace(/\\ /g, ' ');
+    return path.startsWith('~/') ? join(home, path.slice(2)) : resolve(fromDir, path);
+  });
+}
+
+async function importsFile(
+  file: string,
+  target: string,
+  home: string,
+  hops = MAX_IMPORT_HOPS,
+  seen = new Set<string>()
+): Promise<boolean> {
+  if (hops === 0 || seen.has(file)) return false;
+  seen.add(file);
+  const text = await readIfFile(file);
+  if (text === null) return false;
+  for (const path of importPaths(text, dirname(file), home)) {
+    if (
+      (await canonicalPath(path)) === target ||
+      (await importsFile(path, target, home, hops - 1, seen))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function detectClaudeCodeVisibility(
+  agentsMdPath: string,
+  cwd: string,
+  home: string
+): Promise<{ visibility: ClaudeCodeVisibility; importedBy: string | null }> {
+  const claudeMdFiles = await findClaudeMdFiles(cwd, home);
+  const target = await canonicalPath(agentsMdPath);
+  for (const file of claudeMdFiles) {
+    // A CLAUDE.md symlinked to AGENTS.md loads the same content.
+    if ((await canonicalPath(file)) === target || (await importsFile(file, target, home))) {
+      return {
+        visibility: {
+          visible: true,
+          via: 'claude-md-import',
+          reason: `${file} imports AGENTS.md, so Claude Code loads the block.`,
+          claudeMdFiles,
+        },
+        importedBy: file,
+      };
+    }
+  }
+
+  if (claudeMdFiles.length === 0) {
+    return {
+      visibility: {
+        visible: true,
+        via: 'agents-md',
+        reason:
+          'No CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md in this directory or above it, so Claude Code v2.1.277 or later reads AGENTS.md directly.',
+        claudeMdFiles,
+      },
+      importedBy: null,
+    };
+  }
+
+  return {
+    visibility: {
+      visible: false,
+      via: null,
+      reason: `Claude Code reads ${claudeMdFiles.join(', ')} instead of AGENTS.md and finds no @AGENTS.md import. Re-run with --link-claude-md to add an @AGENTS.md import, or install the skill with --target claude. See ${CLAUDE_CODE_AGENTS_MD_DOCS}`,
+      claudeMdFiles,
+    },
+    importedBy: null,
+  };
+}
+
+/**
+ * Plan the `@AGENTS.md` import for --link-claude-md. It goes into this
+ * directory's CLAUDE.md (or .claude/CLAUDE.md), creating CLAUDE.md when only a
+ * CLAUDE.local.md or a parent directory's CLAUDE.md exists. Files above the
+ * project may be shared by other projects, and CLAUDE.local.md is personal, so
+ * neither is edited.
+ */
+async function planClaudeMdLink(
+  agentsMdPath: string,
+  cwd: string,
+  detected: { visibility: ClaudeCodeVisibility; importedBy: string | null }
+): Promise<{ path: string | null; action: ClaudeMdLinkAction; content?: string }> {
+  if (detected.importedBy) return { path: detected.importedBy, action: 'unchanged' };
+  if (detected.visibility.visible) return { path: null, action: 'not-needed' };
+
+  const rootClaudeMd = join(resolve(cwd), 'CLAUDE.md');
+  const dotClaudeMd = join(resolve(cwd), '.claude', 'CLAUDE.md');
+  const files = detected.visibility.claudeMdFiles;
+  const path =
+    files.includes(rootClaudeMd) || !files.includes(dotClaudeMd) ? rootClaudeMd : dotClaudeMd;
+  const line = `@${relative(dirname(path), agentsMdPath).split(sep).join('/')}\n`;
+
+  const existing = await readExisting(path);
+  if (existing === null) return { path, action: 'create', content: line };
+  const separator = existing.length === 0 ? '' : existing.endsWith('\n') ? '\n' : '\n\n';
+  return { path, action: 'append', content: `${existing}${separator}${line}` };
+}
+
 async function writeFileAtomically(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const tempPath = `${path}.purvey-${process.pid}.tmp`;
@@ -446,6 +622,8 @@ export interface SkillInstallOptions {
   scope?: string;
   force?: boolean;
   dryRun?: boolean;
+  /** agents-md only: add an `@AGENTS.md` import so Claude Code loads the block past a CLAUDE.md. */
+  linkClaudeMd?: boolean;
   version: string;
   manifest?: CliManifest;
   home?: string;
@@ -455,11 +633,18 @@ export interface SkillInstallOptions {
 /**
  * Install the generated instructions. Never touches credentials or the network.
  * Identical content is left alone, unedited earlier output is updated, and
- * anything else needs `force`.
+ * anything else needs `force`. For agents-md, also reports whether Claude Code
+ * will load the block, and with `linkClaudeMd` makes sure it does.
  */
 export async function installAgentSkill(options: SkillInstallOptions): Promise<SkillInstallResult> {
   const target = parseTarget(options.target);
   const scope = parseScope(target, options.scope);
+  if (options.linkClaudeMd && target !== 'agents-md') {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      '--link-claude-md applies only to --target agents-md. Claude Code loads --target claude skills directly.'
+    );
+  }
   const path = resolveSkillInstallPath(target, scope, options);
   const manifest = options.manifest ?? getCliManifest();
   const force = Boolean(options.force);
@@ -476,7 +661,7 @@ export async function installAgentSkill(options: SkillInstallOptions): Promise<S
     await writeFileAtomically(path, plan.content);
   }
 
-  return {
+  const result: SkillInstallResult = {
     target,
     scope,
     path,
@@ -485,5 +670,39 @@ export async function installAgentSkill(options: SkillInstallOptions): Promise<S
     dryRun,
     cliVersion: options.version,
     bytes: Buffer.byteLength(plan.content, 'utf8'),
+  };
+  if (target === 'agents-md') {
+    result.claudeCode = await resolveClaudeCode(path, options, dryRun);
+  }
+  return result;
+}
+
+async function resolveClaudeCode(
+  agentsMdPath: string,
+  options: SkillInstallOptions,
+  dryRun: boolean
+): Promise<ClaudeCodeVisibility> {
+  const cwd = options.cwd ?? process.cwd();
+  const detected = await detectClaudeCodeVisibility(agentsMdPath, cwd, options.home ?? homedir());
+  if (!options.linkClaudeMd) return detected.visibility;
+
+  const link = await planClaudeMdLink(agentsMdPath, cwd, detected);
+  if (link.content === undefined) {
+    return {
+      ...detected.visibility,
+      link: { path: link.path, action: link.action, written: false },
+    };
+  }
+
+  if (!dryRun) {
+    // Write through a symlinked CLAUDE.md rather than replacing the link.
+    await writeFileAtomically(await canonicalPath(link.path!), link.content);
+  }
+  return {
+    visible: true,
+    via: 'claude-md-import',
+    reason: `${link.path} ${dryRun ? 'would import' : 'now imports'} AGENTS.md, so Claude Code loads the block.`,
+    claudeMdFiles: detected.visibility.claudeMdFiles,
+    link: { path: link.path, action: link.action, written: !dryRun },
   };
 }

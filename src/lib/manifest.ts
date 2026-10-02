@@ -1188,9 +1188,9 @@ const commandGroups: CliCommandGroupContract[] = [
             description: 'claude, agents, or agents-md',
             notes: [
               'required',
-              'claude: ~/.claude/skills/purveyors/SKILL.md (project scope: .claude/skills/purveyors/SKILL.md)',
-              'agents: ~/.agents/skills/purveyors/SKILL.md, read by Codex and Cursor (project scope: .agents/skills/purveyors/SKILL.md)',
-              'agents-md: ./AGENTS.md in the current directory; adds or refreshes one marked block and leaves the rest of the file alone',
+              'claude: ~/.claude/skills/purveyors/SKILL.md (project scope: .claude/skills/purveyors/SKILL.md); use this for Claude Code, which loads skills only from .claude/skills',
+              'agents: ~/.agents/skills/purveyors/SKILL.md, read by Codex, Cursor, and other Agent Skills clients (project scope: .agents/skills/purveyors/SKILL.md); Claude Code does not read .agents/',
+              'agents-md: ./AGENTS.md in the current directory; adds or refreshes one marked block and leaves the rest of the file alone. Claude Code reads AGENTS.md only when no CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md exists in the current directory or above it; see --link-claude-md',
             ],
           },
           {
@@ -1203,10 +1203,21 @@ const commandGroups: CliCommandGroupContract[] = [
             description: 'Replace a file or AGENTS.md block that has local edits',
           },
           { flags: '--dry-run', description: 'Report the path and action without writing' },
+          {
+            flags: '--link-claude-md',
+            description:
+              'agents-md only: add an @AGENTS.md import to ./CLAUDE.md so Claude Code loads the block',
+            notes: [
+              'Appends one @AGENTS.md line to ./CLAUDE.md, or @../AGENTS.md to ./.claude/CLAUDE.md, and creates ./CLAUDE.md when neither exists',
+              'Only acts when a CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md on the path hides AGENTS.md and none imports it; idempotent and honors --dry-run',
+              'Never edits CLAUDE.local.md or a CLAUDE.md in a parent directory',
+            ],
+          },
         ],
         notes: [
           'Needs no credentials and makes no network calls.',
           'Emits { target, scope, path, action, written, dryRun, cliVersion, bytes } as JSON on stdout; action is create, update, unchanged, append, or overwrite.',
+          'agents-md also emits claudeCode: { visible, via, reason, claudeMdFiles, link? }. visible is false when a CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md in the current directory or above it keeps Claude Code from reading AGENTS.md and none of them imports it; a warning then goes to stderr.',
           'Re-running is safe: an identical file is left unchanged, and an unedited file from an earlier CLI version is updated in place.',
           'A file with local edits, or one purvey did not write, is refused with exit 6 unless --force is passed.',
         ],
@@ -1214,6 +1225,7 @@ const commandGroups: CliCommandGroupContract[] = [
           'purvey skill install --target claude',
           'purvey skill install --target agents --dry-run',
           'purvey skill install --target agents-md',
+          'purvey skill install --target agents-md --link-claude-md',
         ],
       },
     ],
