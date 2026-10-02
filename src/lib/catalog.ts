@@ -4,6 +4,7 @@ import { AuthError, PrvrsError } from './errors.js';
 import {
   createParchmentClient,
   getParchmentBaseUrl,
+  messageFromErrorBody,
   resolveParchmentToken,
   unwrapParchment,
 } from './parchment.js';
@@ -877,16 +878,31 @@ async function parseCatalogApiError(response: Response, context: string): Promis
     body = undefined;
   }
 
-  const serverMessage =
-    typeof body?.message === 'string'
-      ? body.message
-      : typeof body?.error === 'string'
-        ? body.error
-        : response.statusText;
+  const serverMessage = messageFromErrorBody(
+    body,
+    typeof body?.error === 'string' ? body.error : response.statusText
+  );
   const details = { status: response.status, body };
 
-  if (response.status === 401 || response.status === 403) {
-    return new AuthError(`Catalog API authentication failed: ${serverMessage}`, details);
+  // Parchment decides who may call the route; its denial message is passed through.
+  if (response.status === 401) {
+    return new AuthError(
+      messageFromErrorBody(
+        body,
+        'Catalog similarity requires a valid Purveyors session or API key. Run `purvey auth login`, or set PARCHMENT_API_KEY/PURVEYORS_API_KEY.'
+      ),
+      details
+    );
+  }
+
+  if (response.status === 403) {
+    return new AuthError(
+      messageFromErrorBody(
+        body,
+        'Catalog similarity is not available for your plan. Your Purveyors account or API key lacks the required entitlement.'
+      ),
+      details
+    );
   }
 
   if (response.status === 400) {
@@ -966,7 +982,7 @@ async function fetchCatalogSimilarityApi(
   const response = await fetch(url, {
     headers: {
       Accept: 'application/json',
-      Authorization: `Bearer ${await resolveParchmentToken('member')}`,
+      Authorization: `Bearer ${await resolveParchmentToken('viewer')}`,
     },
   });
 
@@ -1028,15 +1044,8 @@ export async function searchCatalog(opts: SearchCatalogInput): Promise<CatalogIt
   }
 
   const sort = parsed.sort ? CATALOG_API_SORT_MAP[parsed.sort] : undefined;
-  const client = await createParchmentClient(
-    parsed.processingBaseMethod ||
-      parsed.fermentationType ||
-      parsed.processAdditive ||
-      parsed.processingDisclosureLevel ||
-      parsed.processingConfidenceMin !== undefined
-      ? 'member'
-      : 'viewer'
-  );
+  // Parchment decides access to structured process filters.
+  const client = await createParchmentClient('viewer');
   const result = await client.catalog.list({
     include: parsed.includeProof ? 'proof' : undefined,
     origin: parsed.origin,

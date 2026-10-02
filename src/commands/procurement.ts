@@ -53,7 +53,7 @@ Examples:
   // procurement get <id>
   procurement
     .command('get <id>')
-    .description('Get a single saved sourcing brief by id')
+    .description('Get a single saved sourcing brief by ID')
     .addHelpText(
       'after',
       `

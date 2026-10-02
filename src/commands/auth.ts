@@ -437,7 +437,7 @@ Notes:
   primaryAppRole, apiPlan, ppiAccess, apiScopes, and capabilities (for example
   capabilities.profileStudio for Studio reference-profile access).
   Uses PARCHMENT_API_KEY or PURVEYORS_API_KEY when set, otherwise the key stored by
-  'purvey auth login'. With no credential it prints the anonymous principal
+  'purvey auth login'. With no credential it prints a signed-out result
   (authenticated: false). Use 'purvey auth status' for a local check.
 `
     )

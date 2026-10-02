@@ -121,7 +121,11 @@ export interface ParchmentResult<T> {
   response: Response;
 }
 
-function messageFromErrorBody(body: unknown, fallback: string): string {
+/**
+ * Read Parchment's error message from either `{ error: { message } }` or
+ * `{ message }`, falling back when the body carries neither.
+ */
+export function messageFromErrorBody(body: unknown, fallback: string): string {
   if (body && typeof body === 'object') {
     const record = body as Record<string, unknown>;
     const nested = record.error;
