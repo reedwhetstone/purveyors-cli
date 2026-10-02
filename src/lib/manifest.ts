@@ -1158,23 +1158,33 @@ const commandGroups: CliCommandGroupContract[] = [
     subcommands: [
       {
         name: 'print',
-        summary: 'Write the generated SKILL.md (or the AGENTS.md block) to stdout',
+        summary: 'Write the generated SKILL.md, workflows.md, or the AGENTS.md block to stdout',
         auth: 'none',
         options: [
           {
+            flags: '--file <file>',
+            description: 'Skill file to print: SKILL.md, workflows.md, or all',
+            defaultValue: 'SKILL.md',
+            notes: [
+              'The skill is a folder: SKILL.md, which agents load when the skill triggers, and workflows.md, the step-by-step workflows SKILL.md points to',
+              'all needs --json or --pretty',
+            ],
+          },
+          {
             flags: '--agents-md',
-            description: 'Print the compact AGENTS.md block instead of SKILL.md',
+            description: 'Print the compact AGENTS.md block instead of the skill',
           },
         ],
         notes: [
-          'Prints Markdown by default; --json or --pretty wraps it as { name, file, cliVersion, bytes, content }.',
-          '--csv is not supported.',
+          'Prints one file as Markdown by default; --json or --pretty wraps it as { name, file, cliVersion, bytes, content }, or every file with --file all as { name, cliVersion, files: [{ file, bytes, content }] }.',
+          '--csv is not supported, and --agents-md cannot be combined with --file.',
           'Rendered from this manifest, so it changes only when the CLI contract changes.',
         ],
         examples: [
           'purvey skill print',
+          'purvey skill print --file workflows.md',
+          'purvey skill print --file all --json',
           'purvey skill print --agents-md',
-          'purvey skill print > SKILL.md',
         ],
       },
       {
@@ -1188,8 +1198,8 @@ const commandGroups: CliCommandGroupContract[] = [
             description: 'claude, agents, or agents-md',
             notes: [
               'required',
-              'claude: ~/.claude/skills/purveyors/SKILL.md (project scope: .claude/skills/purveyors/SKILL.md); use this for Claude Code, which loads skills only from .claude/skills',
-              'agents: ~/.agents/skills/purveyors/SKILL.md, read by Codex, Cursor, and other Agent Skills clients (project scope: .agents/skills/purveyors/SKILL.md); Claude Code does not read .agents/',
+              'claude: SKILL.md and workflows.md in ~/.claude/skills/purveyors/ (project scope: .claude/skills/purveyors/); use this for Claude Code, which loads skills only from .claude/skills',
+              'agents: SKILL.md and workflows.md in ~/.agents/skills/purveyors/, read by Codex, Cursor, and other Agent Skills clients (project scope: .agents/skills/purveyors/); Claude Code does not read .agents/',
               'agents-md: ./AGENTS.md in the current directory; adds or refreshes one marked block and leaves the rest of the file alone. Claude Code reads AGENTS.md only when no CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md exists in the current directory or above it; see --link-claude-md',
             ],
           },
@@ -1200,7 +1210,7 @@ const commandGroups: CliCommandGroupContract[] = [
           },
           {
             flags: '--force',
-            description: 'Replace a file or AGENTS.md block that has local edits',
+            description: 'Replace skill files or an AGENTS.md block that have local edits',
           },
           { flags: '--dry-run', description: 'Report the path and action without writing' },
           {
@@ -1217,9 +1227,10 @@ const commandGroups: CliCommandGroupContract[] = [
         notes: [
           'Needs no credentials and makes no network calls.',
           'Emits { target, scope, path, action, written, dryRun, cliVersion, bytes } as JSON on stdout; action is create, update, unchanged, append, or overwrite.',
+          'claude and agents also emit files: [{ file, path, action, written, bytes }] for SKILL.md and workflows.md. The top-level path is SKILL.md, action is the most significant file action (overwrite, update, create, then unchanged), written is true when any file was written, and bytes is the total.',
           'agents-md also emits claudeCode: { visible, via, reason, claudeMdFiles, link? }. visible is false when a CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md in the current directory or above it keeps Claude Code from reading AGENTS.md and none of them imports it; a warning then goes to stderr.',
-          'Re-running is safe: an identical file is left unchanged, and an unedited file from an earlier CLI version is updated in place.',
-          'A file with local edits, or one purvey did not write, is refused with exit 6 unless --force is passed.',
+          'Re-running is safe: an identical file is left unchanged, an unedited file from an earlier CLI version is updated in place, and a missing workflows.md (for example after a SKILL.md-only install) is created.',
+          'A file with local edits, or one purvey did not write, is refused with exit 6 unless --force is passed. Every skill file is checked before any is written, so a refusal changes nothing.',
         ],
         examples: [
           'purvey skill install --target claude',

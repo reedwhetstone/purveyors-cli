@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { PrvrsError } from './errors.js';
 import {
   HEADLESS_LOGIN_STEPS,
@@ -20,8 +20,21 @@ import {
 
 export const AGENT_SKILL_NAME = 'purveyors';
 export const AGENT_SKILL_FILE = 'SKILL.md';
+/**
+ * Supporting file in the same skill folder. Agent Skills clients load SKILL.md
+ * when the skill triggers and read other files only when SKILL.md points to
+ * them, so the step-by-step workflows, which grow with the manifest, live here.
+ * See https://code.claude.com/docs/en/skills#add-supporting-files and
+ * https://agentskills.io/specification#progressive-disclosure
+ */
+export const AGENT_WORKFLOWS_FILE = 'workflows.md';
+/** Every file in the skill folder, SKILL.md first. */
+export const AGENT_SKILL_FILES = [AGENT_SKILL_FILE, AGENT_WORKFLOWS_FILE] as const;
+export type AgentSkillFile = (typeof AGENT_SKILL_FILES)[number];
 /** Upper bound for the rendered SKILL.md, enforced by tests. */
 export const AGENT_SKILL_MAX_BYTES = 8 * 1024;
+/** Upper bound for the rendered workflows.md, enforced by tests. */
+export const AGENT_WORKFLOWS_MAX_BYTES = 16 * 1024;
 
 const SKILL_TOPICS =
   'green coffee sourcing, the purveyors.io coffee catalog, green coffee prices and market moves, green inventory, roast logging and Artisan .alog files, sales, and tasting notes';
@@ -34,15 +47,29 @@ export type SkillTarget = (typeof SKILL_TARGETS)[number];
 export type SkillScope = (typeof SKILL_SCOPES)[number];
 export type SkillInstallAction = 'create' | 'update' | 'unchanged' | 'append' | 'overwrite';
 
-export interface SkillInstallResult {
-  target: SkillTarget;
-  scope: SkillScope;
+export interface SkillInstallFileResult {
+  file: AgentSkillFile;
   path: string;
   action: SkillInstallAction;
   written: boolean;
+  bytes: number;
+}
+
+export interface SkillInstallResult {
+  target: SkillTarget;
+  scope: SkillScope;
+  /** SKILL.md for claude and agents, AGENTS.md for agents-md. */
+  path: string;
+  /** For claude and agents, summarizes `files`: overwrite, then update, then create, then unchanged. */
+  action: SkillInstallAction;
+  /** True when any file was written. */
+  written: boolean;
   dryRun: boolean;
   cliVersion: string;
+  /** Total bytes across the installed content. */
   bytes: number;
+  /** claude and agents only: each file in the skill folder, SKILL.md first. */
+  files?: SkillInstallFileResult[];
   /** agents-md only: whether Claude Code will load the AGENTS.md block. */
   claudeCode?: ClaudeCodeVisibility;
 }
@@ -162,7 +189,7 @@ function renderOutput(manifest: CliManifest): string[] {
   return [
     '## Output, errors, and exit codes',
     '',
-    '- stdout carries the result as compact JSON by default; parse it rather than scraping text. Drop `--pretty` from the examples below when parsing.',
+    '- stdout carries the result as compact JSON by default; parse it rather than scraping text. Leave off `--pretty` when parsing.',
     `- In a non-interactive shell, a failure prints one JSON envelope on ${structuredErrors.channel} with ${fields(structuredErrors.guaranteedFields)} and sometimes ${fields(structuredErrors.optionalFields)}. Progress messages also go to ${structuredErrors.channel}.`,
     `- Exit codes: ${manifest.exitCodes.map((code) => `\`${code.exitCode}\` ${code.description}`).join('; ')}.`,
   ];
@@ -178,16 +205,32 @@ function renderIdMap(manifest: CliManifest): string[] {
   ];
 }
 
-function renderWorkflows(manifest: CliManifest): string[] {
-  const lines = [
+/** SKILL.md names each workflow and points to workflows.md for the steps. */
+function renderWorkflowIndex(manifest: CliManifest): string[] {
+  return [
     '## Workflows',
     '',
-    'IDs and file paths below are placeholders. Take real IDs from search or list output.',
+    `Before a multi-step task, read [${AGENT_WORKFLOWS_FILE}](${AGENT_WORKFLOWS_FILE}) next to this file (if missing: \`purvey skill print --file ${AGENT_WORKFLOWS_FILE}\`). It has the commands for:`,
+    '',
+    ...manifest.workflows.map((workflow) => `- ${workflow.title}`),
+  ];
+}
+
+function renderWorkflowsBody(manifest: CliManifest): string {
+  const lines = [
+    `# Purveyors workflows (\`${manifest.binary}\` CLI)`,
+    '',
+    `Command sequences for multi-step tasks. [${AGENT_SKILL_FILE}](${AGENT_SKILL_FILE}) covers sign-in, access, the ID map, and the working rules; they apply here too.`,
+    '',
+    '- IDs and file paths below are placeholders. Take real IDs from search or list output, and check the ID map for the type each command takes.',
+    '- Leave off `--pretty` when parsing.',
+    '- Confirm with the user before a step that changes their data.',
   ];
   for (const workflow of manifest.workflows) {
-    lines.push('', `### ${workflow.title}`, '', '```sh', ...workflow.commands, '```');
+    lines.push('', `## ${workflow.title}`, '', '```sh', ...workflow.commands, '```');
   }
-  return lines;
+  lines.push('');
+  return lines.join('\n');
 }
 
 function renderRules(manifest: CliManifest): string[] {
@@ -221,7 +264,7 @@ function renderReference(manifest: CliManifest): string[] {
       .map((link) => `[${link.label}](${link.url})`)
       .join(', ')}.`,
     '',
-    'After upgrading the CLI, refresh this file: rerun `purvey skill install` with the same `--target` (`claude` for Claude Code, `agents` for Codex and Cursor).',
+    `After upgrading the CLI, refresh this file and ${AGENT_WORKFLOWS_FILE}: rerun \`purvey skill install\` with the same \`--target\` (\`claude\` for Claude Code, \`agents\` for Codex and Cursor).`,
   ];
 }
 
@@ -244,7 +287,7 @@ function renderSkillBody(manifest: CliManifest, version: string): string {
     '',
     ...renderIdMap(manifest),
     '',
-    ...renderWorkflows(manifest),
+    ...renderWorkflowIndex(manifest),
     '',
     ...renderRules(manifest),
     '',
@@ -253,24 +296,47 @@ function renderSkillBody(manifest: CliManifest, version: string): string {
   ].join('\n');
 }
 
-function skillSeal(version: string, hash: string): string {
-  return `<!-- generated by @purveyors/cli ${version} (purvey skill print); sha256:${hash} -->\n`;
+/**
+ * The trailing comment records a hash of everything above it, so `install` can
+ * tell an unedited earlier copy (safe to update) from one with local edits
+ * (needs --force).
+ */
+function seal(body: string, version: string, printCommand: string): string {
+  return `${body}<!-- generated by @purveyors/cli ${version} (${printCommand}); sha256:${sha256(body)} -->\n`;
 }
 
 const SKILL_SEAL_PATTERN =
-  /<!-- generated by @purveyors\/cli \S+ \(purvey skill print\); sha256:([0-9a-f]{64}) -->\n?$/;
+  /<!-- generated by @purveyors\/cli \S+ \(purvey skill print[^)]*\); sha256:([0-9a-f]{64}) -->\n?$/;
 
-/**
- * Render SKILL.md in the open Agent Skills format. The trailing comment records
- * a hash of everything above it, so `install` can tell an unedited earlier copy
- * (safe to update) from one with local edits (needs --force).
- */
+/** Render SKILL.md in the open Agent Skills format. */
 export function renderAgentSkill(
   version: string,
   manifest: CliManifest = getCliManifest()
 ): string {
-  const body = renderSkillBody(manifest, version);
-  return body + skillSeal(version, sha256(body));
+  return seal(renderSkillBody(manifest, version), version, 'purvey skill print');
+}
+
+/** Render workflows.md, the supporting file SKILL.md points to for step-by-step workflows. */
+export function renderAgentWorkflows(
+  version: string,
+  manifest: CliManifest = getCliManifest()
+): string {
+  return seal(
+    renderWorkflowsBody(manifest),
+    version,
+    `purvey skill print --file ${AGENT_WORKFLOWS_FILE}`
+  );
+}
+
+/** Render one file of the skill folder. */
+export function renderAgentSkillFile(
+  file: AgentSkillFile,
+  version: string,
+  manifest: CliManifest = getCliManifest()
+): string {
+  return file === AGENT_SKILL_FILE
+    ? renderAgentSkill(version, manifest)
+    : renderAgentWorkflows(version, manifest);
 }
 
 function isUnmodifiedGeneratedSkill(text: string): boolean {
@@ -421,17 +487,70 @@ function refuseOverwrite(path: string, what: string): never {
   );
 }
 
+/** Returns null when the file has local edits and `force` is off. */
 function planSkillFile(
   existing: string | null,
   desired: string,
-  path: string,
   force: boolean
-): { action: SkillInstallAction; content: string } {
+): { action: SkillInstallAction; content: string } | null {
   if (existing === null) return { action: 'create', content: desired };
   if (existing === desired) return { action: 'unchanged', content: desired };
   if (isUnmodifiedGeneratedSkill(existing)) return { action: 'update', content: desired };
   if (force) return { action: 'overwrite', content: desired };
-  return refuseOverwrite(path, 'SKILL.md');
+  return null;
+}
+
+interface PlannedSkillFile {
+  file: AgentSkillFile;
+  path: string;
+  action: SkillInstallAction;
+  content: string;
+}
+
+/**
+ * Plan every file in the skill folder before writing any of them, so a refusal
+ * leaves the folder exactly as it was. A folder from a single-file install has
+ * no workflows.md yet; that file is simply created.
+ */
+async function planSkillFolder(
+  skillPath: string,
+  version: string,
+  manifest: CliManifest,
+  force: boolean
+): Promise<PlannedSkillFile[]> {
+  const planned: PlannedSkillFile[] = [];
+  const refused: string[] = [];
+  for (const file of AGENT_SKILL_FILES) {
+    const path = join(dirname(skillPath), file);
+    const plan = planSkillFile(
+      await readExisting(path),
+      renderAgentSkillFile(file, version, manifest),
+      force
+    );
+    if (plan) {
+      planned.push({ file, path, ...plan });
+    } else {
+      refused.push(path);
+    }
+  }
+
+  if (refused.length > 0) {
+    const files = refused.map((path) => basename(path)).join(' and ');
+    const [verb, past, pronoun] =
+      refused.length > 1 ? ['have', 'were', 'them'] : ['has', 'was', 'it'];
+    throw new PrvrsError(
+      'CONFIG_ERROR',
+      `${files} in ${dirname(skillPath)} ${verb} local edits or ${past} not written by purvey. Nothing was written. Keep ${pronoun}, or re-run with --force to replace ${pronoun}.`,
+      { path: refused[0], paths: refused, reason: 'modified' }
+    );
+  }
+  return planned;
+}
+
+const ACTION_RANK: SkillInstallAction[] = ['overwrite', 'update', 'create', 'unchanged'];
+
+function summarizeActions(actions: SkillInstallAction[]): SkillInstallAction {
+  return ACTION_RANK.find((action) => actions.includes(action)) ?? 'unchanged';
 }
 
 function planAgentsMd(
@@ -632,8 +751,9 @@ export interface SkillInstallOptions {
 
 /**
  * Install the generated instructions. Never touches credentials or the network.
- * Identical content is left alone, unedited earlier output is updated, and
- * anything else needs `force`. For agents-md, also reports whether Claude Code
+ * claude and agents write both files of the skill folder; agents-md writes one
+ * block. Identical content is left alone, unedited earlier output is updated,
+ * and anything else needs `force`. For agents-md, also reports whether Claude Code
  * will load the block, and with `linkClaudeMd` makes sure it does.
  */
 export async function installAgentSkill(options: SkillInstallOptions): Promise<SkillInstallResult> {
@@ -650,18 +770,48 @@ export async function installAgentSkill(options: SkillInstallOptions): Promise<S
   const force = Boolean(options.force);
   const dryRun = Boolean(options.dryRun);
 
-  const existing = await readExisting(path);
-  const plan =
-    target === 'agents-md'
-      ? planAgentsMd(existing, renderAgentsMdBlock(options.version, manifest), path, force)
-      : planSkillFile(existing, renderAgentSkill(options.version, manifest), path, force);
+  if (target !== 'agents-md') {
+    const planned = await planSkillFolder(path, options.version, manifest, force);
+    const files: SkillInstallFileResult[] = [];
+    // SKILL.md goes last, so it never points to a workflows.md that failed to write.
+    for (const plan of [...planned].reverse()) {
+      const written = !dryRun && plan.action !== 'unchanged';
+      if (written) {
+        await writeFileAtomically(plan.path, plan.content);
+      }
+      files.unshift({
+        file: plan.file,
+        path: plan.path,
+        action: plan.action,
+        written,
+        bytes: Buffer.byteLength(plan.content, 'utf8'),
+      });
+    }
+    return {
+      target,
+      scope,
+      path,
+      action: summarizeActions(files.map((file) => file.action)),
+      written: files.some((file) => file.written),
+      dryRun,
+      cliVersion: options.version,
+      bytes: files.reduce((total, file) => total + file.bytes, 0),
+      files,
+    };
+  }
 
+  const plan = planAgentsMd(
+    await readExisting(path),
+    renderAgentsMdBlock(options.version, manifest),
+    path,
+    force
+  );
   const written = !dryRun && plan.action !== 'unchanged';
   if (written) {
     await writeFileAtomically(path, plan.content);
   }
 
-  const result: SkillInstallResult = {
+  return {
     target,
     scope,
     path,
@@ -670,11 +820,8 @@ export async function installAgentSkill(options: SkillInstallOptions): Promise<S
     dryRun,
     cliVersion: options.version,
     bytes: Buffer.byteLength(plan.content, 'utf8'),
+    claudeCode: await resolveClaudeCode(path, options, dryRun),
   };
-  if (target === 'agents-md') {
-    result.claudeCode = await resolveClaudeCode(path, options, dryRun);
-  }
-  return result;
 }
 
 async function resolveClaudeCode(

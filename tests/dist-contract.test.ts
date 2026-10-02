@@ -85,14 +85,20 @@ describe('compiled dist artifact parity', () => {
     expect(distContext).toEqual(sourceManifest);
   }, 15000);
 
-  it('renders the same agent SKILL.md from dist and source', () => {
-    const distSkill = run('node', ['dist/index.js', 'skill', 'print']);
-    const sourceSkill = run('pnpm', ['exec', 'tsx', 'src/index.ts', 'skill', 'print']);
+  it('renders the same agent skill files from dist and source', () => {
+    const args = ['skill', 'print', '--file', 'all', '--json'];
+    const distSkill = run('node', ['dist/index.js', ...args]);
+    const sourceSkill = run('pnpm', ['exec', 'tsx', 'src/index.ts', ...args]);
 
     expect(distSkill.status).toBe(0);
     expect(distSkill.stderr).toBe('');
     expect(sourceSkill.status).toBe(0);
     expect(distSkill.stdout).toBe(sourceSkill.stdout);
-    expect(distSkill.stdout).toMatch(/^---\nname: purveyors\n/);
+    const { files } = JSON.parse(distSkill.stdout) as {
+      files: { file: string; content: string }[];
+    };
+    expect(files.map((file) => file.file)).toEqual(['SKILL.md', 'workflows.md']);
+    expect(files[0].content).toMatch(/^---\nname: purveyors\n/);
+    expect(files[1].content).toMatch(/^# Purveyors workflows/);
   }, 15000);
 });

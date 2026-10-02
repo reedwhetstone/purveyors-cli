@@ -137,7 +137,7 @@ Local and reference commands (no pre-existing credentials required):
   config reset      Reset config to defaults
   context           Output the dense human-readable operator reference; use --json/--pretty only for manifest parity
   manifest          Output the preferred stable machine-readable CLI contract for agents/scripts
-  skill print       Print agent instructions (SKILL.md) generated from the manifest
+  skill print       Print the agent skill (SKILL.md, workflows.md) generated from the manifest
   skill install     Install them for Claude Code, Codex/Cursor (~/.agents/skills), or AGENTS.md
 
 Global Options:

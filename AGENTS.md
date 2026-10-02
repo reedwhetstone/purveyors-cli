@@ -124,7 +124,7 @@ The package runs from `dist/`, not `src/`; source tests alone do not prove packa
 - `roast --coffee-id` expects an inventory ID, not a catalog ID.
 - `sales list --coffee-id` expects an inventory ID; `sales record --roast-id` expects a roast ID.
 - `reference-profile` commands use separate reference-profile and immutable revision UUIDs; only `compare` accepts roast IDs, through `roast:<roast-id>` selectors. Export requires a saved generated revision, not an unsaved preview.
-- `context.ts` and `manifest.ts` are easy to forget when command flags or output behavior change. `purvey skill print` renders from the manifest, and its tests fail if it names a command or flag the manifest lacks or grows past 8 KB.
+- `context.ts` and `manifest.ts` are easy to forget when command flags or output behavior change. `purvey skill print` renders SKILL.md and workflows.md from the manifest, and its tests fail if either names a command or flag the manifest lacks, if SKILL.md comes within 1,500 bytes of its 8 KB bound, or if workflows.md grows past 16 KB. Step-by-step workflow content belongs in workflows.md.
 - `inventory list`, `roast list`, and `sales list` all support `--offset` for pagination. Keep docs in sync when adding new list flags.
 - `roast import` and `roast watch` normalize file and directory path input by trimming whitespace, removing one layer of matching quotes, and unescaping common shell-escaped characters. Preserve this when changing Artisan workflows.
 - `roast watch` must remain graceful on shutdown: Ctrl+C, raw Ctrl+C key input, or SIGTERM should wait for active imports, commit queued batch-mode roasts, print the verification summary, and keep `--resume` state coherent.

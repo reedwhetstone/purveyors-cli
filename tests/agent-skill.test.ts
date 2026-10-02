@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -8,8 +9,11 @@ import {
   AGENT_SKILL_DESCRIPTION,
   AGENT_SKILL_MAX_BYTES,
   AGENT_SKILL_NAME,
+  AGENT_WORKFLOWS_FILE,
+  AGENT_WORKFLOWS_MAX_BYTES,
   installAgentSkill,
   renderAgentSkill,
+  renderAgentWorkflows,
   renderAgentsMdBlock,
   resolveSkillInstallPath,
 } from '../src/lib/agent-skill.js';
@@ -126,8 +130,16 @@ const RAW_KEY_PATTERNS = [
   /"apiKey"\s*:/,
 ];
 
+/**
+ * SKILL.md loads whenever the skill triggers, so it keeps this much room under
+ * AGENT_SKILL_MAX_BYTES. Step-by-step material belongs in workflows.md; each new
+ * manifest workflow adds only one index line (about 40 bytes) here.
+ */
+const SKILL_MIN_HEADROOM_BYTES = 1500;
+
 describe('generated agent skill', () => {
   const skill = renderAgentSkill(version);
+  const workflows = renderAgentWorkflows(version);
   const agentsMd = renderAgentsMdBlock(version);
 
   it('uses valid Agent Skills frontmatter that leads with its triggers', () => {
@@ -152,14 +164,21 @@ describe('generated agent skill', () => {
     }
   });
 
-  it(`stays under ${AGENT_SKILL_MAX_BYTES} bytes`, () => {
-    expect(Buffer.byteLength(skill, 'utf8')).toBeLessThanOrEqual(AGENT_SKILL_MAX_BYTES);
+  it(`keeps SKILL.md under ${AGENT_SKILL_MAX_BYTES} bytes with ${SKILL_MIN_HEADROOM_BYTES} bytes to spare`, () => {
+    const bytes = Buffer.byteLength(skill, 'utf8');
+    expect(bytes).toBeLessThanOrEqual(AGENT_SKILL_MAX_BYTES);
+    expect(AGENT_SKILL_MAX_BYTES - bytes).toBeGreaterThanOrEqual(SKILL_MIN_HEADROOM_BYTES);
+  });
+
+  it(`keeps workflows.md under ${AGENT_WORKFLOWS_MAX_BYTES} bytes`, () => {
+    expect(Buffer.byteLength(workflows, 'utf8')).toBeLessThanOrEqual(AGENT_WORKFLOWS_MAX_BYTES);
   });
 
   it('references only commands and flags that exist in the manifest', () => {
-    const invocations = extractInvocations(skill);
-    expect(invocations.length).toBeGreaterThan(20);
+    expect(extractInvocations(skill).length).toBeGreaterThan(5);
+    expect(extractInvocations(workflows).length).toBeGreaterThan(15);
     expect(invalidInvocations(skill)).toEqual([]);
+    expect(invalidInvocations(workflows)).toEqual([]);
     expect(invalidInvocations(agentsMd)).toEqual([]);
   });
 
@@ -172,19 +191,36 @@ describe('generated agent skill', () => {
     ]);
   });
 
-  it('renders every manifest workflow verbatim', () => {
+  it('renders every manifest workflow verbatim in workflows.md and indexes it in SKILL.md', () => {
+    const index = skill.split('## Workflows\n')[1].split('\n## ')[0];
     for (const workflow of getCliManifest().workflows) {
-      expect(skill).toContain(`### ${workflow.title}`);
+      expect(workflows).toContain(`\n## ${workflow.title}\n\n\`\`\`sh\n`);
       for (const command of workflow.commands) {
-        expect(skill).toContain(command);
+        expect(workflows).toContain(`\n${command}\n`);
       }
+      expect(index).toContain(`\n- ${workflow.title}\n`);
     }
+    // The steps live only in workflows.md.
+    expect(skill).not.toContain('```sh\npurvey inventory add');
+  });
+
+  it('points SKILL.md to workflows.md with a relative link before multi-step tasks', () => {
+    expect(skill).toContain(
+      `Before a multi-step task, read [${AGENT_WORKFLOWS_FILE}](${AGENT_WORKFLOWS_FILE}) next to this file`
+    );
+    expect(skill).toContain('`purvey skill print --file workflows.md`');
+    expect(workflows).toMatch(/^# Purveyors workflows/);
+    expect(workflows).toContain('[SKILL.md](SKILL.md) covers sign-in');
+    // Supporting files carry no frontmatter; only SKILL.md does.
+    expect(workflows).not.toMatch(/^---\n/);
   });
 
   it('teaches the headless device-approval login and never carries a raw API key', () => {
     for (const text of [skill, agentsMd]) {
       expect(text).toContain('purvey auth login --headless');
       expect(text).toMatch(/Never ask (?:the user to paste )?(?:for )?an API key/);
+    }
+    for (const text of [skill, workflows, agentsMd]) {
       for (const pattern of RAW_KEY_PATTERNS) {
         expect(text).not.toMatch(pattern);
       }
@@ -297,6 +333,11 @@ function runCli(args: string[]) {
 }
 
 describe('purvey skill install', () => {
+  const skill = renderAgentSkill(version);
+  const workflows = renderAgentWorkflows(version);
+  const skillBytes = Buffer.byteLength(skill, 'utf8');
+  const workflowsBytes = Buffer.byteLength(workflows, 'utf8');
+
   it('resolves the documented install locations', () => {
     const roots = { home: '/h', cwd: '/p' };
     expect(resolveSkillInstallPath('claude', 'user', roots)).toBe(
@@ -314,8 +355,10 @@ describe('purvey skill install', () => {
     expect(resolveSkillInstallPath('agents-md', 'project', roots)).toBe('/p/AGENTS.md');
   });
 
-  it('installs into a temp HOME without credentials, prints the path, and is idempotent', () => {
-    const path = join(home, '.claude', 'skills', 'purveyors', 'SKILL.md');
+  it('installs both files into a temp HOME without credentials and is idempotent', () => {
+    const dir = join(home, '.claude', 'skills', 'purveyors');
+    const skillPath = join(dir, 'SKILL.md');
+    const workflowsPath = join(dir, 'workflows.md');
 
     const first = runCli(['skill', 'install', '--target', 'claude']);
     expect(first.status).toBe(EXIT_CODES.OK);
@@ -323,38 +366,89 @@ describe('purvey skill install', () => {
       expect.objectContaining({
         target: 'claude',
         scope: 'user',
-        path,
+        path: skillPath,
         action: 'create',
         written: true,
+        bytes: Buffer.byteLength(skill + workflows, 'utf8'),
+        files: [
+          { file: 'SKILL.md', path: skillPath, action: 'create', written: true, bytes: skillBytes },
+          {
+            file: 'workflows.md',
+            path: workflowsPath,
+            action: 'create',
+            written: true,
+            bytes: workflowsBytes,
+          },
+        ],
       })
     );
-    expect(readFileSync(path, 'utf8')).toBe(runCli(['skill', 'print']).stdout);
+    expect(readFileSync(skillPath, 'utf8')).toBe(runCli(['skill', 'print']).stdout);
+    expect(readFileSync(workflowsPath, 'utf8')).toBe(
+      runCli(['skill', 'print', '--file', 'workflows.md']).stdout
+    );
 
     const second = runCli(['skill', 'install', '--target', 'claude']);
     expect(second.status).toBe(EXIT_CODES.OK);
     expect(second.json).toEqual(
-      expect.objectContaining({ path, action: 'unchanged', written: false })
+      expect.objectContaining({ path: skillPath, action: 'unchanged', written: false })
     );
+    expect((second.json as { files: { action: string }[] }).files.map((f) => f.action)).toEqual([
+      'unchanged',
+      'unchanged',
+    ]);
   }, 30000);
 
-  it('refuses to overwrite a locally edited SKILL.md without --force', () => {
-    const path = join(home, '.agents', 'skills', 'purveyors', 'SKILL.md');
-    expect(runCli(['skill', 'install', '--target', 'agents']).status).toBe(EXIT_CODES.OK);
-    const edited = readFileSync(path, 'utf8').replace('## Working rules', '## My rules');
-    writeFileSync(path, edited);
+  for (const file of ['SKILL.md', 'workflows.md'] as const) {
+    it(`refuses to overwrite a locally edited ${file} without --force and writes nothing`, () => {
+      const dir = join(home, '.agents', 'skills', 'purveyors');
+      const path = join(dir, file);
+      const other = join(dir, file === 'SKILL.md' ? 'workflows.md' : 'SKILL.md');
+      expect(runCli(['skill', 'install', '--target', 'agents']).status).toBe(EXIT_CODES.OK);
+      const edited = `${readFileSync(path, 'utf8')}\nMy own note.\n`;
+      writeFileSync(path, edited);
+      // An outdated sibling would normally be updated; a refusal must leave it alone too.
+      const olderOther = (file === 'SKILL.md' ? renderAgentWorkflows : renderAgentSkill)('0.0.1');
+      writeFileSync(other, olderOther);
 
-    const refused = runCli(['skill', 'install', '--target', 'agents']);
-    expect(refused.status).toBe(EXIT_CODES.CONFIG_ERROR);
-    expect(JSON.parse(refused.stderr)).toEqual(
-      expect.objectContaining({ code: 'CONFIG_ERROR', message: expect.stringContaining('--force') })
-    );
-    expect(readFileSync(path, 'utf8')).toBe(edited);
+      const refused = runCli(['skill', 'install', '--target', 'agents']);
+      expect(refused.status).toBe(EXIT_CODES.CONFIG_ERROR);
+      expect(JSON.parse(refused.stderr)).toEqual(
+        expect.objectContaining({
+          code: 'CONFIG_ERROR',
+          message: expect.stringContaining(`${file} in ${dir} has local edits`),
+        })
+      );
+      expect(readFileSync(path, 'utf8')).toBe(edited);
+      expect(readFileSync(other, 'utf8')).toBe(olderOther);
 
-    const forced = runCli(['skill', 'install', '--target', 'agents', '--force']);
-    expect(forced.status).toBe(EXIT_CODES.OK);
-    expect(forced.json).toEqual(expect.objectContaining({ action: 'overwrite', written: true }));
-    expect(readFileSync(path, 'utf8')).toBe(renderAgentSkill(version));
-  }, 30000);
+      const forced = runCli(['skill', 'install', '--target', 'agents', '--force']);
+      expect(forced.status).toBe(EXIT_CODES.OK);
+      expect(forced.json).toEqual(expect.objectContaining({ action: 'overwrite', written: true }));
+      const actions = Object.fromEntries(
+        (forced.json as { files: { file: string; action: string }[] }).files.map((f) => [
+          f.file,
+          f.action,
+        ])
+      );
+      expect(actions[file]).toBe('overwrite');
+      expect(readFileSync(join(dir, 'SKILL.md'), 'utf8')).toBe(skill);
+      expect(readFileSync(join(dir, 'workflows.md'), 'utf8')).toBe(workflows);
+    }, 30000);
+  }
+
+  it('names every edited file in one refusal', async () => {
+    const dir = dirname(resolveSkillInstallPath('claude', 'user', { home }));
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'SKILL.md'), '# mine\n');
+    writeFileSync(join(dir, 'workflows.md'), '# mine too\n');
+    await expect(
+      installAgentSkill({ target: 'claude', version, home, cwd: project })
+    ).rejects.toMatchObject({
+      code: 'CONFIG_ERROR',
+      message: expect.stringContaining('SKILL.md and workflows.md'),
+      details: { paths: [join(dir, 'SKILL.md'), join(dir, 'workflows.md')] },
+    });
+  });
 
   it('writes nothing on --dry-run', () => {
     const result = runCli([
@@ -366,12 +460,21 @@ describe('purvey skill install', () => {
       'project',
       '--dry-run',
     ]);
-    const path = join(project, '.claude', 'skills', 'purveyors', 'SKILL.md');
+    const dir = join(project, '.claude', 'skills', 'purveyors');
     expect(result.status).toBe(EXIT_CODES.OK);
     expect(result.json).toEqual(
-      expect.objectContaining({ path, action: 'create', written: false, dryRun: true })
+      expect.objectContaining({
+        path: join(dir, 'SKILL.md'),
+        action: 'create',
+        written: false,
+        dryRun: true,
+        files: [
+          expect.objectContaining({ file: 'SKILL.md', action: 'create', written: false }),
+          expect.objectContaining({ file: 'workflows.md', action: 'create', written: false }),
+        ],
+      })
     );
-    expect(existsSync(path)).toBe(false);
+    expect(existsSync(dir)).toBe(false);
   }, 30000);
 
   it('rejects a missing or unknown target', () => {
@@ -384,14 +487,71 @@ describe('purvey skill install', () => {
     );
   }, 30000);
 
-  it('updates an unedited SKILL.md written by an earlier CLI version', async () => {
+  it('updates both files when both are unedited output of an earlier CLI version', async () => {
     const path = resolveSkillInstallPath('claude', 'user', { home });
+    const workflowsPath = join(dirname(path), 'workflows.md');
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, renderAgentSkill('0.0.1'));
+    writeFileSync(workflowsPath, renderAgentWorkflows('0.0.1'));
+
+    const dryRun = await installAgentSkill({
+      target: 'claude',
+      version,
+      home,
+      cwd: project,
+      dryRun: true,
+    });
+    expect(dryRun.files?.map((f) => f.action)).toEqual(['update', 'update']);
+    expect(readFileSync(path, 'utf8')).toBe(renderAgentSkill('0.0.1'));
 
     const result = await installAgentSkill({ target: 'claude', version, home, cwd: project });
     expect(result.action).toBe('update');
-    expect(readFileSync(path, 'utf8')).toBe(renderAgentSkill(version));
+    expect(result.files?.map((f) => f.action)).toEqual(['update', 'update']);
+    expect(readFileSync(path, 'utf8')).toBe(skill);
+    expect(readFileSync(workflowsPath, 'utf8')).toBe(workflows);
+  });
+
+  it('upgrades a single-file install: updates SKILL.md and creates workflows.md', async () => {
+    const path = resolveSkillInstallPath('agents', 'user', { home });
+    const workflowsPath = join(dirname(path), 'workflows.md');
+    mkdirSync(dirname(path), { recursive: true });
+    // The earlier single-file layout: workflows inline in SKILL.md, sealed by `purvey skill print`.
+    const legacyBody =
+      skill.slice(0, skill.indexOf('<!-- generated by')).split('## Workflows\n')[0] +
+      '## Workflows\n\n### Catalog to inventory\n\n```sh\npurvey catalog search --origin "Ethiopia" --stocked --pretty\n```\n';
+    const legacy = `${legacyBody}<!-- generated by @purveyors/cli 0.35.0 (purvey skill print); sha256:${createHash('sha256').update(legacyBody, 'utf8').digest('hex')} -->\n`;
+    writeFileSync(path, legacy);
+
+    const dryRun = await installAgentSkill({
+      target: 'agents',
+      version,
+      home,
+      cwd: project,
+      dryRun: true,
+    });
+    expect(dryRun.files?.map((f) => f.action)).toEqual(['update', 'create']);
+    expect(existsSync(workflowsPath)).toBe(false);
+
+    const result = await installAgentSkill({ target: 'agents', version, home, cwd: project });
+    expect(result).toEqual(expect.objectContaining({ action: 'update', written: true }));
+    expect(result.files?.map((f) => [f.file, f.action, f.written])).toEqual([
+      ['SKILL.md', 'update', true],
+      ['workflows.md', 'create', true],
+    ]);
+    expect(readFileSync(path, 'utf8')).toBe(skill);
+    expect(readFileSync(workflowsPath, 'utf8')).toBe(workflows);
+
+    const again = await installAgentSkill({ target: 'agents', version, home, cwd: project });
+    expect(again).toEqual(expect.objectContaining({ action: 'unchanged', written: false }));
+  });
+
+  it('recreates a deleted workflows.md without touching a current SKILL.md', async () => {
+    const path = resolveSkillInstallPath('claude', 'user', { home });
+    await installAgentSkill({ target: 'claude', version, home, cwd: project });
+    rmSync(join(dirname(path), 'workflows.md'));
+    const result = await installAgentSkill({ target: 'claude', version, home, cwd: project });
+    expect(result.action).toBe('create');
+    expect(result.files?.map((f) => f.action)).toEqual(['unchanged', 'create']);
   });
 
   it('refuses a SKILL.md that purvey did not write', async () => {
@@ -598,10 +758,13 @@ describe('Claude Code visibility for the AGENTS.md block', () => {
 });
 
 describe('purvey skill print', () => {
+  const skill = renderAgentSkill(version);
+  const workflows = renderAgentWorkflows(version);
+
   it('prints Markdown by default and a JSON wrapper with --json', () => {
     const markdown = runCli(['skill', 'print']);
     expect(markdown.status).toBe(EXIT_CODES.OK);
-    expect(markdown.stdout).toBe(renderAgentSkill(version));
+    expect(markdown.stdout).toBe(skill);
 
     const wrapped = runCli(['skill', 'print', '--agents-md', '--json']);
     expect(wrapped.json).toEqual({
@@ -613,5 +776,35 @@ describe('purvey skill print', () => {
     });
 
     expect(runCli(['skill', 'print', '--csv']).status).toBe(EXIT_CODES.INVALID_ARGUMENT);
+  }, 30000);
+
+  it('prints workflows.md or every file with --file', () => {
+    expect(runCli(['skill', 'print', '--file', 'workflows.md']).stdout).toBe(workflows);
+    expect(runCli(['skill', 'print', '--file', 'workflows.md', '--json']).json).toEqual({
+      name: AGENT_SKILL_NAME,
+      file: 'workflows.md',
+      cliVersion: version,
+      bytes: Buffer.byteLength(workflows, 'utf8'),
+      content: workflows,
+    });
+    expect(runCli(['skill', 'print', '--file', 'all', '--json']).json).toEqual({
+      name: AGENT_SKILL_NAME,
+      cliVersion: version,
+      files: [
+        { file: 'SKILL.md', bytes: Buffer.byteLength(skill, 'utf8'), content: skill },
+        { file: 'workflows.md', bytes: Buffer.byteLength(workflows, 'utf8'), content: workflows },
+      ],
+    });
+
+    for (const args of [
+      ['--file', 'all'],
+      ['--file', 'README.md'],
+      ['--agents-md', '--file', 'workflows.md'],
+      ['--agents-md', '--file', 'SKILL.md'],
+    ]) {
+      const result = runCli(['skill', 'print', ...args]);
+      expect(result.status, args.join(' ')).toBe(EXIT_CODES.INVALID_ARGUMENT);
+      expect(result.stdout).toBe('');
+    }
   }, 30000);
 });
