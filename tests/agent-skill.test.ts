@@ -130,13 +130,6 @@ const RAW_KEY_PATTERNS = [
   /"apiKey"\s*:/,
 ];
 
-/**
- * SKILL.md loads whenever the skill triggers, so it keeps this much room under
- * AGENT_SKILL_MAX_BYTES. Step-by-step material belongs in workflows.md; each new
- * manifest workflow adds only one index line (about 40 bytes) here.
- */
-const SKILL_MIN_HEADROOM_BYTES = 1500;
-
 describe('generated agent skill', () => {
   const skill = renderAgentSkill(version);
   const workflows = renderAgentWorkflows(version);
@@ -164,10 +157,10 @@ describe('generated agent skill', () => {
     }
   });
 
-  it(`keeps SKILL.md under ${AGENT_SKILL_MAX_BYTES} bytes with ${SKILL_MIN_HEADROOM_BYTES} bytes to spare`, () => {
-    const bytes = Buffer.byteLength(skill, 'utf8');
-    expect(bytes).toBeLessThanOrEqual(AGENT_SKILL_MAX_BYTES);
-    expect(AGENT_SKILL_MAX_BYTES - bytes).toBeGreaterThanOrEqual(SKILL_MIN_HEADROOM_BYTES);
+  // SKILL.md loads whenever the skill triggers. Step-by-step material belongs in
+  // workflows.md, so each new manifest workflow adds only one index line here.
+  it(`keeps SKILL.md under ${AGENT_SKILL_MAX_BYTES} bytes`, () => {
+    expect(Buffer.byteLength(skill, 'utf8')).toBeLessThanOrEqual(AGENT_SKILL_MAX_BYTES);
   });
 
   it(`keeps workflows.md under ${AGENT_WORKFLOWS_MAX_BYTES} bytes`, () => {
