@@ -335,16 +335,28 @@ describe('CLI manifest contract', () => {
     expect(leaks).toEqual([]);
   });
 
-  it('describes catalog similar access the way Parchment and the CLI enforce it', () => {
+  it('describes catalog similar access the way Parchment enforces it', () => {
     const similar = flattenManifestCommands().get('catalog similar');
     const access = similar?.notes?.join(' ') ?? '';
 
-    // The stored login key is checked for member access before the request.
-    expect(similar?.auth).toBe('member');
-    // Parchment admits any customer API key with catalog:read, on any plan.
-    expect(access).toContain('any API plan');
-    expect(access).toContain('catalog:read');
-    expect(access).not.toMatch(/paid/i);
+    // Any sign-in works: `purvey auth login` stores an API key with catalog:read,
+    // and Parchment admits any customer API key with that scope, on any plan.
+    expect(similar?.auth).toBe('viewer');
+    expect(access).toContain('purvey auth login');
+    expect(access).toContain('any API key with catalog:read');
+    expect(access).toContain('Green');
+    expect(access).not.toMatch(/member|paid/i);
+  });
+
+  it('does not claim member access for structured process filters', () => {
+    const search = flattenManifestCommands().get('catalog search');
+    const copy = [
+      search?.summary ?? '',
+      ...(search?.notes ?? []),
+      ...(search?.options ?? []).map((option) => option.description ?? ''),
+    ];
+
+    expect(copy.filter((text) => /member/i.test(text))).toEqual([]);
   });
 
   it('publishes canonical numeric bounds for bounded endpoint options', () => {

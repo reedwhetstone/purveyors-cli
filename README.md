@@ -12,7 +12,7 @@ Use `purvey --help` for quick command discovery, `purvey context` for the dense 
 - Package: `@purveyors/cli`
 - Runtime: Node.js 20+
 - No pre-existing credentials required: `auth`, `config`, `context`, `manifest`, `skill`
-- Viewer role required: `catalog` (excluding structured process filters on `catalog search`)
+- Viewer role required: `catalog`, including structured process filters and `catalog similar`
 - Member role required: `procurement`, `inventory`, `roast`, `sales`, `tasting`
 - Mixed public and entitled access: `market` and `price-index` public teaser slices are unauthenticated; filtered, non-public, and evidence slices require a credential and, where entitled, Parchment Intelligence access
 - Preferred machine-readable contract: `purvey manifest`
@@ -76,7 +76,7 @@ purvey auth login
 # 2. Confirm the stored API key and role
 purvey auth status
 
-# 3. Search the catalog (viewer role for basic filters, member role for structured process filters)
+# 3. Search the catalog (any signed-in account)
 purvey catalog search --origin "Ethiopia" --stocked --pretty
 
 # Example with structured process filters and proof output
@@ -148,8 +148,7 @@ No pre-existing credentials are required for `auth`, `config`, `context`, `manif
 
 Remote data commands require a valid owner-bound API key with the required scope:
 
-- `catalog` requires the `viewer` role by default
-- `catalog search` structured process filters require the `member` role
+- `catalog` requires the `viewer` role, which any sign-in provides; Parchment decides access to structured process filters and `catalog similar`, and admits any API key with `catalog:read`
 - `market` has public teaser slices for `signals --summary`, unfiltered retail `stats`, and process/retail/month `metadata`; all filtered or non-public slices require Parchment Intelligence access enforced server-side
 - `market overview` requires any signed-in session or API key; `market evidence` requires Parchment Intelligence access
 - `price-index history` is public for windows up to 90 days; longer windows require Parchment Intelligence access
@@ -197,14 +196,14 @@ Credentials are stored at `~/.config/purvey/credentials.json`.
 
 ### Auth roles
 
-| Role     | Access                                                                                                                                                                                                                        |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `viewer` | `catalog search`, `catalog get`, `catalog stats`, excluding structured process filters                                                                                                                                        |
-| `member` | All viewer commands, `catalog similar`, structured process filters on `catalog search`, plus `price-index`, `procurement`, `inventory`, `roast`, `sales`, and `tasting` through the scoped key created by `purvey auth login` |
+| Role     | Access                                                                                                                                                     |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `viewer` | Every `catalog` command, including structured process filters on `catalog search` and `catalog similar`                                                    |
+| `member` | All viewer commands, plus `price-index`, `procurement`, `inventory`, `roast`, `sales`, and `tasting` through the scoped key created by `purvey auth login` |
 
 The `reference-profile` commands also require Studio access; the API enforces this entitlement.
 
-`catalog similar` checks for member access when it uses the key stored by `purvey auth login`. An API key in `PURVEYORS_API_KEY` or `PARCHMENT_API_KEY` works on any API plan when it has the `catalog:read` scope.
+`catalog similar` needs a sign-in (`purvey auth login`) or any API key with `catalog:read`. The free Green API plan includes it within its monthly quota. Parchment decides access and the CLI maps its 401 and 403 responses to exit code 3 with Parchment's message.
 
 Market Index teaser slices are public. Filtered `market signals`, origin/process/wholesale `market stats`, non-public `market metadata`, `market evidence`, `price-index comparisons`, `price-index comparison`, and `price-index history` windows over 90 days require Parchment Intelligence access; API-key denial is enforced by the canonical API. The stored login key carries `catalog:read`, which is also the canonical read scope for Market Index, Price Index, and procurement.
 
@@ -317,7 +316,7 @@ Notes:
 - `auth login --headless` prints the approval URL without trying to open a local browser. Approve it from any browser; nothing is pasted back.
 - `auth status --json` is the safest mode for scripts.
 - `auth status --csv` is supported for spreadsheet-style checks, but JSON remains the better integration format.
-- `auth whoami` prints Parchment's `GET /v1/me` response unchanged for the credential the CLI would send: roles, API plan, scopes, Price Index access, and capabilities such as `capabilities.profileStudio`. Like the rest of `auth`, it needs no existing credential; without one it prints Parchment's anonymous principal (`authenticated: false`).
+- `auth whoami` prints Parchment's `GET /v1/me` response unchanged for the credential the CLI would send: roles, API plan, scopes, Price Index access, and capabilities such as `capabilities.profileStudio`. Like the rest of `auth`, it needs no existing credential; without one it prints a signed-out result (`authenticated: false`).
 
 ### catalog
 
@@ -428,8 +427,7 @@ purvey catalog get 1182 --include-proof --json
 
 Notes:
 
-- Catalog commands require an authenticated `viewer` role by default.
-- Structured process filters on `catalog search` require an authenticated `member` role.
+- Catalog commands require an authenticated `viewer` role. Parchment decides access to structured process filters and admits any API key with `catalog:read`, including the key `purvey auth login` stores.
 - Structured process filters use the canonical `/v1/catalog` query contract names while preserving the legacy `--process` label filter.
 - `--supplier`, `--drying-method`, and `--flavor` pass through to the canonical `/v1/catalog` `supplier`, `dryingMethod`, and `flavorKeywords` parameters; Parchment applies them, not the CLI.
 - `--include-proof` is an opt-in API-backed catalog read. It consumes the canonical proof summary returned by `/v1/catalog?include=proof`; the CLI does not compute proof fields locally or duplicate web/API proof logic.
@@ -440,7 +438,7 @@ Notes:
 - Catalog intelligence responses include `meta.sample_limited`, `meta.sample_order`, `meta.truncated`, and rows-examined style metadata where relevant so agents can distinguish ranked samples from full supplier aggregates. Supplier aggregate responses also include `meta.rows_examined`.
 - Supplier aggregate commands summarize catalog row counts, stocked counts, Purveyor Score coverage, average score, average confidence, price range, origin/process coverage, and representative top coffees with score qualifiers.
 - `catalog similar` uses the beta canonical `/v1/catalog/{id}/similar` API contract, not the legacy direct RPC path.
-- `catalog similar --json` requires member access with the `purvey auth login` key, or an API key with `catalog:read` on any API plan, and returns the grouped canonical response object: `data.target`, `data.groups.canonical_candidates`, `data.groups.similar_recommendations`, optional `data.matches`, and `meta`.
+- `catalog similar --json` works with the `purvey auth login` key or any API key with `catalog:read`, on any API plan, and returns the grouped canonical response object: `data.target`, `data.groups.canonical_candidates`, `data.groups.similar_recommendations`, optional `data.matches`, and `meta`.
 - `canonical_candidates` are likely same-lot candidates; `similar_recommendations` are substitutes/profile matches and include blocker reasons when identity gates disagree.
 - The command preserves `classification_version`, `query_strategy`, score dimensions, proof summaries, pricing metadata, and classification/blocker details supplied by the API.
 - `catalog stats` returns aggregate catalog metrics, not your personal inventory metrics.

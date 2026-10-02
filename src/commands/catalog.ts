@@ -101,9 +101,9 @@ function parseNonNegativeIntegerArg(rawValue: string, message: string): number {
 
 /**
  * `purvey catalog` — Browse the coffee catalog.
- * Requires an authenticated viewer session. Structured process filters on
- * `catalog search` require member access under the current session-authenticated
- * CLI path.
+ * Requires an authenticated viewer session or an API key. Parchment decides
+ * access to structured process filters and similarity; the CLI does not pre-check
+ * roles for them.
  */
 export function buildCatalogCommand(): Command {
   const catalog = new Command('catalog').description('Browse the coffee catalog');
@@ -164,9 +164,6 @@ Notes:
   All filters are optional. Without flags, returns up to --limit results.
   --origin accepts partial matches (e.g. "Ethiopia" matches "Ethiopia Guji").
   --process matches the broad processing label.
-  --processing-base-method, --fermentation-type, --process-additive,
-  --processing-disclosure-level, and --processing-confidence-min require member
-  access.
   --processing-base-method, --fermentation-type, --process-additive, and
   --processing-disclosure-level require exact structured metadata matches.
   --processing-confidence-min accepts a decimal from 0 to 1.
@@ -176,7 +173,7 @@ Notes:
   --offset + --limit enables pagination through large result sets.
   --include-proof adds a proof summary to each coffee; without it the output shape
   is unchanged.
-  Requires an authenticated viewer session.
+  Requires a sign-in ('purvey auth login') or an API key with catalog:read.
 `
     )
     .action(
@@ -328,7 +325,7 @@ Notes:
   <id> is the catalog ID (integer).
   Use 'purvey catalog search' to find IDs.
   --include-proof adds the coffee's proof summary.
-  Requires an authenticated viewer session.
+  Requires a sign-in ('purvey auth login') or an API key with catalog:read.
 `
     )
     .action(
@@ -362,7 +359,7 @@ Examples:
 Notes:
   Returns aggregated data: total count, average price, unique origins,
   processing method breakdown, and stocked count.
-  Requires an authenticated viewer session.
+  Requires a sign-in ('purvey auth login') or an API key with catalog:read.
 `
     )
     .action(
@@ -395,7 +392,7 @@ Notes:
   Counts include only coffees you can see; counts for multi-valued dimensions can
   overlap, so do not sum them.
   By default only currently stocked catalog rows are included; use --all for all visible rows.
-  Requires an authenticated viewer session.
+  Requires a sign-in ('purvey auth login') or an API key with catalog:read.
 `
     )
     .action(
@@ -426,7 +423,7 @@ Notes:
   // ── catalog rank ─────────────────────────────────────────────────────────
   catalog
     .command('rank')
-    .description('Rank catalog candidates by a deterministic objective')
+    .description('Rank catalog coffees for a goal: premium, value, fresh arrivals, or rare origins')
     .option('--objective <objective>', '', 'premium')
     .option('--supplier <name>')
     .option('--country <country>')
@@ -452,7 +449,7 @@ Notes:
   Uses the Purveyor Score as the quality signal.
   Generic ranking samples catalog rows ordered by id before deterministic ranking;
   meta.stocked_only/scope, sample_size, and truncated describe that scope, which matters for rare_origin.
-  Requires an authenticated viewer session.
+  Requires a sign-in ('purvey auth login') or an API key with catalog:read.
 `
     )
     .action(
@@ -522,7 +519,7 @@ Examples:
 Notes:
   Ranks by Purveyor Score (purveyor_score in output) and adds transparent ranking
   signals for agents.
-  Requires an authenticated viewer session.
+  Requires a sign-in ('purvey auth login') or an API key with catalog:read.
 `
     )
     .action(
@@ -564,7 +561,7 @@ Notes:
   // ── catalog supplier aggregates ──────────────────────────────────────────
   catalog
     .command('supplier-list')
-    .description('List supplier aggregates from catalog rows')
+    .description('Summarize suppliers from the catalog coffees they list')
     .option('--country <country>')
     .option('--stocked')
     .option('--non-wholesale-only')
@@ -581,7 +578,7 @@ Examples:
 Notes:
   Aggregates supplier count, stocked count, Purveyor Score coverage, average score,
   price range, origin coverage, process coverage, and representative top coffees.
-  Requires an authenticated viewer session.
+  Requires a sign-in ('purvey auth login') or an API key with catalog:read.
 `
     )
     .action(
@@ -622,7 +619,7 @@ Examples:
 
 Notes:
   Supplier matching is case-insensitive and partial, mirroring catalog search.
-  Requires an authenticated viewer session.
+  Requires a sign-in ('purvey auth login') or an API key with catalog:read.
 `
     )
     .action(
@@ -670,7 +667,7 @@ Examples:
 
 Notes:
   Ranks suppliers by average Purveyor Score, then currently stocked count.
-  Requires an authenticated viewer session.
+  Requires a sign-in ('purvey auth login') or an API key with catalog:read.
 `
     )
     .action(
@@ -725,9 +722,8 @@ Notes:
   Blockers, proof summaries, score dimensions, classification_version,
   query_strategy, and pricing metadata are kept as returned.
   Default output is compact JSON. Use --pretty for formatted JSON.
-  Signed in with 'purvey auth login', your account needs member access. An API key
-  in PURVEYORS_API_KEY or PARCHMENT_API_KEY works on any API plan when it has the
-  catalog:read scope.
+  Needs a sign-in ('purvey auth login') or any API key with catalog:read. The free
+  Green API plan includes it within its monthly quota.
 `
     )
     .action(

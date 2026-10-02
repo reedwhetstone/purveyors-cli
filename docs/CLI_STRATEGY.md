@@ -113,7 +113,7 @@ The shipped auth model is role- and scope-based:
 - Authenticated `viewer` role required: `catalog`
 - Mixed public and entitled access: `market` and `price-index history` public teaser slices are unauthenticated; filtered market slices, `market evidence`, price-index comparisons, and history windows over 90 days require Parchment Intelligence access enforced server-side; `market overview` requires any signed-in session or API key
 - Authenticated `member` role plus Studio entitlement required: `reference-profile`, enforced by Parchment
-- Authenticated `member` role required through the stored scoped key: structured process filters on `catalog search`, plus `price-index` snapshots, `price-index comparisons`, `price-index comparison`, `procurement`, `inventory`, `roast`, `sales`, `tasting`
+- Authenticated `member` role required through the stored scoped key: `price-index` snapshots, `price-index comparisons`, `price-index comparison`, `procurement`, `inventory`, `roast`, `sales`, `tasting`
 
 Parchment device authorization exposes the existing purveyors.io Google login in two supported flows:
 
@@ -166,9 +166,9 @@ Catalog intelligence boundaries:
 
 - `catalog search --include-proof` consumes the canonical `/v1/catalog?include=proof` summary. The CLI does not compute proof scores locally.
 - The proof path consumes the same canonical `/v1/catalog` query contract as ordinary catalog search. The CLI does not expose client-only filters or locally reinterpret proof results.
-- `catalog similar <id>` consumes the beta canonical `/v1/catalog/{id}/similar` contract, not the legacy direct RPC path. It requires member access with the `purvey auth login` key, or an API key with `catalog:read` on any API plan.
+- `catalog similar <id>` consumes the beta canonical `/v1/catalog/{id}/similar` contract, not the legacy direct RPC path. Parchment decides access: it admits member and admin sessions and any customer API key with `catalog:read`, on any API plan. The `purvey auth login` key carries that scope, so the CLI sends it without a role pre-check and maps Parchment's 401/403 to exit code 3.
 - Similarity output must keep `canonical_candidates` separate from `similar_recommendations` and preserve blocker, proof, pricing, score-dimension, `classification_version`, and `query_strategy` metadata for agents.
-- Structured process filters map to canonical `/v1/catalog` query names and require member access through a valid scoped key.
+- Structured process filters map to canonical `/v1/catalog` query names. Parchment grants them to member sessions and any customer API key, so the CLI does not pre-check roles for them.
 - `catalog search --supplier`, `--drying-method`, and `--flavor`, and `catalog rank --supplier`, pass through to canonical query parameters (`supplier`, `dryingMethod`, `flavorKeywords`); Parchment applies them. See the 2026-10-01 update in ADR-004.
 - `catalog facets` returns Parchment's counted facets and metadata unchanged. It does not truncate, re-count, or sum facet counts.
 - Catalog reads and intelligence helpers, inventory CRUD, roast CRUD and classification, reference-profile operations, sales CRUD, tasting reads and writes, role resolution, `market`, `price-index`, and `procurement` are SDK-backed canonical API operations. They default to `api.purveyors.io` and accept `PARCHMENT_API_BASE_URL` for alternate deployments. Most surfaces use `PARCHMENT_API_KEY`/`PURVEYORS_API_KEY` when provided and otherwise send the scoped API key created by `purvey auth login`; interactive roast auto-classification pins that logged-in identity so its inventory candidates and owner-bound classifier authorization cannot diverge. Owner data requires the matching owner-bound API-key scope. `catalog:read` is the canonical scope for catalog, Market Index, Price Index, and procurement reads. Market and price-index history public teaser slices are unauthenticated; filtered and non-public market slices, market evidence, price-index comparisons, and history windows over 90 days require Parchment Intelligence access enforced server-side.

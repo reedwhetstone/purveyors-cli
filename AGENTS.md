@@ -60,7 +60,7 @@ tests/                Vitest coverage
 
 ### Auth and roles
 
-- Use `requireAuth('viewer')` for catalog commands and other viewer-level access, except `catalog search` structured processing filters, which require `member`.
+- Use `requireAuth('viewer')` for catalog commands and other viewer-level access, including `catalog search` structured processing filters and `catalog similar`. Parchment decides access for those and the CLI maps its 401/403 to exit code 3.
 - Use `requireAuth('member')` for personal data, entitled market intelligence, Studio reference profiles, and writes.
 - SDK-backed Parchment commands should use `src/lib/parchment.ts`. Explicit environment API keys take precedence over the scoped key created by `purvey auth login`; the canonical API enforces owner-bound scopes and entitlements.
 - `auth`, `config`, `context`, `manifest`, and `skill` do not require pre-existing credentials.
@@ -130,7 +130,7 @@ The package runs from `dist/`, not `src/`; source tests alone do not prove packa
 - `inventory list`, `roast list`, and `sales list` all support `--offset` for pagination. Keep docs in sync when adding new list flags.
 - `roast import` and `roast watch` normalize file and directory path input by trimming whitespace, removing one layer of matching quotes, and unescaping common shell-escaped characters. Preserve this when changing Artisan workflows.
 - `roast watch` must remain graceful on shutdown: Ctrl+C, raw Ctrl+C key input, or SIGTERM should wait for active imports, commit queued batch-mode roasts, print the verification summary, and keep `--resume` state coherent.
-- Catalog commands require viewer auth, except `catalog search` structured processing filters, which require member auth. Downstream docs (coffee-app site, etc.) that claim catalog access is unauthenticated are wrong and should align with this repo.
+- Catalog commands require viewer auth, including `catalog search` structured processing filters and `catalog similar`; Parchment admits any API key with `catalog:read` for both. Downstream docs (coffee-app site, etc.) that claim catalog access is unauthenticated are wrong and should align with this repo.
 
 ## Release Notes
 

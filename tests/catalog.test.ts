@@ -51,6 +51,7 @@ import {
 import { outputData } from '../src/lib/output.js';
 import type { CatalogItem, CatalogSimilarityResponse } from '../src/lib/catalog.js';
 import type { CredentialContext } from '../src/lib/auth-client.js';
+import { AuthError } from '../src/lib/errors.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -899,7 +900,7 @@ describe('catalog command auth and structured filter parsing', () => {
     expect(outputData).toHaveBeenCalledWith(response, expect.any(Object));
   });
 
-  it('uses member session auth for canonical similarity reads when no API key env is set', async () => {
+  it('sends the stored login key for similarity without pre-checking member access', async () => {
     process.env.PARCHMENT_API_BASE_URL = 'https://example.test';
     const response = makeCanonicalSimilarityResponse();
     const fetchMock = vi.fn().mockResolvedValue(
@@ -914,11 +915,16 @@ describe('catalog command auth and structured filter parsing', () => {
         data: { session: { apiKey: 'session-token' } },
       }),
     } as unknown as CredentialContext;
-    vi.mocked(requireAuth).mockResolvedValue({ credentialContext, userId: 'user-1' });
+    // A viewer account: a member check would fail, so success proves there is none.
+    vi.mocked(requireAuth).mockImplementation(async (role) => {
+      if (role === 'member') throw new AuthError('This command requires "member" role or higher.');
+      return { credentialContext, userId: 'user-1' };
+    });
 
     await runCatalogCommand(['similar', '1182']);
 
-    expect(requireAuth).toHaveBeenCalledWith('member');
+    // Parchment decides access; the CLI only needs a valid sign-in to send the key.
+    expect(vi.mocked(requireAuth).mock.calls).toEqual([['viewer']]);
     expect(fetchMock.mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: 'Bearer session-token' }),
@@ -927,7 +933,37 @@ describe('catalog command auth and structured filter parsing', () => {
     expect(outputData).toHaveBeenCalledWith(response, expect.any(Object));
   });
 
-  it('requires member auth when any structured process filter is requested', async () => {
+  it("exits 3 with Parchment's message when Parchment denies similarity", async () => {
+    process.env.PARCHMENT_API_KEY = 'parchment-key';
+    const message = 'Similar coffee matching is available to members and customer API keys';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: { code: 'entitlement_required', message } }), {
+          status: 403,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+    );
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((
+      code?: number | string | null
+    ) => {
+      throw new Error(`process.exit:${code}`);
+    }) as never);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    try {
+      await expect(runCatalogCommand(['similar', '1182'])).rejects.toThrow('process.exit:3');
+      const stderr = stderrSpy.mock.calls.map((call) => String(call[0])).join('');
+      expect(stderr).toContain('AUTH_ERROR');
+      expect(stderr).toContain(message);
+    } finally {
+      stderrSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+  });
+
+  it('leaves structured process filter access to Parchment', async () => {
     const structuredFlags = [
       ['--processing-base-method', 'Natural'],
       ['--fermentation-type', 'Anaerobic'],
@@ -944,11 +980,11 @@ describe('catalog command auth and structured filter parsing', () => {
     }
 
     expect(vi.mocked(requireAuth).mock.calls).toEqual([
-      ['member'],
-      ['member'],
-      ['member'],
-      ['member'],
-      ['member'],
+      ['viewer'],
+      ['viewer'],
+      ['viewer'],
+      ['viewer'],
+      ['viewer'],
     ]);
   });
 
@@ -1104,7 +1140,7 @@ describe('searchCatalog', () => {
       limit: 10,
     });
 
-    expect(createParchmentClient).toHaveBeenCalledWith('member');
+    expect(createParchmentClient).toHaveBeenCalledWith('viewer');
     expect(list).toHaveBeenCalledWith(
       expect.objectContaining({
         origin: 'Ethiopia',
@@ -1413,17 +1449,73 @@ describe('getCatalogSimilarity', () => {
     });
   });
 
-  it('preserves structured auth and API error envelopes', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ message: 'Missing API key' }), {
-        status: 403,
-        headers: { 'content-type': 'application/json' },
-      })
+  it("maps Parchment's 403 to AUTH_ERROR and keeps its message", async () => {
+    const body = {
+      error: {
+        code: 'entitlement_required',
+        message: 'This API key lacks the catalog:read scope required for bean matching',
+      },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(body), {
+          status: 403,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
     );
-    vi.stubGlobal('fetch', fetchMock);
     await expect(getCatalogSimilarity({ coffee_id: 1182 })).rejects.toMatchObject({
       code: 'AUTH_ERROR',
-      message: expect.stringContaining('Catalog API authentication failed'),
+      message: body.error.message,
+      details: { status: 403, body },
+    });
+  });
+
+  it("maps Parchment's 401 to AUTH_ERROR and keeps its message", async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: { code: 'auth_required', message: 'Authentication required' },
+          }),
+          { status: 401, headers: { 'content-type': 'application/json' } }
+        )
+      )
+    );
+    await expect(getCatalogSimilarity({ coffee_id: 1182 })).rejects.toMatchObject({
+      code: 'AUTH_ERROR',
+      message: 'Authentication required',
+    });
+  });
+
+  it('falls back to a sign-in hint when a 401 carries no message', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('', { status: 401, statusText: 'Unauthorized' }))
+    );
+    await expect(getCatalogSimilarity({ coffee_id: 1182 })).rejects.toMatchObject({
+      code: 'AUTH_ERROR',
+      message: expect.stringContaining('purvey auth login'),
+    });
+  });
+
+  it('reads nested Parchment error messages for missing similarity targets', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: { code: 'not_found', message: 'Catalog coffee 1182 was not found' },
+          }),
+          { status: 404, headers: { 'content-type': 'application/json' } }
+        )
+      )
+    );
+    await expect(getCatalogSimilarity({ coffee_id: 1182 })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      message: expect.stringContaining('Catalog coffee 1182 was not found'),
     });
   });
 

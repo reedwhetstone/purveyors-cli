@@ -131,12 +131,12 @@ Authentication:
   auth whoami       Show the identity, plan, scopes, and capabilities of your credential
   auth logout       Clear stored credentials
 
-Catalog (viewer role required, member role required for structured process filters):
+Catalog (any signed-in account or API key with catalog:read):
   catalog search    Search the coffee catalog with filters
   catalog get       Get details for a specific coffee by ID
   catalog stats     Aggregate statistics for the catalog
   catalog facets    Counted facet values for filter discovery
-  catalog rank      Rank catalog candidates by a deterministic objective
+  catalog rank      Rank catalog coffees for a goal such as premium or value
   catalog rank-premium  Rank premium catalog candidates by Purveyor Score
   catalog supplier-rank Rank suppliers by average Purveyor Score
   catalog similar   Beta: find likely same-lot candidates and similar coffees by catalog ID
@@ -173,7 +173,7 @@ Market intelligence (filtered views require Parchment Intelligence access):
   price-index comparison   Matched comparison for one origin between two dates
   price-index history      Chart history (public up to 90 days)
   procurement list    List your saved sourcing briefs
-  procurement get     Get a saved sourcing brief by id
+  procurement get     Get a saved sourcing brief by ID
   procurement matches Page through catalog matches for a brief
 
 Studio reference profiles (member credential plus Studio access):

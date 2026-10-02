@@ -152,12 +152,12 @@ const roles: CliRoleContract[] = [
   {
     role: 'viewer',
     description:
-      'valid scoped API key; required for catalog commands except structured process filters',
+      'any signed-in account, or any API key with catalog:read; enough for every catalog command',
   },
   {
     role: 'member',
     description:
-      'required for inventory, roast, sales, tasting, and catalog search structured process filters using the scoped API key created by `purvey auth login` or an explicit environment override',
+      'a Purveyors membership; required for inventory, roast, sales, tasting, procurement, and reference-profile commands',
   },
 ];
 
@@ -187,25 +187,31 @@ const exitCodes: CliExitCodeContract[] = [
   {
     exitCode: EXIT_CODES.GENERAL_ERROR,
     code: 'GENERAL_ERROR',
-    description: 'unexpected or unclassified error',
+    description: 'unexpected error',
   },
   {
     exitCode: EXIT_CODES.INVALID_ARGUMENT,
     code: 'INVALID_ARGUMENT',
-    description: 'invalid argument or bad input',
+    description: 'invalid argument or input',
   },
   {
     exitCode: EXIT_CODES.AUTH_ERROR,
     code: 'AUTH_ERROR',
-    description: 'auth error, missing/revoked key, or wrong role',
+    description:
+      'not signed in, the stored key was revoked, or your account or API key lacks access to this command',
   },
   { exitCode: EXIT_CODES.NOT_FOUND, code: 'NOT_FOUND', description: 'resource not found' },
   {
     exitCode: EXIT_CODES.DEPENDENCY_CONFLICT,
     code: 'DEPENDENCY_CONFLICT',
-    description: 'dependency conflict, for example deleting an inventory lot with dependents',
+    description:
+      'the change conflicts with related records, such as deleting a coffee that still has roasts or sales',
   },
-  { exitCode: EXIT_CODES.CONFIG_ERROR, code: 'CONFIG_ERROR', description: 'local config error' },
+  {
+    exitCode: EXIT_CODES.CONFIG_ERROR,
+    code: 'CONFIG_ERROR',
+    description: 'configuration problem, such as a file path or API address the CLI cannot use',
+  },
 ];
 
 const idTypes: CliIdContract[] = [
@@ -268,9 +274,8 @@ const idTypes: CliIdContract[] = [
   },
 ];
 
-const PROCESS_FILTER_ACCESS = 'exact match; member access required';
-const SIGNED_IN_SIMILAR_ACCESS =
-  'Signed in with `purvey auth login`, your account needs member access. An API key in PURVEYORS_API_KEY or PARCHMENT_API_KEY works on any API plan when it has the catalog:read scope.';
+const SIMILAR_ACCESS =
+  'Needs a sign-in (`purvey auth login`) or any API key with catalog:read. The free Green API plan includes it within its monthly quota.';
 
 const commandGroups: CliCommandGroupContract[] = [
   {
@@ -315,7 +320,7 @@ const commandGroups: CliCommandGroupContract[] = [
         notes: [
           'Prints the account details unchanged: authenticated, userId, appRoles, primaryAppRole, apiPlan, ppiAccess, apiScopes, and capabilities (capabilities.profileStudio shows Studio access).',
           'Uses PARCHMENT_API_KEY or PURVEYORS_API_KEY when set, otherwise the stored login key.',
-          'Without a credential it prints the anonymous principal (authenticated: false).',
+          'Without a credential it prints a signed-out result (authenticated: false).',
         ],
         examples: [
           'purvey auth whoami --pretty',
@@ -332,14 +337,12 @@ const commandGroups: CliCommandGroupContract[] = [
   },
   {
     name: 'catalog',
-    summary:
-      'Search, rank, and compare catalog coffees and suppliers; structured process filters need member access',
+    summary: 'Search, rank, and compare catalog coffees and suppliers, and find similar coffees',
     auth: 'viewer',
     subcommands: [
       {
         name: 'search',
-        summary:
-          'Search coffees by origin, process, price, and catalog metadata; structured process filters require member access',
+        summary: 'Search coffees by origin, process, price, and catalog metadata',
         auth: 'viewer',
         sdkMethods: ['catalog.list'],
         options: [
@@ -355,24 +358,27 @@ const commandGroups: CliCommandGroupContract[] = [
           },
           {
             flags: '--processing-base-method <method>',
-            description: `Only coffees with this structured base process, such as Natural or Washed; ${PROCESS_FILTER_ACCESS}. List values with \`purvey catalog facets processing_base_method\``,
+            description:
+              'Only coffees whose structured base process exactly matches this value, such as Natural or Washed. List values with `purvey catalog facets processing_base_method`',
           },
           {
             flags: '--fermentation-type <type>',
-            description: `Only coffees with this structured fermentation type, such as Anaerobic; ${PROCESS_FILTER_ACCESS}. List values with \`purvey catalog facets fermentation_type\``,
+            description:
+              'Only coffees whose structured fermentation type exactly matches this value, such as Anaerobic. List values with `purvey catalog facets fermentation_type`',
           },
           {
             flags: '--process-additive <additive>',
-            description: `Only coffees whose process discloses this additive, such as hops; ${PROCESS_FILTER_ACCESS}`,
+            description: 'Only coffees whose process discloses exactly this additive, such as hops',
           },
           {
             flags: '--processing-disclosure-level <level>',
-            description: `Only coffees whose supplier disclosed process details at this level; ${PROCESS_FILTER_ACCESS}`,
+            description:
+              'Only coffees whose supplier disclosed process details at exactly this level',
           },
           {
             flags: '--processing-confidence-min <n>',
             description:
-              'Only coffees whose process details were identified with at least this confidence; member access required',
+              'Only coffees whose process details were identified with at least this confidence',
             minimum: 0,
             maximum: 1,
           },
@@ -447,7 +453,6 @@ const commandGroups: CliCommandGroupContract[] = [
         ],
         notes: [
           'All filters are optional. Without flags, returns up to --limit results.',
-          'Structured process filters require member access through the scoped API key created by `purvey auth login` or an explicit environment override.',
           '--ids fetches specific catalog items by ID, ignoring --limit and --offset.',
           '--offset + --limit enables pagination through large result sets.',
           'Without --include-proof, the output shape is unchanged.',
@@ -505,7 +510,7 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'field',
             description:
-              'optional facet field: supplier, country, processing_base_method, fermentation_type, drying_method, grade, wholesale',
+              'The facet to list: supplier, country, processing_base_method, fermentation_type, drying_method, grade, or wholesale. Without it, every facet is listed',
             required: false,
           },
         ],
@@ -530,7 +535,7 @@ const commandGroups: CliCommandGroupContract[] = [
       },
       {
         name: 'rank',
-        summary: 'Rank catalog candidates by deterministic objective',
+        summary: 'Rank catalog coffees for a goal: premium, value, fresh arrivals, or rare origins',
         auth: 'viewer',
         sdkMethods: ['catalog.rank'],
         options: [
@@ -651,7 +656,7 @@ const commandGroups: CliCommandGroupContract[] = [
       },
       {
         name: 'supplier-list',
-        summary: 'List supplier aggregates from catalog rows',
+        summary: 'Summarize suppliers from the catalog coffees they list',
         auth: 'viewer',
         sdkMethods: ['catalog.suppliers'],
         options: [
@@ -781,7 +786,7 @@ const commandGroups: CliCommandGroupContract[] = [
       {
         name: 'similar',
         summary: 'Beta: find likely same-lot candidates and similar coffees for a catalog coffee',
-        auth: 'member',
+        auth: 'viewer',
         sdkMethods: ['catalog.similar'],
         arguments: [
           {
@@ -821,7 +826,7 @@ const commandGroups: CliCommandGroupContract[] = [
           },
         ],
         notes: [
-          SIGNED_IN_SIMILAR_ACCESS,
+          SIMILAR_ACCESS,
           'Results are beta candidates to review, not confirmed matches.',
           'Default JSON output groups results under data.target, data.groups.canonical_candidates, data.groups.similar_recommendations, optional data.matches, and meta.',
           'canonical_candidates are likely same-lot candidates; similar_recommendations are profile substitutes and expose blocker reasons when identity details disagree.',
@@ -2036,14 +2041,14 @@ const commandGroups: CliCommandGroupContract[] = [
       },
       {
         name: 'get',
-        summary: 'Get a single saved sourcing brief by id',
+        summary: 'Get a single saved sourcing brief by ID',
         auth: 'member',
         sdkMethods: ['procurement.briefs.get'],
         arguments: [
           {
             name: 'brief_id',
             cliToken: 'id',
-            description: 'sourcing brief id',
+            description: 'ID of the saved sourcing brief',
             required: true,
           },
         ],
@@ -2058,7 +2063,7 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'brief_id',
             cliToken: 'id',
-            description: 'sourcing brief id',
+            description: 'ID of the saved sourcing brief',
             required: true,
           },
         ],
