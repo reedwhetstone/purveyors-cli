@@ -112,31 +112,27 @@ export function buildCatalogCommand(): Command {
   catalog
     .command('search')
     .description('Search coffees by origin, process, price, or catalog metadata')
-    .option('--origin <origin>', 'Filter by origin (country, continent, or region)')
-    .option('--process <method>', 'Filter by processing method (e.g. natural, washed)')
-    .option('--processing-base-method <method>', 'Filter by canonical process base method')
-    .option('--fermentation-type <type>', 'Filter by structured fermentation type')
-    .option('--process-additive <additive>', 'Filter by disclosed process additive')
-    .option('--processing-disclosure-level <level>', 'Filter by process disclosure level')
-    .option('--processing-confidence-min <n>', 'Minimum process metadata confidence (0-1)')
-    .option('--price-min <n>', 'Minimum price per lb (USD)')
-    .option('--price-max <n>', 'Maximum price per lb (USD)')
-    .option('--name <text>', 'Filter by coffee name (partial match, case-insensitive)')
-    .option('--ids <n,n,...>', 'Fetch specific catalog IDs (comma-separated, ignores limit)')
-    .option('--variety <text>', 'Filter by coffee variety/cultivar (partial match)')
-    .option('--stocked-days <n>', 'Only show coffees stocked within N days')
-    .option('--supplier <name>', 'Filter by supplier/source name (partial match)')
-    .option('--drying-method <method>', 'Filter by drying method (matched by Parchment)')
-    .option('--flavor <keywords>', 'Comma-separated flavor keywords; matches any keyword')
-    .option('--stocked', 'Only show currently stocked coffees')
-    .option('--sort <field>', `Sort results by: ${catalogSortFields.join(', ')}`)
-    .option('--offset <n>', 'Skip N results (for pagination)', '0')
-    .option(
-      '--limit <n>',
-      `Maximum results to return (${CLI_NUMERIC_BOUNDS.catalogSearchLimit.minimum}-${CLI_NUMERIC_BOUNDS.catalogSearchLimit.maximum})`,
-      '10'
-    )
-    .option('--include-proof', 'Request canonical catalog proof summaries from /v1/catalog')
+    .option('--origin <origin>')
+    .option('--process <method>')
+    .option('--processing-base-method <method>')
+    .option('--fermentation-type <type>')
+    .option('--process-additive <additive>')
+    .option('--processing-disclosure-level <level>')
+    .option('--processing-confidence-min <n>')
+    .option('--price-min <n>')
+    .option('--price-max <n>')
+    .option('--name <text>')
+    .option('--ids <n,n,...>')
+    .option('--variety <text>')
+    .option('--stocked-days <n>')
+    .option('--supplier <name>')
+    .option('--drying-method <method>')
+    .option('--flavor <keywords>')
+    .option('--stocked')
+    .option('--sort <field>')
+    .option('--offset <n>', '', '0')
+    .option('--limit <n>', '', '10')
+    .option('--include-proof')
     .addHelpText(
       'after',
       `
@@ -167,22 +163,19 @@ Sort fields:
 Notes:
   All filters are optional. Without flags, returns up to --limit results.
   --origin accepts partial matches (e.g. "Ethiopia" matches "Ethiopia Guji").
-  Structured process filters map to canonical /v1/catalog query names.
-  --process remains the legacy broad processing-label filter.
+  --process matches the broad processing label.
   --processing-base-method, --fermentation-type, --process-additive,
   --processing-disclosure-level, and --processing-confidence-min require member
-  access under the current session-authenticated CLI path.
+  access.
   --processing-base-method, --fermentation-type, --process-additive, and
   --processing-disclosure-level require exact structured metadata matches.
   --processing-confidence-min accepts a decimal from 0 to 1.
   --variety filters on cultivar_detail (partial match, case-insensitive).
   --stocked-days N shows only coffees stocked within the last N days.
-  --supplier, --drying-method, and --flavor map to the canonical /v1/catalog
-  supplier, dryingMethod, and flavorKeywords parameters; Parchment applies them.
   --ids fetches specific catalog items by ID, ignoring --limit and --offset.
   --offset + --limit enables pagination through large result sets.
-  --include-proof uses the canonical /v1/catalog?include=proof response and does
-  not compute proof fields locally in the CLI.
+  --include-proof adds a proof summary to each coffee; without it the output shape
+  is unchanged.
   Requires an authenticated viewer session.
 `
     )
@@ -321,7 +314,7 @@ Notes:
   catalog
     .command('get <id>')
     .description('Fetch a single coffee by ID')
-    .option('--include-proof', 'Request the canonical catalog proof summary from /v1/catalog')
+    .option('--include-proof')
     .addHelpText(
       'after',
       `
@@ -332,10 +325,9 @@ Examples:
   purvey catalog get 77 --csv
 
 Notes:
-  <id> is the coffee_catalog.catalog_id (integer).
+  <id> is the catalog ID (integer).
   Use 'purvey catalog search' to find IDs.
-  --include-proof uses the canonical /v1/catalog?include=proof response and does
-  not compute proof fields locally in the CLI.
+  --include-proof adds the coffee's proof summary.
   Requires an authenticated viewer session.
 `
     )
@@ -344,7 +336,7 @@ Notes:
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
         const catalogId = parseInt4IdArg(
           id,
-          `Invalid ID: "${id}". Please provide a numeric coffee_catalog ID.`
+          `Invalid ID: "${id}". Please provide a numeric catalog ID.`
         );
 
         const includeProof = opts.includeProof ? true : undefined;
@@ -385,7 +377,7 @@ Notes:
   catalog
     .command('facets [field]')
     .description('List counted catalog facet values for filter discovery')
-    .option('--all', 'Use all visible catalog rows instead of default stocked-only scope')
+    .option('--all')
     .addHelpText(
       'after',
       `
@@ -398,10 +390,10 @@ Fields:
   supplier, country, processing_base_method, fermentation_type, drying_method, grade, wholesale
 
 Notes:
-  Without a field, prints the canonical /v1/catalog/facets envelope (values, facets, meta) unchanged.
-  With a field, prints { field, facet, data, meta }: that facet's counted values and Parchment's meta.
-  Counts are computed by Parchment after visibility and entitlement filters; counts for
-  multi-valued dimensions can overlap, so do not sum them.
+  Without a field, prints every facet with its counted values and meta (values, facets, meta).
+  With a field, prints { field, facet, data, meta }: that facet's counted values and meta.
+  Counts include only coffees you can see; counts for multi-valued dimensions can
+  overlap, so do not sum them.
   By default only currently stocked catalog rows are included; use --all for all visible rows.
   Requires an authenticated viewer session.
 `
@@ -435,21 +427,17 @@ Notes:
   catalog
     .command('rank')
     .description('Rank catalog candidates by a deterministic objective')
-    .option(
-      '--objective <objective>',
-      `Ranking objective: ${catalogRankObjectives.join(', ')}`,
-      'premium'
-    )
-    .option('--supplier <name>', 'Filter by supplier/source name')
-    .option('--country <country>', 'Filter by country')
-    .option('--process <method>', 'Filter by processing method')
-    .option('--stocked', 'Only include currently stocked coffees')
-    .option('--all', 'Use all visible catalog rows instead of default stocked-only scope')
-    .option('--price-max <n>', 'Maximum price per lb (USD)')
-    .option('--min-score <n>', 'Minimum Purveyor Score')
-    .option('--non-wholesale-only', 'Exclude wholesale listings before sampling')
-    .option('--sample-size <n>', 'Rows to sample before ranking (1-5000)', '5000')
-    .option('--limit <n>', 'Maximum ranked coffees to return (1-50)', '10')
+    .option('--objective <objective>', '', 'premium')
+    .option('--supplier <name>')
+    .option('--country <country>')
+    .option('--process <method>')
+    .option('--stocked')
+    .option('--all')
+    .option('--price-max <n>')
+    .option('--min-score <n>')
+    .option('--non-wholesale-only')
+    .option('--sample-size <n>', '', '5000')
+    .option('--limit <n>', '', '10')
     .addHelpText(
       'after',
       `
@@ -461,7 +449,7 @@ Examples:
 
 Notes:
   Objectives: premium, value, fresh_arrival, rare_origin.
-  Uses coffee_catalog.purveyor_score as the canonical quality signal.
+  Uses the Purveyor Score as the quality signal.
   Generic ranking samples catalog rows ordered by id before deterministic ranking;
   meta.stocked_only/scope, sample_size, and truncated describe that scope, which matters for rare_origin.
   Requires an authenticated viewer session.
@@ -516,14 +504,14 @@ Notes:
   catalog
     .command('rank-premium')
     .description('Rank premium catalog candidates by Purveyor Score')
-    .option('--origin <origin>', 'Filter by origin (country, continent, or region)')
-    .option('--process <method>', 'Filter by processing method')
-    .option('--stocked', 'Only include currently stocked coffees')
-    .option('--price-max <n>', 'Maximum price per lb (USD)')
-    .option('--min-score <n>', 'Minimum Purveyor Score')
-    .option('--include-unscored', 'Allow unscored rows to appear after scored rows')
-    .option('--sample-size <n>', 'Rows to sample before ranking (1-5000)', '250')
-    .option('--limit <n>', 'Maximum ranked coffees to return (1-50)', '10')
+    .option('--origin <origin>')
+    .option('--process <method>')
+    .option('--stocked')
+    .option('--price-max <n>')
+    .option('--min-score <n>')
+    .option('--include-unscored')
+    .option('--sample-size <n>', '', '250')
+    .option('--limit <n>', '', '10')
     .addHelpText(
       'after',
       `
@@ -532,9 +520,8 @@ Examples:
   purvey catalog rank-premium --origin Ethiopia --min-score 88 --json
 
 Notes:
-  Ranks by coffee_catalog.score_value, exposed as purveyor_score in output.
-  The CLI does not recompute the upstream score model; it preserves the score field
-  and adds transparent ranking signals for agents.
+  Ranks by Purveyor Score (purveyor_score in output) and adds transparent ranking
+  signals for agents.
   Requires an authenticated viewer session.
 `
     )
@@ -578,15 +565,11 @@ Notes:
   catalog
     .command('supplier-list')
     .description('List supplier aggregates from catalog rows')
-    .option('--country <country>', 'Filter by country')
-    .option('--stocked', 'Only include currently stocked coffees')
-    .option('--non-wholesale-only', 'Exclude wholesale listings before aggregation')
-    .option(
-      '--sample-size <n>',
-      'Catalog rows to fetch per page before aggregation (1-5000)',
-      '5000'
-    )
-    .option('--limit <n>', 'Maximum suppliers to return (1-100)', '25')
+    .option('--country <country>')
+    .option('--stocked')
+    .option('--non-wholesale-only')
+    .option('--sample-size <n>', '', '5000')
+    .option('--limit <n>', '', '25')
     .addHelpText(
       'after',
       `
@@ -625,15 +608,11 @@ Notes:
   catalog
     .command('supplier-detail <supplier>')
     .description('Show aggregate detail for a supplier query')
-    .option('--country <country>', 'Filter by country')
-    .option('--stocked', 'Only include currently stocked coffees')
-    .option('--non-wholesale-only', 'Exclude wholesale listings before aggregation')
-    .option('--top-coffees <n>', 'Representative top coffees to include (1-25)', '5')
-    .option(
-      '--sample-size <n>',
-      'Catalog rows to fetch per page before aggregation (1-5000)',
-      '5000'
-    )
+    .option('--country <country>')
+    .option('--stocked')
+    .option('--non-wholesale-only')
+    .option('--top-coffees <n>', '', '5')
+    .option('--sample-size <n>', '', '5000')
     .addHelpText(
       'after',
       `
@@ -676,20 +655,12 @@ Notes:
   catalog
     .command('supplier-rank')
     .description('Rank suppliers by average Purveyor Score and stocked coverage')
-    .option('--country <country>', 'Filter by country')
-    .option('--stocked', 'Only include currently stocked coffees')
-    .option('--non-wholesale-only', 'Exclude wholesale listings before aggregation')
-    .option(
-      '--min-coffees <n>',
-      `Minimum catalog rows required per supplier (${CLI_NUMERIC_BOUNDS.supplierMinCoffees.minimum}-${CLI_NUMERIC_BOUNDS.supplierMinCoffees.maximum})`,
-      '1'
-    )
-    .option(
-      '--sample-size <n>',
-      'Catalog rows to fetch per page before aggregation (1-5000)',
-      '5000'
-    )
-    .option('--limit <n>', 'Maximum suppliers to return (1-100)', '25')
+    .option('--country <country>')
+    .option('--stocked')
+    .option('--non-wholesale-only')
+    .option('--min-coffees <n>', '', '1')
+    .option('--sample-size <n>', '', '5000')
+    .option('--limit <n>', '', '25')
     .addHelpText(
       'after',
       `
@@ -732,15 +703,11 @@ Notes:
   // ── catalog similar <id> ──────────────────────────────────────────────────
   catalog
     .command('similar <id>')
-    .description('Find canonical candidates and similar recommendations for a catalog coffee')
-    .option('--threshold <score>', 'Minimum canonical similarity threshold (0.5-0.99)', '0.70')
-    .option('--limit <count>', 'Max results (1-25)', '10')
-    .option('--stocked-only', 'Only show currently stocked beans')
-    .option(
-      '--mode <mode>',
-      `Filter canonical groups by mode: ${catalogSimilarityModes.join(', ')}`,
-      'all'
-    )
+    .description('Beta: find likely same-lot candidates and similar coffees for a catalog coffee')
+    .option('--threshold <score>', '', '0.7')
+    .option('--limit <count>', '', '10')
+    .option('--stocked-only')
+    .option('--mode <mode>', '', 'all')
     .addHelpText(
       'after',
       `
@@ -751,16 +718,16 @@ Examples:
   purvey catalog similar 1182 --json | jq '.data.groups.similar_recommendations[0].match.classification.blockers'
 
 Notes:
-  Uses the beta canonical /v1/catalog/{id}/similar contract.
-  JSON output is the canonical grouped response object, not the legacy flat RPC array.
+  Results are beta candidates to review, not confirmed matches.
+  JSON output groups matches under data.target and data.groups.
   data.groups.canonical_candidates are likely same-lot candidates.
   data.groups.similar_recommendations are useful substitutes or profile matches.
   Blockers, proof summaries, score dimensions, classification_version,
-  query_strategy, and pricing metadata are preserved when supplied by the API.
-  --threshold controls sensitivity (higher = more strict match, 0.5-0.99).
-  --mode can be all, likely_same, or similar_profile.
+  query_strategy, and pricing metadata are kept as returned.
   Default output is compact JSON. Use --pretty for formatted JSON.
-  Requires an authenticated member session, or a paid PARCHMENT_API_KEY/PURVEYORS_API_KEY.
+  Signed in with 'purvey auth login', your account needs member access. An API key
+  in PURVEYORS_API_KEY or PARCHMENT_API_KEY works on any API plan when it has the
+  catalog:read scope.
 `
     )
     .action(
@@ -769,7 +736,7 @@ Notes:
 
         const coffeeId = parseInt4IdArg(
           id,
-          `Invalid ID: "${id}". Please provide a numeric coffee_catalog ID.`
+          `Invalid ID: "${id}". Please provide a numeric catalog ID.`
         );
 
         const threshold = parseFiniteNumberArg(

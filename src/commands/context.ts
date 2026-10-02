@@ -9,8 +9,8 @@ export function buildContextCommand(): Command {
     .description(
       'Output the dense human-readable operator reference; use --json/--pretty only for manifest parity'
     )
-    .option('--json', 'Emit the machine-readable manifest contract as compact JSON')
-    .option('--pretty', 'Emit the machine-readable manifest contract as indented JSON')
+    .option('--json')
+    .option('--pretty')
     .addHelpText(
       'after',
       `

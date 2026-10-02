@@ -61,13 +61,13 @@ export function buildInventoryCommand(): Command {
   inventory
     .command('list')
     .description('List your green coffee inventory with catalog details')
-    .option('--stocked', 'Only show currently stocked beans')
-    .option('--catalog-id <id>', 'Filter by catalog ID')
-    .option('--purchase-date-start <YYYY-MM-DD>', 'Only show purchases on or after this date')
-    .option('--purchase-date-end <YYYY-MM-DD>', 'Only show purchases on or before this date')
-    .option('--origin <country>', 'Filter by country of origin (partial match)')
-    .option('--limit <n>', 'Maximum results to return', '20')
-    .option('--offset <n>', 'Skip N results (for pagination)', '0')
+    .option('--stocked')
+    .option('--catalog-id <id>')
+    .option('--purchase-date-start <YYYY-MM-DD>')
+    .option('--purchase-date-end <YYYY-MM-DD>')
+    .option('--origin <country>')
+    .option('--limit <n>', '', '20')
+    .option('--offset <n>', '', '0')
     .addHelpText(
       'after',
       `
@@ -83,7 +83,7 @@ Examples:
   purvey inventory list --limit 20 --offset 20   # page 2
 
 Notes:
-  Returns your green_coffee_inv rows joined with catalog details.
+  Returns your inventory items with their catalog details.
   The "id" field in each row is your inventory ID (used for roast --coffee-id,
   tasting rate, etc.) — distinct from catalog_id.
   --offset + --limit enables pagination through large result sets.
@@ -129,8 +129,8 @@ Examples:
   purvey inventory get 42 | jq '{id, qty, cost, stocked}'
 
 Notes:
-  <id> is green_coffee_inv.id (integer).
-  Row-level security: only returns items belonging to the logged-in user.
+  <id> is your inventory ID (integer).
+  Only returns items that belong to you.
   Requires authentication (member role).
 `
     )
@@ -146,20 +146,20 @@ Notes:
   inventory
     .command('add')
     .description('Add a new green coffee inventory item')
-    .option('--catalog-id <id>', 'Coffee catalog entry ID (coffee_catalog.catalog_id)')
-    .option('--manual-name <name>', 'Name for a coffee that is not in the catalog')
-    .option('--qty <lbs>', '[REQUIRED] Quantity purchased in pounds')
-    .option('--cost <dollars>', 'Bean cost in dollars (optional)')
-    .option('--tax-ship <dollars>', 'Tax and shipping cost in dollars (optional)')
-    .option('--notes <text>', 'Notes for this inventory item (optional)')
-    .option('--purchase-date <YYYY-MM-DD>', 'Purchase date (defaults to today)')
-    .option('--form', 'Interactive form mode (prompts for all fields)')
+    .option('--catalog-id <id>')
+    .option('--manual-name <name>')
+    .option('--qty <lbs>')
+    .option('--cost <dollars>')
+    .option('--tax-ship <dollars>')
+    .option('--notes <text>')
+    .option('--purchase-date <YYYY-MM-DD>')
+    .option('--form')
     .addHelpText(
       'after',
       `
 Examples:
-  purvey inventory add --catalog-id 128 --qty 10 --cost 8.50 --pretty
-  purvey inventory add --catalog-id 42 --qty 5 --cost 6.25 --tax-ship 4.00
+  purvey inventory add --catalog-id 128 --qty 10 --cost 85.00 --pretty
+  purvey inventory add --catalog-id 42 --qty 5 --cost 31.25 --tax-ship 4.00
   purvey inventory add --catalog-id 77 --qty 25 --purchase-date 2026-03-01
   purvey inventory add --manual-name "Farm-gate Ethiopia lot 7" --qty 12 --cost 96
   purvey inventory add --form      # interactive wizard
@@ -196,7 +196,7 @@ Required flags: --qty and exactly one of --catalog-id or --manual-name
           guardCancel(qtyRaw);
 
           const costRaw = await p.text({
-            message: 'Cost per lb ($)',
+            message: 'Total bean cost ($)',
             placeholder: 'optional',
             validate: (v) => {
               if (!v || v.trim() === '') return;
@@ -319,12 +319,12 @@ Required flags: --qty and exactly one of --catalog-id or --manual-name
   inventory
     .command('update <id>')
     .description('Update an existing inventory item (must be yours)')
-    .option('--qty <lbs>', 'Updated quantity in pounds')
-    .option('--cost <dollars>', 'Updated bean cost')
-    .option('--tax-ship <dollars>', 'Updated tax/shipping cost')
-    .option('--notes <text>', 'Updated notes')
-    .option('--stocked <bool>', 'Mark as stocked: true or false')
-    .option('--rank <n>', 'Owner-assigned integer rank for this lot')
+    .option('--qty <lbs>')
+    .option('--cost <dollars>')
+    .option('--tax-ship <dollars>')
+    .option('--notes <text>')
+    .option('--stocked <bool>')
+    .option('--rank <n>')
     .addHelpText(
       'after',
       `
@@ -420,7 +420,7 @@ Notes:
   inventory
     .command('delete <id>')
     .description('Delete an inventory item (must be yours)')
-    .option('-y, --yes', 'Skip confirmation prompt')
+    .option('-y, --yes')
     .addHelpText(
       'after',
       `
@@ -429,10 +429,10 @@ Examples:
   purvey inventory delete 7 --yes       # skip confirmation (use in scripts)
 
 Notes:
-  Permanently deletes the inventory row. Cannot be undone.
-  If the item has dependent roast profiles or sales records, the canonical API
-  returns DEPENDENCY_CONFLICT. Delete those records explicitly before retrying.
-  Row-level security: only items belonging to you can be deleted.
+  Permanently deletes the inventory item. Cannot be undone.
+  If the item has dependent roast profiles or sales records, the command fails
+  with DEPENDENCY_CONFLICT. Delete those records explicitly before retrying.
+  Only items that belong to you can be deleted.
   Requires authentication (member role).
 `
     )

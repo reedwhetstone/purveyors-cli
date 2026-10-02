@@ -182,12 +182,12 @@ export function buildSalesCommand(): Command {
   sales
     .command('list')
     .description('List your sales, sorted by sell date (newest first)')
-    .option('--coffee-id <id>', 'Filter by green coffee inventory ID')
-    .option('--date-start <YYYY-MM-DD>', 'Only show sales on or after this date')
-    .option('--date-end <YYYY-MM-DD>', 'Only show sales on or before this date')
-    .option('--buyer <name>', 'Filter by buyer name (partial match, case-insensitive)')
-    .option('--limit <n>', 'Maximum results to return', '20')
-    .option('--offset <n>', 'Skip N results (for pagination)', '0')
+    .option('--coffee-id <id>')
+    .option('--date-start <YYYY-MM-DD>')
+    .option('--date-end <YYYY-MM-DD>')
+    .option('--buyer <name>')
+    .option('--limit <n>', '', '20')
+    .option('--offset <n>', '', '0')
     .addHelpText(
       'after',
       `
@@ -201,8 +201,8 @@ Examples:
   purvey sales list --limit 20 --offset 20   # page 2
 
 Notes:
-  Returns canonical sale records with green_coffee_inv_id, batch_name, oz_sold, price, buyer, and sell_date.
-  --coffee-id filters by green_coffee_inv.id (inventory ID).
+  Returns sale records with green_coffee_inv_id, batch_name, oz_sold, price, buyer, and sell_date.
+  --coffee-id filters by inventory ID.
   --date-start and --date-end accept YYYY-MM-DD; use together for a date range.
   --buyer accepts partial matches (case-insensitive).
   --offset + --limit enables pagination through large result sets.
@@ -240,15 +240,15 @@ Notes:
   sales
     .command('record')
     .description('Record a new sale')
-    .option('--roast-id <id>', 'Roast profile used to resolve the sale inventory and batch')
-    .option('--coffee-id <id>', 'Inventory item ID used for resolved selector mode')
-    .option('--batch-name <name>', 'Batch name used with --coffee-id for resolved selector mode')
-    .option('--oz <amount>', '[REQUIRED] Ounces sold')
-    .option('--price <dollars>', '[REQUIRED] Sale price in dollars')
-    .option('--buyer <name>', 'Buyer name or identifier (optional)')
+    .option('--roast-id <id>')
+    .option('--coffee-id <id>')
+    .option('--batch-name <name>')
+    .option('--oz <amount>')
+    .option('--price <dollars>')
+    .option('--buyer <name>')
     // NOTE: --notes omitted; sales table has no notes column yet. See phase3 plan doc.
-    .option('--sell-date <YYYY-MM-DD>', 'Sale date (defaults to today)')
-    .option('--form', 'Interactive form mode (browse and select roast)')
+    .option('--sell-date <YYYY-MM-DD>')
+    .option('--form')
     .addHelpText(
       'after',
       `
@@ -352,10 +352,10 @@ Required flags: selector mode, --oz, --price
   sales
     .command('update <id>')
     .description('Update an existing sale (must be yours)')
-    .option('--oz <amount>', 'Updated ounces sold')
-    .option('--price <dollars>', 'Updated sale price')
-    .option('--buyer <name>', 'Updated buyer name')
-    .option('--sell-date <YYYY-MM-DD>', 'Updated sale date')
+    .option('--oz <amount>')
+    .option('--price <dollars>')
+    .option('--buyer <name>')
+    .option('--sell-date <YYYY-MM-DD>')
     .addHelpText(
       'after',
       `
@@ -416,7 +416,7 @@ Notes:
   sales
     .command('delete <id>')
     .description('Delete a sale (must be yours)')
-    .option('-y, --yes', 'Skip confirmation prompt')
+    .option('-y, --yes')
     .addHelpText(
       'after',
       `

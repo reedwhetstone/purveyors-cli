@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Command } from 'commander';
 import { EXIT_CODES } from '../src/lib/errors.js';
-import { getCliManifest, renderContextText } from '../src/lib/manifest.js';
+import { getCliManifest, renderContextText, type CliOptionContract } from '../src/lib/manifest.js';
 import { CLI_NUMERIC_BOUNDS } from '../src/lib/numeric-contracts.js';
 import { createProgram } from '../src/program.js';
 
@@ -71,6 +71,77 @@ function flattenCommanderLeafCommands(
   return commands;
 }
 
+/** Every option contract in the manifest, labeled by the command that owns it. */
+function manifestOptions(): Array<[string, CliOptionContract]> {
+  const manifest = getCliManifest();
+  const options: Array<[string, CliOptionContract]> = manifest.globalOptions.map((option) => [
+    'global',
+    option,
+  ]);
+  for (const [key, command] of flattenManifestCommands()) {
+    for (const option of command?.options ?? []) options.push([key, option]);
+  }
+  return options;
+}
+
+/**
+ * Implementation detail that does not belong in customer-facing CLI copy:
+ * backing endpoints, SDK plumbing, database table names, and design references.
+ * Output field names such as canonical_candidates stay allowed.
+ */
+const INTERNAL_COPY =
+  /\bcanonical\b|decision surface|\bPADR\b|PADR-\d|§|\/v1\/|\bSDK\b|@purveyors\/sdk|\bRPC\b|\bbacked by\b|server-owned|server-side|query layer|\bPhase \d\b|\b(?:coffee_catalog|green_coffee_inv|roast_data|coffee_sales|roast_temperatures|roast_events)\b/i;
+
+/** Customer-facing manifest text: summaries, descriptions, notes, and guidance. */
+function manifestCopy(): Array<[string, string]> {
+  const manifest = getCliManifest();
+  const copy: Array<[string, string]> = [
+    ['description', manifest.description],
+    ['outputContract.stdout', manifest.outputContract.stdout],
+    ['outputContract.stderr', manifest.outputContract.stderr],
+    ['structuredErrors.when', manifest.outputContract.structuredErrors.when],
+    ['structuredErrors.exception', manifest.outputContract.structuredErrors.exception ?? ''],
+    ...manifest.outputContract.notes.map((note): [string, string] => ['outputContract', note]),
+    ...manifest.machineSurfaces.notes.map((note): [string, string] => ['machineSurfaces', note]),
+    ...manifest.roles.map((role): [string, string] => [`role ${role.role}`, role.description]),
+    ...manifest.exitCodes.map((code): [string, string] => [code.code, code.description]),
+    ...manifest.idTypes.flatMap(
+      (id): Array<[string, string]> => [
+        [id.name, id.source],
+        [id.name, id.note ?? ''],
+      ]
+    ),
+    ...manifest.errorPatterns.flatMap((pattern) =>
+      pattern.guidance.map((line): [string, string] => [pattern.title, line])
+    ),
+  ];
+  for (const group of manifest.commandGroups) copy.push([group.name, group.summary]);
+  for (const [key, command] of flattenManifestCommands()) {
+    if (!command) continue;
+    copy.push([key, command.summary]);
+    for (const note of command.notes ?? []) copy.push([key, note]);
+    for (const argument of command.arguments ?? []) copy.push([key, argument.description]);
+  }
+  for (const [key, option] of manifestOptions()) {
+    copy.push([`${key} ${option.flags}`, option.description ?? '']);
+    for (const note of option.notes ?? []) copy.push([`${key} ${option.flags}`, note]);
+  }
+  return copy;
+}
+
+/** Rendered `--help` for the program and every command under it. */
+function renderedHelp(command: Command, path = 'purvey'): Array<[string, string]> {
+  let text = '';
+  command.configureOutput({ writeOut: (chunk) => (text += chunk) });
+  command.outputHelp();
+  return [
+    [path, stripAnsi(text)],
+    ...command.commands.flatMap((subcommand) =>
+      renderedHelp(subcommand, `${path} ${subcommand.name()}`)
+    ),
+  ];
+}
+
 describe('CLI manifest contract', () => {
   it('is JSON-serializable and includes core sections', () => {
     const manifest = getCliManifest();
@@ -105,7 +176,10 @@ describe('CLI manifest contract', () => {
     expect(contextGroup?.command).toEqual(
       expect.objectContaining({
         name: 'context',
-        options: expect.arrayContaining([{ flags: '--json' }, { flags: '--pretty' }]),
+        options: expect.arrayContaining([
+          expect.objectContaining({ flags: '--json' }),
+          expect.objectContaining({ flags: '--pretty' }),
+        ]),
       })
     );
     expect(contextGroup?.subcommands).toBeUndefined();
@@ -113,7 +187,10 @@ describe('CLI manifest contract', () => {
     expect(manifestGroup?.command).toEqual(
       expect.objectContaining({
         name: 'manifest',
-        options: expect.arrayContaining([{ flags: '--json' }, { flags: '--pretty' }]),
+        options: expect.arrayContaining([
+          expect.objectContaining({ flags: '--json' }),
+          expect.objectContaining({ flags: '--pretty' }),
+        ]),
       })
     );
     expect(manifestGroup?.subcommands).toBeUndefined();
@@ -148,8 +225,98 @@ describe('CLI manifest contract', () => {
     }
   });
 
+  it('gives every manifest option, including global options, a non-empty description', () => {
+    const missing = manifestOptions()
+      .filter(([, option]) => !option.description?.trim())
+      .map(([key, option]) => `${key} ${option.flags}`);
+
+    expect(missing).toEqual([]);
+  });
+
+  it('renders every commander option description from the manifest', () => {
+    const program = createProgram('0.12.0-test');
+    const commands = [
+      ['global', program] as const,
+      ...flattenCommanderLeafCommands(program).entries(),
+    ];
+
+    for (const [key, command] of commands) {
+      for (const option of command.options) {
+        if (option.long === '--help') continue;
+        expect(option.description.trim(), `${key} ${option.long} help`).not.toBe('');
+      }
+    }
+
+    const search = flattenCommanderLeafCommands(program).get('catalog search');
+    const limit = search?.options.find((option) => option.long === '--limit');
+    const manifestLimit = flattenManifestCommands()
+      .get('catalog search')
+      ?.options?.find((option) => longFlag(option.flags) === '--limit');
+    expect(limit?.description).toContain(manifestLimit?.description);
+  });
+
+  it('declares every commander default in the manifest with the same value', () => {
+    const manifestCommands = flattenManifestCommands();
+
+    for (const [key, command] of flattenCommanderLeafCommands(createProgram('0.12.0-test'))) {
+      for (const option of command.options) {
+        if (option.defaultValue === undefined || Array.isArray(option.defaultValue)) continue;
+        const contract = manifestCommands
+          .get(key)
+          ?.options?.find((candidate) => longFlag(candidate.flags) === option.long);
+        expect(String(contract?.defaultValue), `${key} ${option.long} default`).toBe(
+          String(option.defaultValue)
+        );
+      }
+    }
+  });
+
+  it('marks options required in flag mode only on commands that offer --form', () => {
+    for (const [key, command] of flattenManifestCommands()) {
+      const options = command?.options ?? [];
+      if (options.some((option) => option.requiredInFlagMode)) {
+        expect(
+          options.some((option) => option.flags === '--form'),
+          `${key} has requiredInFlagMode without --form`
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('keeps implementation jargon out of customer-facing manifest copy', () => {
+    const leaks = manifestCopy()
+      .filter(([, text]) => INTERNAL_COPY.test(text))
+      .map(([where, text]) => `${where}: ${text}`);
+
+    expect(leaks).toEqual([]);
+  });
+
+  it('keeps implementation jargon out of rendered --help text', () => {
+    const leaks = renderedHelp(createProgram('0.12.0-test')).flatMap(([path, text]) =>
+      text
+        .split('\n')
+        .filter((line) => INTERNAL_COPY.test(line))
+        .map((line) => `${path}: ${line.trim()}`)
+    );
+
+    expect(leaks).toEqual([]);
+  });
+
+  it('describes catalog similar access the way Parchment and the CLI enforce it', () => {
+    const similar = flattenManifestCommands().get('catalog similar');
+    const access = similar?.notes?.join(' ') ?? '';
+
+    // The stored login key is checked for member access before the request.
+    expect(similar?.auth).toBe('member');
+    // Parchment admits any customer API key with catalog:read, on any plan.
+    expect(access).toContain('any API plan');
+    expect(access).toContain('catalog:read');
+    expect(access).not.toMatch(/paid/i);
+  });
+
   it('publishes canonical numeric bounds for bounded endpoint options', () => {
     const commands = flattenManifestCommands();
+    const commanderCommands = flattenCommanderLeafCommands(createProgram('0.12.0-test'));
     const expectedBounds = [
       ['catalog search', '--limit', CLI_NUMERIC_BOUNDS.catalogSearchLimit],
       ['catalog supplier-rank', '--min-coffees', CLI_NUMERIC_BOUNDS.supplierMinCoffees],
@@ -166,12 +333,12 @@ describe('CLI manifest contract', () => {
         ?.options?.find((candidate) => longFlag(candidate.flags) === flag);
 
       expect(option, `${commandName} ${flag} manifest metadata`).toEqual(
-        expect.objectContaining({
-          minimum: bounds.minimum,
-          maximum: bounds.maximum,
-          description: expect.stringContaining(`${bounds.minimum}-${bounds.maximum}`),
-        })
+        expect.objectContaining({ minimum: bounds.minimum, maximum: bounds.maximum })
       );
+      const help = commanderCommands
+        .get(commandName)
+        ?.options.find((candidate) => candidate.long === flag)?.description;
+      expect(help, `${commandName} ${flag} help`).toContain(`${bounds.minimum}-${bounds.maximum}`);
     }
   });
 

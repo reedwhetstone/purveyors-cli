@@ -166,7 +166,7 @@ Catalog intelligence boundaries:
 
 - `catalog search --include-proof` consumes the canonical `/v1/catalog?include=proof` summary. The CLI does not compute proof scores locally.
 - The proof path consumes the same canonical `/v1/catalog` query contract as ordinary catalog search. The CLI does not expose client-only filters or locally reinterpret proof results.
-- `catalog similar <id>` consumes the beta canonical `/v1/catalog/{id}/similar` contract, not the legacy direct RPC path, and requires member access or a paid API tier.
+- `catalog similar <id>` consumes the beta canonical `/v1/catalog/{id}/similar` contract, not the legacy direct RPC path. It requires member access with the `purvey auth login` key, or an API key with `catalog:read` on any API plan.
 - Similarity output must keep `canonical_candidates` separate from `similar_recommendations` and preserve blocker, proof, pricing, score-dimension, `classification_version`, and `query_strategy` metadata for agents.
 - Structured process filters map to canonical `/v1/catalog` query names and require member access through a valid scoped key.
 - `catalog search --supplier`, `--drying-method`, and `--flavor`, and `catalog rank --supplier`, pass through to canonical query parameters (`supplier`, `dryingMethod`, `flavorKeywords`); Parchment applies them. See the 2026-10-01 update in ADR-004.

@@ -107,7 +107,7 @@ function requireOption(opts: Record<string, unknown>, key: string, cmd: Command)
 function buildComparisonsCommand(): Command {
   return new Command('comparisons')
     .description('Available exact 30-day matched price comparisons with significance')
-    .option('--wholesale <true|false|all>', 'Market scope (API default when omitted)')
+    .option('--wholesale <true|false|all>')
     .addHelpText(
       'after',
       `
@@ -148,10 +148,10 @@ Notes:
 function buildComparisonCommand(): Command {
   return new Command('comparison')
     .description('Matched-listing price comparison for one origin between two exact dates')
-    .option('--origin <origin>', 'Origin to compare (required)')
-    .option('--from <date>', 'Starting UTC date, YYYY-MM-DD (required)')
-    .option('--to <date>', 'Ending UTC date, YYYY-MM-DD, within 365 days of --from (required)')
-    .option('--wholesale <true|false>', 'Market scope (API default when omitted)')
+    .option('--origin <origin>')
+    .option('--from <date>')
+    .option('--to <date>')
+    .option('--wholesale <true|false>')
     .addHelpText(
       'after',
       `
@@ -192,16 +192,10 @@ function buildHistoryCommand(): Command {
 
   return new Command('history')
     .description('Tier-one price-index chart history (public up to 90 days)')
-    .option(
-      '--window-days <n>',
-      `Trailing window in days (${priceIndexHistoryWindowDays.minimum}-${priceIndexHistoryWindowDays.maximum})`
-    )
-    .option('--page <n>', '1-based page number')
-    .option(
-      '--limit <n>',
-      `Results per page (${priceIndexHistoryLimit.minimum}-${priceIndexHistoryLimit.maximum})`
-    )
-    .option('--order <asc|desc>', 'Snapshot ordering (API default asc)')
+    .option('--window-days <n>')
+    .option('--page <n>')
+    .option('--limit <n>')
+    .option('--order <asc|desc>')
     .addHelpText(
       'after',
       `
@@ -252,17 +246,14 @@ Notes:
 export function buildPriceIndexCommand(): Command {
   const priceIndex = new Command('price-index')
     .description('Parchment Price Index snapshots, matched comparisons, and chart history')
-    .option('--origin <origin>', 'Filter by origin')
-    .option('--process <method>', 'Filter by process method')
-    .option('--grade <grade>', 'Filter by grade')
-    .option('--from <date>', 'Include snapshots on/after this ISO date (YYYY-MM-DD)')
-    .option('--to <date>', 'Include snapshots on/before this ISO date (YYYY-MM-DD)')
-    .option('--wholesale <true|false>', 'Filter by wholesale pricing scope')
-    .option('--page <n>', '1-based page number')
-    .option(
-      '--limit <n>',
-      `Results per page (${CLI_NUMERIC_BOUNDS.priceIndexLimit.minimum}-${CLI_NUMERIC_BOUNDS.priceIndexLimit.maximum})`
-    )
+    .option('--origin <origin>')
+    .option('--process <method>')
+    .option('--grade <grade>')
+    .option('--from <date>')
+    .option('--to <date>')
+    .option('--wholesale <true|false>')
+    .option('--page <n>')
+    .option('--limit <n>')
     .addHelpText(
       'after',
       `

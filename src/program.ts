@@ -1,4 +1,4 @@
-import { Command, type CommanderError } from 'commander';
+import { Command, type CommanderError, type Option } from 'commander';
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -16,6 +16,7 @@ import { buildRoastCommand } from './commands/roast.js';
 import { buildSalesCommand } from './commands/sales.js';
 import { buildSkillCommand } from './commands/skill.js';
 import { buildTastingCommand } from './commands/tasting.js';
+import { getCliManifest, type CliOptionContract } from './lib/manifest.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -41,6 +42,51 @@ function applyProcessBoundarySettings(command: Command): void {
   }
 }
 
+/** Help text for one option, built from its manifest entry. */
+function optionHelp(contract: CliOptionContract & { description: string }, option: Option): string {
+  const extras: string[] = [];
+  if (contract.minimum !== undefined && contract.maximum !== undefined) {
+    extras.push(`${contract.minimum}-${contract.maximum}`);
+  }
+  // Commander already prints defaults it applies itself.
+  if (contract.defaultValue !== undefined && option.defaultValue === undefined) {
+    extras.push(`default: ${String(contract.defaultValue)}`);
+  }
+  const required = contract.requiredInFlagMode ? '[required unless --form] ' : '';
+  return `${required}${contract.description}${extras.length > 0 ? ` (${extras.join(', ')})` : ''}`;
+}
+
+function describeOptions(options: readonly Option[], contracts: CliOptionContract[] = []): void {
+  for (const option of options) {
+    const contract = contracts.find(
+      (candidate) => candidate.flags.match(/--[a-z0-9-]+/i)?.[0] === option.long
+    );
+    if (contract?.description) {
+      option.description = optionHelp({ ...contract, description: contract.description }, option);
+    }
+  }
+}
+
+/**
+ * Option help comes from the manifest, so `--help`, `purvey manifest`, the agent
+ * skill, and the public CLI reference describe every flag in the same words.
+ */
+function applyManifestOptionHelp(program: Command): void {
+  const manifest = getCliManifest();
+  describeOptions(program.options, manifest.globalOptions);
+  for (const group of manifest.commandGroups) {
+    const groupCommand = program.commands.find((command) => command.name() === group.name);
+    if (!groupCommand) continue;
+    if (group.command) describeOptions(groupCommand.options, group.command.options);
+    for (const subcommand of group.subcommands ?? []) {
+      const command = groupCommand.commands.find(
+        (candidate) => candidate.name() === subcommand.name
+      );
+      if (command) describeOptions(command.options, subcommand.options);
+    }
+  }
+}
+
 export function getCliVersion(): string {
   let version = '0.0.1';
 
@@ -62,17 +108,17 @@ export function createProgram(version = getCliVersion()): Command {
   program
     .name('purvey')
     .description('The official CLI for purveyors.io. Coffee intelligence from your terminal')
-    .version(version, '-v, --version', 'Print version')
-    .option('--json', 'Output compact JSON explicitly (same as the default)')
-    .option('--pretty', 'Pretty-print JSON output with colors')
-    .option('--csv', 'Output results as CSV where supported')
+    .version(version, '-v, --version')
+    .option('--json')
+    .option('--pretty')
+    .option('--csv')
     .addHelpText(
       'after',
       `
 Authentication:
   auth login        Log in to purveyors.io (--headless for agents)
   auth status       Show current login status and role
-  auth whoami       Show canonical identity, plan, scopes, and capabilities
+  auth whoami       Show the identity, plan, scopes, and capabilities of your credential
   auth logout       Clear stored credentials
 
 Catalog (viewer role required, member role required for structured process filters):
@@ -83,7 +129,7 @@ Catalog (viewer role required, member role required for structured process filte
   catalog rank      Rank catalog candidates by a deterministic objective
   catalog rank-premium  Rank premium catalog candidates by Purveyor Score
   catalog supplier-rank Rank suppliers by average Purveyor Score
-  catalog similar   Fetch canonical candidates and similar recommendations by catalog ID
+  catalog similar   Beta: find likely same-lot candidates and similar coffees by catalog ID
 
 Personal Data (member role required):
   inventory list    List your green coffee inventory
@@ -106,7 +152,7 @@ Personal Data (member role required):
   tasting get       Get tasting notes for a coffee
   tasting rate      Rate a coffee bean with cupping scores
 
-Market intelligence (canonical API; entitled slices require Parchment Intelligence access):
+Market intelligence (filtered views require Parchment Intelligence access):
   market signals      Actionable value signals (public summary via --summary)
   market stats        Price movement-significance stats (public retail summary)
   market metadata     Metadata-trend index (public process/retail/month slice)
@@ -141,11 +187,9 @@ Local and reference commands (no pre-existing credentials required):
   skill install     Install them for Claude Code, Codex/Cursor (~/.agents/skills), or AGENTS.md
 
 Global Options:
-  --json            Output compact JSON explicitly
-  --pretty          Pretty-print JSON output
-  --csv             Output array results as CSV where supported
-  --help            Show help for any command
-  --version         Show version number
+${getCliManifest()
+  .globalOptions.map((option) => `  ${option.flags.padEnd(18, ' ')}${option.description}`)
+  .join('\n')}
 
 Examples:
   $ purvey auth login --headless
@@ -192,6 +236,7 @@ Module import:    @purveyors/cli/manifest
   program.addCommand(buildSkillCommand(version));
   program.addCommand(buildTastingCommand());
 
+  applyManifestOptionHelp(program);
   applyProcessBoundarySettings(program);
 
   return program;

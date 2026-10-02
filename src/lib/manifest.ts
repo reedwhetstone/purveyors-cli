@@ -162,11 +162,18 @@ const roles: CliRoleContract[] = [
 ];
 
 const globalOptions: CliOptionContract[] = [
-  { flags: '--json', description: 'Output compact JSON explicitly' },
-  { flags: '--pretty', description: 'Pretty-print JSON output with colors' },
-  { flags: '--csv', description: 'Output array results as CSV where supported' },
-  { flags: '--help', description: 'Show help for any command' },
-  { flags: '--version', description: 'Show version number' },
+  {
+    flags: '--json',
+    description:
+      'Print results as compact JSON, the default for data commands; use it to be explicit',
+  },
+  { flags: '--pretty', description: 'Print results as indented, colorized JSON for reading' },
+  {
+    flags: '--csv',
+    description: 'Print list results as CSV on commands that support it',
+  },
+  { flags: '--help', description: 'Show help for purvey or any command' },
+  { flags: '--version', description: 'Print the installed CLI version' },
 ];
 
 const outputModes: CliOutputModeContract[] = [
@@ -204,7 +211,7 @@ const exitCodes: CliExitCodeContract[] = [
 const idTypes: CliIdContract[] = [
   {
     name: 'catalog_id',
-    source: 'coffee_catalog row',
+    source: 'a coffee listed in the Purveyors catalog',
     usedBy: [
       'catalog get',
       'catalog similar',
@@ -215,7 +222,7 @@ const idTypes: CliIdContract[] = [
   },
   {
     name: 'inventory_id',
-    source: 'green_coffee_inv row',
+    source: 'a coffee in your green inventory',
     usedBy: [
       'inventory get/update/delete',
       'roast --coffee-id',
@@ -225,7 +232,7 @@ const idTypes: CliIdContract[] = [
   },
   {
     name: 'roast_id',
-    source: 'roast_data row',
+    source: 'one of your roast profiles',
     usedBy: [
       'roast get/chart/delete',
       'roast list --roast-id',
@@ -235,12 +242,12 @@ const idTypes: CliIdContract[] = [
   },
   {
     name: 'sale_id',
-    source: 'coffee_sales row',
+    source: 'one of your recorded sales',
     usedBy: ['sales update/delete'],
   },
   {
     name: 'reference_profile_id',
-    source: 'owner-scoped Studio reference profile',
+    source: 'one of your Studio reference profiles',
     usedBy: [
       'reference-profile get',
       'reference-profile chart',
@@ -261,10 +268,14 @@ const idTypes: CliIdContract[] = [
   },
 ];
 
+const PROCESS_FILTER_ACCESS = 'exact match; member access required';
+const SIGNED_IN_SIMILAR_ACCESS =
+  'Signed in with `purvey auth login`, your account needs member access. An API key in PURVEYORS_API_KEY or PARCHMENT_API_KEY works on any API plan when it has the catalog:read scope.';
+
 const commandGroups: CliCommandGroupContract[] = [
   {
     name: 'auth',
-    summary: 'Manage authentication with purveyors.io',
+    summary: 'Sign in to purveyors.io, check your login, and sign out',
     auth: 'none',
     subcommands: [
       {
@@ -273,7 +284,11 @@ const commandGroups: CliCommandGroupContract[] = [
         auth: 'none',
         sdkMethods: ['cliAuth.create', 'cliAuth.exchange'],
         options: [
-          { flags: '--headless', description: 'Print approval URL without opening a browser' },
+          {
+            flags: '--headless',
+            description:
+              'Print the approval URL instead of opening a browser; use it for agents, SSH sessions, and remote machines. The CLI finishes on its own once you approve',
+          },
         ],
         examples: ['purvey auth login', 'purvey auth login --headless'],
       },
@@ -282,7 +297,10 @@ const commandGroups: CliCommandGroupContract[] = [
         summary: 'Show current login status and role',
         auth: 'none',
         sdkMethods: ['me'],
-        options: [{ flags: '--pretty' }, { flags: '--csv' }],
+        options: [
+          { flags: '--pretty', description: 'Print the status as indented, colorized JSON' },
+          { flags: '--csv', description: 'Print the status as a CSV row' },
+        ],
         examples: [
           'purvey auth status',
           'purvey auth status --pretty',
@@ -291,12 +309,11 @@ const commandGroups: CliCommandGroupContract[] = [
       },
       {
         name: 'whoami',
-        summary:
-          'Show the canonical identity, plan, scopes, and capabilities for the active credential',
+        summary: 'Show the identity, plan, scopes, and capabilities of the active credential',
         auth: 'none',
         sdkMethods: ['me'],
         notes: [
-          'Prints the GET /v1/me response unchanged, including capabilities.profileStudio.',
+          'Prints the account details unchanged: authenticated, userId, appRoles, primaryAppRole, apiPlan, ppiAccess, apiScopes, and capabilities (capabilities.profileStudio shows Studio access).',
           'Uses PARCHMENT_API_KEY or PURVEYORS_API_KEY when set, otherwise the stored login key.',
           'Without a credential it prints the anonymous principal (authenticated: false).',
         ],
@@ -315,7 +332,8 @@ const commandGroups: CliCommandGroupContract[] = [
   },
   {
     name: 'catalog',
-    summary: 'Browse the coffee catalog; structured process filters require member access',
+    summary:
+      'Search, rank, and compare catalog coffees and suppliers; structured process filters need member access',
     auth: 'viewer',
     subcommands: [
       {
@@ -325,58 +343,116 @@ const commandGroups: CliCommandGroupContract[] = [
         auth: 'viewer',
         sdkMethods: ['catalog.list'],
         options: [
-          { flags: '--origin <origin>' },
-          { flags: '--process <method>' },
-          { flags: '--processing-base-method <method>' },
-          { flags: '--fermentation-type <type>' },
-          { flags: '--process-additive <additive>' },
-          { flags: '--processing-disclosure-level <level>' },
-          { flags: '--processing-confidence-min <n>' },
-          { flags: '--price-min <n>' },
-          { flags: '--price-max <n>' },
-          { flags: '--name <text>' },
-          { flags: '--ids <n,n,...>' },
-          { flags: '--variety <text>' },
-          { flags: '--stocked-days <n>' },
+          {
+            flags: '--origin <origin>',
+            description:
+              'Only coffees from this origin; matches continent, country, or region names, case-insensitive and partial',
+          },
+          {
+            flags: '--process <method>',
+            description:
+              'Only coffees whose processing label contains this text, such as natural or washed (case-insensitive)',
+          },
+          {
+            flags: '--processing-base-method <method>',
+            description: `Only coffees with this structured base process, such as Natural or Washed; ${PROCESS_FILTER_ACCESS}. List values with \`purvey catalog facets processing_base_method\``,
+          },
+          {
+            flags: '--fermentation-type <type>',
+            description: `Only coffees with this structured fermentation type, such as Anaerobic; ${PROCESS_FILTER_ACCESS}. List values with \`purvey catalog facets fermentation_type\``,
+          },
+          {
+            flags: '--process-additive <additive>',
+            description: `Only coffees whose process discloses this additive, such as hops; ${PROCESS_FILTER_ACCESS}`,
+          },
+          {
+            flags: '--processing-disclosure-level <level>',
+            description: `Only coffees whose supplier disclosed process details at this level; ${PROCESS_FILTER_ACCESS}`,
+          },
+          {
+            flags: '--processing-confidence-min <n>',
+            description:
+              'Only coffees whose process details were identified with at least this confidence; member access required',
+            minimum: 0,
+            maximum: 1,
+          },
+          {
+            flags: '--price-min <n>',
+            description: 'Lowest price per pound to include, in US dollars',
+          },
+          {
+            flags: '--price-max <n>',
+            description: 'Highest price per pound to include, in US dollars',
+          },
+          {
+            flags: '--name <text>',
+            description: 'Only coffees whose name contains this text (case-insensitive)',
+          },
+          {
+            flags: '--ids <n,n,...>',
+            description:
+              'Fetch these catalog IDs, comma-separated, instead of searching; --limit and --offset are ignored',
+          },
+          {
+            flags: '--variety <text>',
+            description:
+              'Only coffees whose variety or cultivar contains this text (case-insensitive)',
+          },
+          {
+            flags: '--stocked-days <n>',
+            description: 'Only coffees that came into stock within the last N days',
+            minimum: 1,
+          },
           {
             flags: '--supplier <name>',
-            description: 'Canonical /v1/catalog supplier filter (partial source-name match)',
+            description:
+              'Only coffees from suppliers whose name contains this text (case-insensitive)',
           },
           {
             flags: '--drying-method <method>',
-            description: 'Canonical /v1/catalog dryingMethod filter; Parchment owns matching',
+            description:
+              'Only coffees whose drying method or processing text contains this value, such as raised bed (case-insensitive)',
           },
           {
             flags: '--flavor <keywords>',
             description:
-              'Comma-separated canonical /v1/catalog flavorKeywords; a row matches any keyword',
+              'Comma-separated flavor keywords searched in coffee descriptions and tasting notes; a coffee matches if it mentions any of them',
           },
-          { flags: '--stocked' },
-          { flags: '--sort <field>' },
-          { flags: '--offset <n>', defaultValue: 0 },
+          {
+            flags: '--stocked',
+            description:
+              'Only coffees currently in stock; without it, results also include coffees no longer stocked',
+          },
+          {
+            flags: '--sort <field>',
+            description:
+              'Sort by price (cheapest first), price-desc, name, or origin (by country); without it, the most recently stocked coffees come first',
+          },
+          {
+            flags: '--offset <n>',
+            description: 'Number of results to skip when paging; must be a multiple of --limit',
+            defaultValue: 0,
+            minimum: 0,
+          },
           {
             flags: '--limit <n>',
-            description: `Maximum results to return, ${CLI_NUMERIC_BOUNDS.catalogSearchLimit.minimum}-${CLI_NUMERIC_BOUNDS.catalogSearchLimit.maximum}`,
+            description: 'Maximum number of coffees to return',
             defaultValue: 10,
             minimum: CLI_NUMERIC_BOUNDS.catalogSearchLimit.minimum,
             maximum: CLI_NUMERIC_BOUNDS.catalogSearchLimit.maximum,
           },
           {
             flags: '--include-proof',
-            description: 'Request canonical proof summaries from /v1/catalog?include=proof',
-            notes: [
-              'Consumes the API proof summary; the CLI does not compute proof fields locally.',
-              'The SDK supplies the canonical proof-summary-v1 row projection.',
-            ],
+            description:
+              'Add a proof summary to each coffee: how well its process, provenance, freshness, and pricing details are supported (strong, partial, limited, or not available)',
           },
         ],
         notes: [
           'All filters are optional. Without flags, returns up to --limit results.',
-          'Structured process filters map to canonical /v1/catalog query names.',
           'Structured process filters require member access through the scoped API key created by `purvey auth login` or an explicit environment override.',
           '--ids fetches specific catalog items by ID, ignoring --limit and --offset.',
           '--offset + --limit enables pagination through large result sets.',
-          '--include-proof uses the canonical /v1/catalog proof summary include and preserves the default output shape when omitted.',
+          'Without --include-proof, the output shape is unchanged.',
           'PURVEYORS_API_KEY or PARCHMENT_API_KEY overrides the scoped API key stored by `purvey auth login`.',
         ],
         examples: [
@@ -398,7 +474,7 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'catalog_id',
             cliToken: 'id',
-            description: 'coffee_catalog.catalog_id',
+            description: 'Catalog ID of the coffee',
             required: true,
             idType: 'catalog_id',
           },
@@ -406,10 +482,8 @@ const commandGroups: CliCommandGroupContract[] = [
         options: [
           {
             flags: '--include-proof',
-            description: 'Request the canonical proof summary from /v1/catalog?include=proof',
-            notes: [
-              'Consumes the API proof summary; the CLI does not compute proof fields locally.',
-            ],
+            description:
+              "Add the proof summary: how well the coffee's process, provenance, freshness, and pricing details are supported",
           },
         ],
         examples: [
@@ -440,14 +514,15 @@ const commandGroups: CliCommandGroupContract[] = [
         options: [
           {
             flags: '--all',
-            description: 'Use all visible catalog rows instead of the default stocked-only scope.',
+            description:
+              'Count every coffee you can see, including ones no longer stocked; without it, only coffees currently in stock are counted',
           },
         ],
         notes: [
-          'Without a field, prints the canonical /v1/catalog/facets envelope (values, facets, meta) unchanged.',
-          "With a field, prints { field, facet, data, meta }: that facet's counted values and Parchment's meta.",
-          'Counts are computed by Parchment; counts for multi-valued dimensions can overlap, so do not sum them.',
-          'Defaults to currently stocked catalog rows; use --all for all visible rows.',
+          'Without a field, prints every facet with its counted values and meta (values, facets, meta).',
+          "With a field, prints { field, facet, data, meta }: that facet's counted values and meta.",
+          'Counts for multi-valued dimensions can overlap, so do not sum them.',
+          'Defaults to currently stocked coffees; use --all for every coffee you can see.',
         ],
         examples: [
           'purvey catalog facets supplier --pretty',
@@ -461,31 +536,60 @@ const commandGroups: CliCommandGroupContract[] = [
         auth: 'viewer',
         sdkMethods: ['catalog.rank'],
         options: [
-          { flags: '--objective <objective>', defaultValue: 'premium' },
+          {
+            flags: '--objective <objective>',
+            description:
+              'What to rank for: premium (highest Purveyor Score), value (score per dollar), fresh_arrival (newest arrivals), or rare_origin (least common origins in the sample)',
+            defaultValue: 'premium',
+          },
           {
             flags: '--supplier <name>',
-            description: 'Canonical /v1/catalog/rank supplier filter',
+            description: 'Only coffees from suppliers whose name contains this text',
           },
-          { flags: '--country <country>' },
-          { flags: '--process <method>' },
-          { flags: '--stocked' },
+          { flags: '--country <country>', description: 'Only coffees from this country' },
+          {
+            flags: '--process <method>',
+            description: 'Only coffees with this processing method, such as washed or natural',
+          },
+          {
+            flags: '--stocked',
+            description:
+              'Only coffees currently in stock; this is already the default unless you pass --all',
+          },
           {
             flags: '--all',
-            description: 'Use all visible catalog rows instead of the default stocked-only scope.',
+            description:
+              'Rank every coffee you can see, including ones no longer stocked, instead of only coffees in stock',
           },
-          { flags: '--price-max <n>' },
-          { flags: '--min-score <n>' },
+          {
+            flags: '--price-max <n>',
+            description: 'Highest price per pound to include, in US dollars',
+          },
+          { flags: '--min-score <n>', description: 'Lowest Purveyor Score to include' },
           {
             flags: '--non-wholesale-only',
             description:
-              'Apply a query-level filter for non-wholesale or unknown-wholesale listings before sampling.',
+              'Leave out wholesale listings, keeping retail and listings with unknown wholesale status, before sampling',
           },
-          { flags: '--sample-size <n>', defaultValue: 5000 },
-          { flags: '--limit <n>', defaultValue: 10 },
+          {
+            flags: '--sample-size <n>',
+            description:
+              'Number of matching coffees to consider before ranking; a smaller sample is faster but may miss candidates',
+            defaultValue: 5000,
+            minimum: 1,
+            maximum: 5000,
+          },
+          {
+            flags: '--limit <n>',
+            description: 'Maximum number of ranked coffees to return',
+            defaultValue: 10,
+            minimum: 1,
+            maximum: 50,
+          },
         ],
         notes: [
           'Objectives are premium, value, fresh_arrival, and rare_origin.',
-          'Uses coffee_catalog.purveyor_score as the canonical quality signal.',
+          'Uses the Purveyor Score as the quality signal.',
           'Output metadata reports stocked_only/scope, sample scope, and truncation; rare_origin is rarity within sampled matching candidates.',
         ],
         examples: [
@@ -500,17 +604,45 @@ const commandGroups: CliCommandGroupContract[] = [
         auth: 'viewer',
         sdkMethods: ['catalog.rankPremium'],
         options: [
-          { flags: '--origin <origin>' },
-          { flags: '--process <method>' },
-          { flags: '--stocked' },
-          { flags: '--price-max <n>' },
-          { flags: '--min-score <n>' },
-          { flags: '--include-unscored' },
-          { flags: '--sample-size <n>', defaultValue: 250 },
-          { flags: '--limit <n>', defaultValue: 10 },
+          {
+            flags: '--origin <origin>',
+            description: 'Only coffees from this continent, country, or region (case-insensitive)',
+          },
+          {
+            flags: '--process <method>',
+            description: 'Only coffees with this processing method, such as washed or natural',
+          },
+          {
+            flags: '--stocked',
+            description:
+              'Only coffees currently in stock; without it, coffees no longer stocked are ranked too',
+          },
+          {
+            flags: '--price-max <n>',
+            description: 'Highest price per pound to include, in US dollars',
+          },
+          { flags: '--min-score <n>', description: 'Lowest Purveyor Score to include' },
+          {
+            flags: '--include-unscored',
+            description: 'Also list coffees without a Purveyor Score, after all scored coffees',
+          },
+          {
+            flags: '--sample-size <n>',
+            description: 'Number of matching coffees to consider before ranking',
+            defaultValue: 250,
+            minimum: 1,
+            maximum: 5000,
+          },
+          {
+            flags: '--limit <n>',
+            description: 'Maximum number of ranked coffees to return',
+            defaultValue: 10,
+            minimum: 1,
+            maximum: 50,
+          },
         ],
         notes: [
-          'Exposes coffee_catalog.purveyor_score plus confidence, tier, factor breakdown, version, and update metadata; the CLI does not recompute the upstream score model.',
+          'Shows the Purveyor Score with its confidence, tier, factor breakdown, version, and update metadata.',
           'Output includes rank, catalog context, pricing, stocked status, Purveyor Score qualifiers, and transparent ranking signals for agents.',
           'Output metadata reports sample ordering and whether more rows matched than the requested sample size.',
         ],
@@ -525,15 +657,34 @@ const commandGroups: CliCommandGroupContract[] = [
         auth: 'viewer',
         sdkMethods: ['catalog.suppliers'],
         options: [
-          { flags: '--country <country>' },
-          { flags: '--stocked' },
-          { flags: '--non-wholesale-only' },
-          { flags: '--sample-size <n>', defaultValue: 5000 },
-          { flags: '--limit <n>', defaultValue: 25 },
+          { flags: '--country <country>', description: 'Only count coffees from this country' },
+          {
+            flags: '--stocked',
+            description:
+              'Only count coffees currently in stock; without it, coffees no longer stocked count too',
+          },
+          {
+            flags: '--non-wholesale-only',
+            description: 'Leave out wholesale listings before suppliers are summarized',
+          },
+          {
+            flags: '--sample-size <n>',
+            description: 'Number of catalog coffees to read per page before summarizing suppliers',
+            defaultValue: 5000,
+            minimum: 1,
+            maximum: 5000,
+          },
+          {
+            flags: '--limit <n>',
+            description: 'Maximum number of suppliers to return',
+            defaultValue: 25,
+            minimum: 1,
+            maximum: 100,
+          },
         ],
         notes: [
           'Summarizes supplier counts, stocked counts, Purveyor Score coverage, average score, average confidence, price range, origin/process coverage, and representative top coffees with score qualifiers.',
-          'Country and non-wholesale filters are applied at the catalog query layer before supplier aggregation.',
+          'Country and non-wholesale filters apply to coffees before suppliers are summarized.',
           'Output metadata reports source-ordered pagination, rows examined, and whether the aggregate is sample-limited.',
         ],
         examples: ['purvey catalog supplier-list --country Ethiopia --non-wholesale-only --pretty'],
@@ -546,16 +697,35 @@ const commandGroups: CliCommandGroupContract[] = [
         arguments: [
           {
             name: 'supplier',
-            description: 'supplier/source name query',
+            description: 'Supplier name to look up (case-insensitive, partial match)',
             required: true,
           },
         ],
         options: [
-          { flags: '--country <country>' },
-          { flags: '--stocked' },
-          { flags: '--non-wholesale-only' },
-          { flags: '--top-coffees <n>', defaultValue: 5 },
-          { flags: '--sample-size <n>', defaultValue: 5000 },
+          { flags: '--country <country>', description: 'Only count coffees from this country' },
+          {
+            flags: '--stocked',
+            description:
+              'Only count coffees currently in stock; without it, coffees no longer stocked count too',
+          },
+          {
+            flags: '--non-wholesale-only',
+            description: 'Leave out wholesale listings before the supplier is summarized',
+          },
+          {
+            flags: '--top-coffees <n>',
+            description: 'Number of representative top coffees to include',
+            defaultValue: 5,
+            minimum: 1,
+            maximum: 25,
+          },
+          {
+            flags: '--sample-size <n>',
+            description: 'Number of catalog coffees to read per page before summarizing',
+            defaultValue: 5000,
+            minimum: 1,
+            maximum: 5000,
+          },
         ],
         notes: [
           'Supplier matching is case-insensitive and partial, mirroring catalog search.',
@@ -569,22 +739,41 @@ const commandGroups: CliCommandGroupContract[] = [
         auth: 'viewer',
         sdkMethods: ['catalog.supplierRank'],
         options: [
-          { flags: '--country <country>' },
-          { flags: '--stocked' },
-          { flags: '--non-wholesale-only' },
+          { flags: '--country <country>', description: 'Only count coffees from this country' },
+          {
+            flags: '--stocked',
+            description:
+              'Only count coffees currently in stock; without it, coffees no longer stocked count too',
+          },
+          {
+            flags: '--non-wholesale-only',
+            description: 'Leave out wholesale listings before suppliers are ranked',
+          },
           {
             flags: '--min-coffees <n>',
-            description: `Minimum catalog rows required per supplier, ${CLI_NUMERIC_BOUNDS.supplierMinCoffees.minimum}-${CLI_NUMERIC_BOUNDS.supplierMinCoffees.maximum}`,
+            description: 'Minimum number of matching coffees a supplier needs to be ranked',
             defaultValue: 1,
             minimum: CLI_NUMERIC_BOUNDS.supplierMinCoffees.minimum,
             maximum: CLI_NUMERIC_BOUNDS.supplierMinCoffees.maximum,
           },
-          { flags: '--sample-size <n>', defaultValue: 5000 },
-          { flags: '--limit <n>', defaultValue: 25 },
+          {
+            flags: '--sample-size <n>',
+            description: 'Number of catalog coffees to read per page before ranking suppliers',
+            defaultValue: 5000,
+            minimum: 1,
+            maximum: 5000,
+          },
+          {
+            flags: '--limit <n>',
+            description: 'Maximum number of suppliers to return',
+            defaultValue: 25,
+            minimum: 1,
+            maximum: 100,
+          },
         ],
         notes: [
           'Ranks suppliers by average Purveyor Score, then currently stocked count.',
-          'Country and non-wholesale filters are applied at the catalog query layer before supplier aggregation.',
+          'Country and non-wholesale filters apply to coffees before suppliers are ranked.',
           'Output metadata reports source-ordered pagination, rows examined, and whether the aggregate is sample-limited.',
         ],
         examples: [
@@ -593,15 +782,14 @@ const commandGroups: CliCommandGroupContract[] = [
       },
       {
         name: 'similar',
-        summary:
-          'Fetch beta canonical /v1/catalog/{id}/similar groups for likely same-lot candidates and similar recommendations',
+        summary: 'Beta: find likely same-lot candidates and similar coffees for a catalog coffee',
         auth: 'member',
         sdkMethods: ['catalog.similar'],
         arguments: [
           {
             name: 'catalog_id',
             cliToken: 'id',
-            description: 'coffee_catalog.catalog_id',
+            description: 'Catalog ID of the coffee to match',
             required: true,
             idType: 'catalog_id',
           },
@@ -609,23 +797,37 @@ const commandGroups: CliCommandGroupContract[] = [
         options: [
           {
             flags: '--threshold <score>',
+            description:
+              'Minimum similarity score a match needs; higher values return fewer, closer matches',
             defaultValue: 0.7,
-            description: 'Minimum canonical similarity threshold, 0.5-0.99',
+            minimum: 0.5,
+            maximum: 0.99,
           },
-          { flags: '--limit <count>', defaultValue: 10, description: 'Maximum results, 1-25' },
-          { flags: '--stocked-only', description: 'Restrict results to stocked coffees' },
+          {
+            flags: '--limit <count>',
+            description: 'Maximum number of matches to return',
+            defaultValue: 10,
+            minimum: 1,
+            maximum: 25,
+          },
+          {
+            flags: '--stocked-only',
+            description:
+              'Only return coffees currently in stock; without it, matches can include coffees no longer stocked',
+          },
           {
             flags: '--mode <mode>',
+            description:
+              'Which matches to return: all, likely_same (probably the same lot listed elsewhere), or similar_profile (substitutes with a similar profile)',
             defaultValue: 'all',
-            description: 'Filter canonical groups: all, likely_same, or similar_profile',
           },
         ],
         notes: [
-          'Uses the beta canonical /v1/catalog/{id}/similar API contract, not the legacy direct RPC path.',
-          'Default JSON output is the grouped canonical response object with data.target, data.groups.canonical_candidates, data.groups.similar_recommendations, optional data.matches, and meta.',
-          'canonical_candidates are likely same-lot candidates; similar_recommendations are profile substitutes and expose blocker reasons when identity gates disagree.',
-          'Preserves classification_version, query_strategy, proof summaries, pricing metadata, blocker details, and score dimensions supplied by the API.',
-          'Use the scoped member API key created by `purvey auth login`, or override it with PURVEYORS_API_KEY or PARCHMENT_API_KEY.',
+          SIGNED_IN_SIMILAR_ACCESS,
+          'Results are beta candidates to review, not confirmed matches.',
+          'Default JSON output groups results under data.target, data.groups.canonical_candidates, data.groups.similar_recommendations, optional data.matches, and meta.',
+          'canonical_candidates are likely same-lot candidates; similar_recommendations are profile substitutes and expose blocker reasons when identity details disagree.',
+          'Keeps classification_version, query_strategy, proof summaries, pricing metadata, blocker details, and score dimensions as returned.',
         ],
         examples: [
           'purvey catalog similar 1182 --threshold 0.85 --stocked-only --json',
@@ -645,16 +847,38 @@ const commandGroups: CliCommandGroupContract[] = [
         auth: 'member',
         sdkMethods: ['inventory.list'],
         options: [
-          { flags: '--stocked' },
-          { flags: '--catalog-id <id>' },
-          { flags: '--purchase-date-start <YYYY-MM-DD>' },
-          { flags: '--purchase-date-end <YYYY-MM-DD>' },
-          { flags: '--origin <country>' },
-          { flags: '--limit <n>', defaultValue: 20 },
-          { flags: '--offset <n>', defaultValue: 0 },
+          { flags: '--stocked', description: 'Only coffees you have marked as in stock' },
+          {
+            flags: '--catalog-id <id>',
+            description: 'Only inventory items bought from this catalog coffee (a catalog ID)',
+          },
+          {
+            flags: '--purchase-date-start <YYYY-MM-DD>',
+            description: 'Only purchases made on or after this date',
+          },
+          {
+            flags: '--purchase-date-end <YYYY-MM-DD>',
+            description: 'Only purchases made on or before this date',
+          },
+          {
+            flags: '--origin <country>',
+            description: 'Only coffees whose country of origin contains this text',
+          },
+          {
+            flags: '--limit <n>',
+            description: 'Maximum number of items to return',
+            defaultValue: 20,
+            minimum: 1,
+          },
+          {
+            flags: '--offset <n>',
+            description: 'Number of items to skip when paging',
+            defaultValue: 0,
+            minimum: 0,
+          },
         ],
         notes: [
-          'Returns green_coffee_inv rows joined with catalog details.',
+          'Returns your inventory items with their catalog details.',
           'The returned id field is the inventory ID, distinct from catalog_id.',
           '--offset + --limit enables pagination through large result sets.',
         ],
@@ -672,7 +896,7 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'inventory_id',
             cliToken: 'id',
-            description: 'green_coffee_inv.id',
+            description: 'Inventory ID of the item',
             required: true,
             idType: 'inventory_id',
           },
@@ -688,25 +912,43 @@ const commandGroups: CliCommandGroupContract[] = [
         options: [
           {
             flags: '--catalog-id <id>',
-            description: 'Catalog lot to add; exactly one of --catalog-id or --manual-name',
+            description:
+              'Catalog ID of the coffee you bought; use exactly one of --catalog-id or --manual-name',
           },
           {
             flags: '--manual-name <name>',
-            description: 'Coffee name for a lot that is not in the catalog',
+            description:
+              'Name for a coffee that is not in the catalog; use exactly one of --catalog-id or --manual-name',
           },
-          { flags: '--qty <lbs>', requiredInFlagMode: true },
-          { flags: '--cost <dollars>' },
-          { flags: '--tax-ship <dollars>' },
-          { flags: '--notes <text>' },
-          { flags: '--purchase-date <YYYY-MM-DD>' },
-          { flags: '--form' },
+          {
+            flags: '--qty <lbs>',
+            description: 'Quantity purchased, in pounds',
+            requiredInFlagMode: true,
+          },
+          {
+            flags: '--cost <dollars>',
+            description: 'Total amount paid for the beans, in US dollars (not the price per pound)',
+          },
+          {
+            flags: '--tax-ship <dollars>',
+            description: 'Tax and shipping paid for this purchase, in US dollars',
+          },
+          { flags: '--notes <text>', description: 'Free-text notes about this purchase' },
+          {
+            flags: '--purchase-date <YYYY-MM-DD>',
+            description: 'Date of purchase; defaults to today',
+          },
+          {
+            flags: '--form',
+            description: 'Prompt for each field interactively, including a catalog picker',
+          },
         ],
         notes: [
           'Flag mode requires --qty and exactly one of --catalog-id or --manual-name.',
-          '--manual-name creates a manual coffee record when Parchment has manual inventory writes enabled.',
+          '--manual-name creates a manual coffee record when manual inventory entries are enabled.',
         ],
         examples: [
-          'purvey inventory add --catalog-id 128 --qty 10 --cost 8.50 --pretty',
+          'purvey inventory add --catalog-id 128 --qty 10 --cost 85.00 --pretty',
           'purvey inventory add --manual-name "Farm-gate Ethiopia lot 7" --qty 12 --cost 96 --pretty',
         ],
       },
@@ -720,18 +962,31 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'inventory_id',
             cliToken: 'id',
-            description: 'green_coffee_inv.id',
+            description: 'Inventory ID of the item',
             required: true,
             idType: 'inventory_id',
           },
         ],
         options: [
-          { flags: '--qty <lbs>' },
-          { flags: '--cost <dollars>' },
-          { flags: '--tax-ship <dollars>' },
-          { flags: '--notes <text>' },
-          { flags: '--stocked <true|false>' },
-          { flags: '--rank <n>', description: 'Owner-assigned integer rank for this lot' },
+          { flags: '--qty <lbs>', description: 'New purchased quantity, in pounds' },
+          {
+            flags: '--cost <dollars>',
+            description: 'New total bean cost, in US dollars (not the price per pound)',
+          },
+          {
+            flags: '--tax-ship <dollars>',
+            description: 'New tax and shipping amount, in US dollars',
+          },
+          { flags: '--notes <text>', description: 'Replace the notes for this item' },
+          {
+            flags: '--stocked <true|false>',
+            description: 'Mark the coffee as in stock (true) or used up (false)',
+          },
+          {
+            flags: '--rank <n>',
+            description:
+              'Your own whole-number ranking for this coffee, used to order your inventory',
+          },
         ],
       },
       {
@@ -743,18 +998,23 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'inventory_id',
             cliToken: 'id',
-            description: 'green_coffee_inv.id',
+            description: 'Inventory ID of the item',
             required: true,
             idType: 'inventory_id',
           },
         ],
-        options: [{ flags: '--yes' }],
+        options: [
+          {
+            flags: '--yes',
+            description: 'Delete without asking for confirmation; needed in scripts and agents',
+          },
+        ],
       },
     ],
   },
   {
     name: 'roast',
-    summary: 'Browse and manage your roast profiles',
+    summary: 'Record roasts, import Artisan .alog files, and watch a folder for new roasts',
     auth: 'member',
     subcommands: [
       {
@@ -763,20 +1023,48 @@ const commandGroups: CliCommandGroupContract[] = [
         auth: 'member',
         sdkMethods: ['roasts.list'],
         options: [
-          { flags: '--coffee-id <id>' },
-          { flags: '--roast-id <id>' },
-          { flags: '--batch-name <text>' },
-          { flags: '--coffee-name <text>' },
-          { flags: '--date-start <YYYY-MM-DD>' },
-          { flags: '--date-end <YYYY-MM-DD>' },
-          { flags: '--stocked' },
-          { flags: '--catalog-id <id>' },
-          { flags: '--limit <n>', defaultValue: 20 },
-          { flags: '--offset <n>', defaultValue: 0 },
+          {
+            flags: '--coffee-id <id>',
+            description: 'Only roasts of this inventory item (an inventory ID, not a catalog ID)',
+          },
+          { flags: '--roast-id <id>', description: 'Only the roast with this roast ID' },
+          {
+            flags: '--batch-name <text>',
+            description: 'Only roasts whose batch name contains this text (case-insensitive)',
+          },
+          {
+            flags: '--coffee-name <text>',
+            description: 'Only roasts of coffees whose name contains this text (case-insensitive)',
+          },
+          {
+            flags: '--date-start <YYYY-MM-DD>',
+            description: 'Only roasts on or after this date',
+          },
+          { flags: '--date-end <YYYY-MM-DD>', description: 'Only roasts on or before this date' },
+          {
+            flags: '--stocked',
+            description: 'Only roasts of coffees still marked as in stock in your inventory',
+          },
+          {
+            flags: '--catalog-id <id>',
+            description: 'Only roasts of coffees bought from this catalog coffee (a catalog ID)',
+          },
+          {
+            flags: '--limit <n>',
+            description: 'Maximum number of roasts to return',
+            defaultValue: 20,
+            minimum: 1,
+          },
+          {
+            flags: '--offset <n>',
+            description: 'Number of roasts to skip when paging',
+            defaultValue: 0,
+            minimum: 0,
+          },
         ],
         notes: [
           '--coffee-id expects inventory_id, not catalog_id.',
-          '--catalog-id filters by coffee_catalog.catalog_id.',
+          '--catalog-id filters by catalog ID.',
           '--date-start and --date-end accept YYYY-MM-DD format.',
           '--offset + --limit enables pagination through large result sets.',
         ],
@@ -791,23 +1079,33 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'roast_id',
             cliToken: 'id',
-            description: 'roast_data.roast_id',
+            description: 'Roast ID',
             required: true,
             idType: 'roast_id',
           },
         ],
-        options: [{ flags: '--include-temps' }, { flags: '--include-events' }],
+        options: [
+          {
+            flags: '--include-temps',
+            description: 'Add the full temperature curve; output can be large',
+          },
+          {
+            flags: '--include-events',
+            description: 'Add roast event markers such as first crack and drop',
+          },
+        ],
       },
       {
         name: 'chart',
-        summary: 'Fetch the sampled chart model for one roast (series, events, revision)',
+        summary:
+          'Get sampled chart data for one roast: temperature series, events, and chart revision',
         auth: 'member',
         sdkMethods: ['roasts.chartData'],
         arguments: [
           {
             name: 'roast_id',
             cliToken: 'id',
-            description: 'roast_data.roast_id',
+            description: 'Roast ID',
             required: true,
             idType: 'roast_id',
           },
@@ -815,13 +1113,14 @@ const commandGroups: CliCommandGroupContract[] = [
         options: [
           {
             flags: '--target-points <n>',
-            description: 'Approximate samples per series, 50-1000; Parchment defaults to 400',
+            description: 'Approximate number of samples per temperature series',
+            defaultValue: 400,
             minimum: 50,
             maximum: 1000,
           },
         ],
         notes: [
-          "Returns Parchment's canonical chart-data envelope unchanged: sampled series, events, and metadata.",
+          'Returns the roast chart data unchanged: sampled series, events, and metadata.',
           'data.metadata.revision identifies the immutable chart revision used by reference-profile compare.',
         ],
         examples: [
@@ -836,15 +1135,34 @@ const commandGroups: CliCommandGroupContract[] = [
         sdkMethods: ['roasts.create'],
         confirmedActionEquivalents: ['create_roast_session'],
         options: [
-          { flags: '--coffee-id <id>', requiredInFlagMode: true },
-          { flags: '--batch-name <name>' },
-          { flags: '--oz-in <oz>' },
-          { flags: '--oz-out <oz>' },
-          { flags: '--roast-date <YYYY-MM-DD>' },
-          { flags: '--notes <text>' },
-          { flags: '--targets <text>' },
-          { flags: '--roaster-type <text>' },
-          { flags: '--form' },
+          {
+            flags: '--coffee-id <id>',
+            description: 'Inventory ID of the coffee you roasted (not a catalog ID)',
+            requiredInFlagMode: true,
+          },
+          {
+            flags: '--batch-name <name>',
+            description: "Name for this roast batch; defaults to the coffee name plus today's date",
+          },
+          { flags: '--oz-in <oz>', description: 'Green coffee weight going in, in ounces' },
+          { flags: '--oz-out <oz>', description: 'Roasted coffee weight coming out, in ounces' },
+          {
+            flags: '--roast-date <YYYY-MM-DD>',
+            description: 'Date of the roast; defaults to today',
+          },
+          { flags: '--notes <text>', description: 'Free-text notes about the roast' },
+          {
+            flags: '--targets <text>',
+            description: 'What you were aiming for, such as "FC at 390F, 18% development"',
+          },
+          {
+            flags: '--roaster-type <text>',
+            description: 'Roaster model or type, such as Aillio Bullet',
+          },
+          {
+            flags: '--form',
+            description: 'Prompt for each field interactively, including an inventory picker',
+          },
         ],
       },
       {
@@ -857,16 +1175,20 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'roast_id',
             cliToken: 'id',
-            description: 'roast_data.roast_id',
+            description: 'Roast ID',
             required: true,
             idType: 'roast_id',
           },
         ],
         options: [
-          { flags: '--notes <text>' },
-          { flags: '--oz-out <oz>' },
-          { flags: '--batch-name <name>' },
-          { flags: '--targets <text>' },
+          { flags: '--notes <text>', description: 'Replace the roast notes' },
+          {
+            flags: '--oz-out <oz>',
+            description:
+              'New roasted weight, in ounces; weight loss is recalculated when the green weight is known',
+          },
+          { flags: '--batch-name <name>', description: 'New batch name' },
+          { flags: '--targets <text>', description: 'Replace the roast targets' },
         ],
       },
       {
@@ -878,12 +1200,17 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'roast_id',
             cliToken: 'id',
-            description: 'roast_data.roast_id',
+            description: 'Roast ID',
             required: true,
             idType: 'roast_id',
           },
         ],
-        options: [{ flags: '--yes' }],
+        options: [
+          {
+            flags: '--yes',
+            description: 'Delete without asking for confirmation; needed in scripts and agents',
+          },
+        ],
       },
       {
         name: 'import',
@@ -892,12 +1219,30 @@ const commandGroups: CliCommandGroupContract[] = [
         sdkMethods: ['roasts.import'],
         arguments: [{ name: 'file', description: 'Path to Artisan .alog file', required: false }],
         options: [
-          { flags: '--coffee-id <id>', requiredInFlagMode: true },
-          { flags: '--batch-name <name>' },
-          { flags: '--oz-in <oz>' },
-          { flags: '--roast-notes <text>' },
-          { flags: '--roast-targets <text>' },
-          { flags: '--form' },
+          {
+            flags: '--coffee-id <id>',
+            description: 'Inventory ID of the coffee you roasted (not a catalog ID)',
+            requiredInFlagMode: true,
+          },
+          {
+            flags: '--batch-name <name>',
+            description:
+              'Name for this roast batch; defaults to the coffee name plus the roast date',
+          },
+          {
+            flags: '--oz-in <oz>',
+            description:
+              'Green coffee weight going in, in ounces; overrides the weight read from the .alog file',
+          },
+          { flags: '--roast-notes <text>', description: 'Notes to save with the imported roast' },
+          {
+            flags: '--roast-targets <text>',
+            description: 'What you were aiming for, saved with the imported roast',
+          },
+          {
+            flags: '--form',
+            description: 'Pick the file and inventory item interactively',
+          },
         ],
       },
       {
@@ -907,20 +1252,54 @@ const commandGroups: CliCommandGroupContract[] = [
         sdkMethods: ['roasts.import', 'inventory.list', 'roasts.classify'],
         arguments: [{ name: 'directory', description: 'Directory to watch', required: false }],
         options: [
-          { flags: '--coffee-id <inventory_id>' },
-          { flags: '--batch-prefix <name>' },
-          { flags: '--prompt-each' },
-          { flags: '--auto-match' },
-          { flags: '--commit-mode <batch|individual>', defaultValue: 'batch' },
-          { flags: '--oz-in <oz>' },
-          { flags: '--roast-notes <text>' },
-          { flags: '--roast-targets <text>' },
-          { flags: '--resume' },
-          { flags: '--form' },
+          {
+            flags: '--coffee-id <inventory_id>',
+            description:
+              'Inventory ID to attach every new roast to; required unless you use --auto-match, --resume, or --form',
+          },
+          {
+            flags: '--batch-prefix <name>',
+            description:
+              'Prefix for batch names, which are numbered like "<prefix> #1"; defaults to the coffee name',
+          },
+          {
+            flags: '--prompt-each',
+            description:
+              'Ask which inventory item each new file belongs to instead of attaching every file to --coffee-id',
+          },
+          {
+            flags: '--auto-match',
+            description:
+              'Match each new roast to a stocked inventory item automatically from details in its .alog file; cannot be combined with --coffee-id',
+          },
+          {
+            flags: '--commit-mode <batch|individual>',
+            description:
+              'batch queues new roasts and saves them together when you stop watching; individual saves each roast as soon as its file appears',
+            defaultValue: 'batch',
+          },
+          {
+            flags: '--oz-in <oz>',
+            description: 'Green coffee weight, in ounces, to record for every watched import',
+          },
+          { flags: '--roast-notes <text>', description: 'Notes to save with every watched import' },
+          {
+            flags: '--roast-targets <text>',
+            description: 'Roast targets to save with every watched import',
+          },
+          {
+            flags: '--resume',
+            description:
+              'Continue the last watch session with its saved directory, settings, and import progress',
+          },
+          {
+            flags: '--form',
+            description: 'Set up the directory, coffee, and commit mode interactively',
+          },
         ],
         notes: [
           '--auto-match is mutually exclusive with --coffee-id.',
-          '--auto-match classifies roast metadata against stocked inventory through the canonical Parchment POST /v1/roasts/classify SDK operation.',
+          '--auto-match matches each new roast to a stocked inventory item from its metadata.',
           '--commit-mode defaults to batch so new roasts are queued until the session ends.',
         ],
       },
@@ -937,15 +1316,31 @@ const commandGroups: CliCommandGroupContract[] = [
         auth: 'member',
         sdkMethods: ['sales.list'],
         options: [
-          { flags: '--coffee-id <id>' },
-          { flags: '--date-start <YYYY-MM-DD>' },
-          { flags: '--date-end <YYYY-MM-DD>' },
-          { flags: '--buyer <name>' },
-          { flags: '--limit <n>', defaultValue: 20 },
-          { flags: '--offset <n>', defaultValue: 0 },
+          {
+            flags: '--coffee-id <id>',
+            description: 'Only sales of this inventory item (an inventory ID)',
+          },
+          { flags: '--date-start <YYYY-MM-DD>', description: 'Only sales on or after this date' },
+          { flags: '--date-end <YYYY-MM-DD>', description: 'Only sales on or before this date' },
+          {
+            flags: '--buyer <name>',
+            description: 'Only sales to buyers whose name contains this text (case-insensitive)',
+          },
+          {
+            flags: '--limit <n>',
+            description: 'Maximum number of sales to return',
+            defaultValue: 20,
+            minimum: 1,
+          },
+          {
+            flags: '--offset <n>',
+            description: 'Number of sales to skip when paging',
+            defaultValue: 0,
+            minimum: 0,
+          },
         ],
         notes: [
-          '--coffee-id filters by green_coffee_inv.id through the canonical sales API.',
+          '--coffee-id filters by inventory ID.',
           '--date-start and --date-end accept YYYY-MM-DD and compose into a range.',
           '--offset + --limit enables pagination through large result sets.',
         ],
@@ -957,18 +1352,39 @@ const commandGroups: CliCommandGroupContract[] = [
         sdkMethods: ['sales.create', 'roasts.list', 'roasts.get'],
         confirmedActionEquivalents: ['record_sale'],
         options: [
-          { flags: '--roast-id <id>' },
-          { flags: '--coffee-id <id>' },
-          { flags: '--batch-name <name>' },
-          { flags: '--oz <amount>', requiredInFlagMode: true },
-          { flags: '--price <dollars>', requiredInFlagMode: true },
-          { flags: '--buyer <name>' },
-          { flags: '--sell-date <YYYY-MM-DD>' },
-          { flags: '--form' },
+          {
+            flags: '--roast-id <id>',
+            description:
+              'Roast ID the coffee came from; the CLI looks up its inventory item and batch. Use instead of --coffee-id with --batch-name',
+          },
+          {
+            flags: '--coffee-id <id>',
+            description:
+              'Inventory ID of the coffee sold; use with --batch-name instead of --roast-id',
+          },
+          {
+            flags: '--batch-name <name>',
+            description: 'Batch name of the roast sold; use with --coffee-id',
+          },
+          {
+            flags: '--oz <amount>',
+            description: 'Roasted coffee sold, in ounces',
+            requiredInFlagMode: true,
+          },
+          {
+            flags: '--price <dollars>',
+            description: 'Total sale price, in US dollars (not per ounce)',
+            requiredInFlagMode: true,
+          },
+          { flags: '--buyer <name>', description: 'Buyer name or identifier' },
+          { flags: '--sell-date <YYYY-MM-DD>', description: 'Date of the sale; defaults to today' },
+          {
+            flags: '--form',
+            description: 'Prompt for each field interactively, including a roast picker',
+          },
         ],
         notes: [
           'Selector modes: --roast-id resolves its inventory + batch, or pass --coffee-id + --batch-name directly.',
-          'Creates use the canonical sales API with an idempotency key; selectors resolve through canonical roast endpoints.',
           'Use exactly one selector mode.',
           'Sales retain inventory + batch, not roast ID; duplicate batch names on one inventory item are rejected.',
         ],
@@ -982,16 +1398,16 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'sale_id',
             cliToken: 'id',
-            description: 'coffee_sales row id',
+            description: 'Sale ID',
             required: true,
             idType: 'sale_id',
           },
         ],
         options: [
-          { flags: '--oz <amount>' },
-          { flags: '--price <dollars>' },
-          { flags: '--buyer <name>' },
-          { flags: '--sell-date <YYYY-MM-DD>' },
+          { flags: '--oz <amount>', description: 'New amount sold, in ounces' },
+          { flags: '--price <dollars>', description: 'New total sale price, in US dollars' },
+          { flags: '--buyer <name>', description: 'New buyer name or identifier' },
+          { flags: '--sell-date <YYYY-MM-DD>', description: 'New sale date' },
         ],
       },
       {
@@ -1003,18 +1419,23 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'sale_id',
             cliToken: 'id',
-            description: 'coffee_sales row id',
+            description: 'Sale ID',
             required: true,
             idType: 'sale_id',
           },
         ],
-        options: [{ flags: '--yes' }],
+        options: [
+          {
+            flags: '--yes',
+            description: 'Delete without asking for confirmation; needed in scripts and agents',
+          },
+        ],
       },
     ],
   },
   {
     name: 'tasting',
-    summary: 'View and record tasting notes for a coffee bean',
+    summary: 'Read supplier tasting notes and record your own cupping scores',
     auth: 'member',
     subcommands: [
       {
@@ -1026,12 +1447,19 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'catalog_id',
             cliToken: 'bean-id',
-            description: 'coffee_catalog.catalog_id, not inventory id',
+            description: 'Catalog ID of the coffee, not an inventory ID',
             required: true,
             idType: 'catalog_id',
           },
         ],
-        options: [{ flags: '--filter <user|supplier|both>', defaultValue: 'both' }],
+        options: [
+          {
+            flags: '--filter <user|supplier|both>',
+            description:
+              "Which notes to return: user (your cupping scores), supplier (the supplier's flavor notes), or both",
+            defaultValue: 'both',
+          },
+        ],
       },
       {
         name: 'rate',
@@ -1042,27 +1470,64 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'inventory_id',
             cliToken: 'bean-id',
-            description: 'green_coffee_inv.id, not catalog_id',
+            description: 'Inventory ID of the coffee, not a catalog ID',
             required: false,
             idType: 'inventory_id',
           },
         ],
         options: [
-          { flags: '--aroma <1-5>', requiredInFlagMode: true },
-          { flags: '--body <1-5>', requiredInFlagMode: true },
-          { flags: '--acidity <1-5>', requiredInFlagMode: true },
-          { flags: '--sweetness <1-5>', requiredInFlagMode: true },
-          { flags: '--aftertaste <1-5>', requiredInFlagMode: true },
-          { flags: '--brew-method <method>' },
-          { flags: '--notes <text>' },
-          { flags: '--form' },
+          {
+            flags: '--aroma <1-5>',
+            description: 'Aroma score, a whole number from 1 (low) to 5 (excellent)',
+            minimum: 1,
+            maximum: 5,
+            requiredInFlagMode: true,
+          },
+          {
+            flags: '--body <1-5>',
+            description: 'Body score, a whole number from 1 (low) to 5 (excellent)',
+            minimum: 1,
+            maximum: 5,
+            requiredInFlagMode: true,
+          },
+          {
+            flags: '--acidity <1-5>',
+            description: 'Acidity score, a whole number from 1 (low) to 5 (excellent)',
+            minimum: 1,
+            maximum: 5,
+            requiredInFlagMode: true,
+          },
+          {
+            flags: '--sweetness <1-5>',
+            description: 'Sweetness score, a whole number from 1 (low) to 5 (excellent)',
+            minimum: 1,
+            maximum: 5,
+            requiredInFlagMode: true,
+          },
+          {
+            flags: '--aftertaste <1-5>',
+            description: 'Aftertaste score, a whole number from 1 (low) to 5 (excellent)',
+            minimum: 1,
+            maximum: 5,
+            requiredInFlagMode: true,
+          },
+          {
+            flags: '--brew-method <method>',
+            description: 'How you brewed the coffee, such as pour_over, french_press, or espresso',
+          },
+          { flags: '--notes <text>', description: 'Free-text tasting notes' },
+          {
+            flags: '--form',
+            description: 'Pick the coffee and enter scores interactively',
+          },
         ],
+        notes: ['Rating again replaces the earlier scores for that inventory item.'],
       },
     ],
   },
   {
     name: 'config',
-    summary: 'Manage purvey CLI settings',
+    summary: 'Manage local purvey CLI settings',
     auth: 'none',
     subcommands: [
       {
@@ -1118,13 +1583,24 @@ const commandGroups: CliCommandGroupContract[] = [
   },
   {
     name: 'context',
-    summary: 'Emit dense human-readable operator reference or manifest-parity JSON',
+    summary: 'Print a dense human-readable CLI reference, or the manifest as JSON',
     auth: 'none',
     command: {
       name: 'context',
-      summary: 'Emit dense human-readable operator reference or manifest-parity JSON',
+      summary: 'Print a dense human-readable CLI reference, or the manifest as JSON',
       auth: 'none',
-      options: [{ flags: '--json' }, { flags: '--pretty' }],
+      options: [
+        {
+          flags: '--json',
+          description:
+            'Print the machine-readable manifest as compact JSON instead of the text reference',
+        },
+        {
+          flags: '--pretty',
+          description:
+            'Print the machine-readable manifest as indented JSON instead of the text reference',
+        },
+      ],
       notes: [
         'Use `purvey context` for dense human-readable operator reference text.',
         'Prefer `purvey manifest` for the stable machine-readable CLI contract.',
@@ -1136,13 +1612,16 @@ const commandGroups: CliCommandGroupContract[] = [
   },
   {
     name: 'manifest',
-    summary: 'Emit the preferred stable machine-readable CLI manifest contract',
+    summary: 'Print the stable machine-readable CLI contract as JSON',
     auth: 'none',
     command: {
       name: 'manifest',
-      summary: 'Emit the preferred stable machine-readable CLI manifest contract',
+      summary: 'Print the stable machine-readable CLI contract as JSON',
       auth: 'none',
-      options: [{ flags: '--json' }, { flags: '--pretty' }],
+      options: [
+        { flags: '--json', description: 'Print the manifest as compact JSON, the default' },
+        { flags: '--pretty', description: 'Print the manifest as indented JSON' },
+      ],
       notes: [
         '`purvey manifest` is the preferred machine-readable entrypoint and emits compact JSON by default.',
         '`purvey context --json` remains available for compatibility with existing context-based callers.',
@@ -1163,11 +1642,11 @@ const commandGroups: CliCommandGroupContract[] = [
         options: [
           {
             flags: '--file <file>',
-            description: 'Skill file to print: SKILL.md, workflows.md, or all',
+            description:
+              'Skill file to print: SKILL.md, workflows.md, or all; all needs --json or --pretty',
             defaultValue: 'SKILL.md',
             notes: [
               'The skill is a folder: SKILL.md, which agents load when the skill triggers, and workflows.md, the step-by-step workflows SKILL.md points to',
-              'all needs --json or --pretty',
             ],
           },
           {
@@ -1195,9 +1674,9 @@ const commandGroups: CliCommandGroupContract[] = [
         options: [
           {
             flags: '--target <target>',
-            description: 'claude, agents, or agents-md',
+            description:
+              "Required. Where to install: claude (Claude Code), agents (Codex, Cursor, and other Agent Skills clients), or agents-md (this repository's AGENTS.md)",
             notes: [
-              'required',
               'claude: SKILL.md and workflows.md in ~/.claude/skills/purveyors/ (project scope: .claude/skills/purveyors/); use this for Claude Code, which loads skills only from .claude/skills',
               'agents: SKILL.md and workflows.md in ~/.agents/skills/purveyors/, read by Codex, Cursor, and other Agent Skills clients (project scope: .agents/skills/purveyors/); Claude Code does not read .agents/',
               'agents-md: ./AGENTS.md in the current directory; adds or refreshes one marked block and leaves the rest of the file alone. Claude Code reads AGENTS.md only when no CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md exists in the current directory or above it; see --link-claude-md',
@@ -1206,7 +1685,7 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             flags: '--scope <scope>',
             description:
-              'user (home directory) or project (current directory); defaults to user, or project for agents-md',
+              'user (your home directory) or project (the current directory); defaults to user, or project for agents-md',
           },
           {
             flags: '--force',
@@ -1244,7 +1723,7 @@ const commandGroups: CliCommandGroupContract[] = [
   {
     name: 'market',
     summary:
-      'Market Index decision surface: value signals, movement stats, metadata trends, overview, and evidence via the canonical API',
+      'Market Index value signals, price movement, metadata trends, market overview, and named-lot evidence',
     auth: 'mixed',
     subcommands: [
       {
@@ -1253,28 +1732,51 @@ const commandGroups: CliCommandGroupContract[] = [
         auth: 'none',
         sdkMethods: ['market.signals'],
         options: [
-          { flags: '--summary' },
+          {
+            flags: '--summary',
+            description:
+              'Return only signal counts; the one view that works without signing in or Parchment Intelligence',
+          },
           {
             flags: '--type <type>',
-            notes: ['repeatable or comma-separated: price_drop|below_market|value_quality'],
+            description:
+              'Signal types to include: price_drop, below_market, or value_quality; repeat the flag or separate with commas. Without it, all three',
           },
-          { flags: '--origin <origin>' },
-          { flags: '--process <method>' },
-          { flags: '--market <retail|wholesale|all>' },
-          { flags: '--min-discount <n>' },
-          { flags: '--min-score <n>' },
-          { flags: '--window <7d|30d>' },
+          { flags: '--origin <origin>', description: 'Only signals for this origin (exact name)' },
+          {
+            flags: '--process <method>',
+            description: 'Only signals for this process group (exact name), such as washed',
+          },
+          {
+            flags: '--market <retail|wholesale|all>',
+            description: 'Which listings to read: retail, wholesale, or all',
+            defaultValue: 'retail',
+          },
+          {
+            flags: '--min-discount <n>',
+            description: 'Only signals at least this large, as a percent price drop or discount',
+          },
+          {
+            flags: '--min-score <n>',
+            description: 'Only coffees with at least this supplier-stated cupping score',
+          },
+          {
+            flags: '--window <7d|30d>',
+            description:
+              'Time window for price-movement signals; value_quality signals are not time-windowed and always appear',
+            defaultValue: '30d',
+          },
           {
             flags: '--limit <n>',
-            description: `Results per page, ${CLI_NUMERIC_BOUNDS.marketSignalsLimit.minimum}-${CLI_NUMERIC_BOUNDS.marketSignalsLimit.maximum}`,
+            description: 'Number of signals per page',
+            defaultValue: 20,
             minimum: CLI_NUMERIC_BOUNDS.marketSignalsLimit.minimum,
             maximum: CLI_NUMERIC_BOUNDS.marketSignalsLimit.maximum,
           },
         ],
         notes: [
-          'Backed by the canonical API GET /v1/market/signals via @purveyors/sdk against api.purveyors.io.',
-          '--summary is the only unauthenticated slice (counts only); any filter requires Parchment Intelligence access, enforced server-side (403 on denial).',
-          '--json emits the API response verbatim (§3.3 evidence object, §3.4 enums); no client-side reshaping.',
+          '--summary is the only view that works without credentials (counts only); every filter requires Parchment Intelligence access (exit 3 on denial).',
+          '--json emits the API response unchanged.',
         ],
         examples: [
           'purvey market signals --summary --pretty',
@@ -1287,15 +1789,31 @@ const commandGroups: CliCommandGroupContract[] = [
         auth: 'none',
         sdkMethods: ['priceIndex.stats'],
         options: [
-          { flags: '--origin <origin>' },
-          { flags: '--process <method>' },
-          { flags: '--market <retail|wholesale|all>' },
-          { flags: '--window <7d|30d>' },
-          { flags: '--baseline-weeks <n>' },
+          { flags: '--origin <origin>', description: 'Only this origin (exact name)' },
+          {
+            flags: '--process <method>',
+            description: 'Only this process group (exact name), such as washed',
+          },
+          {
+            flags: '--market <retail|wholesale|all>',
+            description: 'Which listings to measure: retail, wholesale, or all',
+            defaultValue: 'retail',
+          },
+          {
+            flags: '--window <7d|30d>',
+            description: 'Length of the price move being measured',
+            defaultValue: '7d',
+          },
+          {
+            flags: '--baseline-weeks <n>',
+            description: 'Weeks of history the move is compared against to judge how unusual it is',
+            defaultValue: 12,
+            minimum: 8,
+            maximum: 52,
+          },
         ],
         notes: [
-          'Backed by the canonical API GET /v1/price-index/stats via @purveyors/sdk.',
-          'The no-origin/no-process retail slice is public; origin/process/wholesale filters require Intelligence access.',
+          'The view with no origin or process at market=retail works without credentials; origin, process, and wholesale views require Parchment Intelligence access.',
         ],
         examples: [
           'purvey market stats --pretty',
@@ -1308,17 +1826,29 @@ const commandGroups: CliCommandGroupContract[] = [
         auth: 'none',
         sdkMethods: ['market.metadataIndex'],
         options: [
-          { flags: '--dimension <process|disclosure|score>' },
-          { flags: '--origin <origin>' },
-          { flags: '--market <retail|wholesale|all>' },
-          { flags: '--grain <week|month>' },
-          { flags: '--from <date>' },
-          { flags: '--to <date>' },
+          {
+            flags: '--dimension <process|disclosure|score>',
+            description:
+              'What to trend: process (process mix), disclosure (how much suppliers disclose), or score (Purveyor Score)',
+            defaultValue: 'process',
+          },
+          { flags: '--origin <origin>', description: 'Only this origin (exact name)' },
+          {
+            flags: '--market <retail|wholesale|all>',
+            description: 'Which listings to read: retail, wholesale, or all',
+            defaultValue: 'retail',
+          },
+          {
+            flags: '--grain <week|month>',
+            description: 'Size of each period in the trend',
+            defaultValue: 'month',
+          },
+          { flags: '--from <date>', description: 'First period to include, as YYYY-MM-DD' },
+          { flags: '--to <date>', description: 'Last period to include, as YYYY-MM-DD' },
         ],
         notes: [
-          'Backed by the canonical API GET /v1/market/metadata-index via @purveyors/sdk.',
-          'Public slice: dimension=process, no origin, market=retail, grain=month; anything else requires Intelligence access.',
-          'cultivar and drying dimensions are out of scope for v1 (await taxonomy normalization).',
+          'Public view: dimension=process, no origin, market=retail, grain=month; anything else requires Parchment Intelligence access.',
+          'Cultivar and drying dimensions are not available yet.',
         ],
         examples: [
           'purvey market metadata --pretty',
@@ -1331,9 +1861,8 @@ const commandGroups: CliCommandGroupContract[] = [
         auth: 'viewer',
         sdkMethods: ['market.overview'],
         notes: [
-          'Backed by the canonical API GET /v1/market/overview via @purveyors/sdk.',
-          'The API rejects anonymous requests; any signed-in session or API key with catalog read access receives the same public evidence.',
-          'Emits the API response verbatim: daily change, coverage, movement, process distribution, and origin price distributions.',
+          'Anonymous requests are rejected; any signed-in account or API key with catalog read access receives the same public evidence.',
+          'Emits the API response unchanged: daily change, coverage, movement, process distribution, and origin price distributions.',
         ],
         examples: ['purvey market overview --pretty'],
       },
@@ -1343,42 +1872,58 @@ const commandGroups: CliCommandGroupContract[] = [
           'Named arrivals, delistings, comparable lots, and supplier health and price ranges',
         auth: 'member',
         sdkMethods: ['market.evidence'],
-        notes: [
-          'Backed by the canonical API GET /v1/market/evidence via @purveyors/sdk.',
-          'Requires Parchment Intelligence plus catalog read access, enforced server-side (401/403 on denial).',
-        ],
+        notes: ['Requires Parchment Intelligence plus catalog read access (exit 3 on denial).'],
         examples: ['purvey market evidence --json'],
       },
     ],
   },
   {
     name: 'price-index',
-    summary:
-      'Parchment Price Index snapshots, matched 30-day comparisons, and chart history via the canonical API',
+    summary: 'Parchment Price Index snapshots, matched 30-day price comparisons, and chart history',
     auth: 'mixed',
     command: {
       name: 'price-index',
-      summary: 'Fetch Parchment Price Index aggregate snapshots from the canonical API',
+      summary: 'Fetch Parchment Price Index aggregate snapshots',
       auth: 'member',
       sdkMethods: ['priceIndex.list'],
       options: [
-        { flags: '--origin <origin>' },
-        { flags: '--process <method>' },
-        { flags: '--grade <grade>' },
-        { flags: '--from <date>' },
-        { flags: '--to <date>' },
-        { flags: '--wholesale <true|false>' },
-        { flags: '--page <n>' },
+        {
+          flags: '--origin <origin>',
+          description: 'Only this origin (case-insensitive exact name)',
+        },
+        {
+          flags: '--process <method>',
+          description: 'Only this process (case-insensitive exact name), such as washed',
+        },
+        { flags: '--grade <grade>', description: 'Only this grade (case-insensitive exact name)' },
+        {
+          flags: '--from <date>',
+          description: 'Only snapshots on or after this date, as YYYY-MM-DD',
+        },
+        {
+          flags: '--to <date>',
+          description: 'Only snapshots on or before this date, as YYYY-MM-DD',
+        },
+        {
+          flags: '--wholesale <true|false>',
+          description: 'true for wholesale prices only, false for retail only; without it, both',
+        },
+        {
+          flags: '--page <n>',
+          description: 'Page number, starting at 1',
+          defaultValue: 1,
+          minimum: 1,
+        },
         {
           flags: '--limit <n>',
-          description: `Results per page, ${CLI_NUMERIC_BOUNDS.priceIndexLimit.minimum}-${CLI_NUMERIC_BOUNDS.priceIndexLimit.maximum}`,
+          description: 'Number of snapshots per page',
+          defaultValue: 100,
           minimum: CLI_NUMERIC_BOUNDS.priceIndexLimit.minimum,
           maximum: CLI_NUMERIC_BOUNDS.priceIndexLimit.maximum,
         },
       ],
       notes: [
-        'Backed by the canonical API GET /v1/price-index via @purveyors/sdk against api.purveyors.io.',
-        'Requires a scoped member API key with price-index (PPI) access; the API enforces the entitlement.',
+        'Requires a scoped member API key with Parchment Price Index access.',
         'PARCHMENT_API_KEY or PURVEYORS_API_KEY overrides the scoped API key stored by `purvey auth login`.',
         '--from and --to accept ISO dates (YYYY-MM-DD); --wholesale accepts "true" or "false".',
       ],
@@ -1394,12 +1939,17 @@ const commandGroups: CliCommandGroupContract[] = [
         summary: 'Available exact 30-day matched price comparisons with significance',
         auth: 'member',
         sdkMethods: ['priceIndex.comparisons'],
-        options: [{ flags: '--wholesale <true|false|all>' }],
+        options: [
+          {
+            flags: '--wholesale <true|false|all>',
+            description: 'true for wholesale listings, false for retail, or all for both',
+            defaultValue: 'false',
+          },
+        ],
         notes: [
-          'Backed by the canonical API GET /v1/price-index/comparisons via @purveyors/sdk.',
-          'Requires Parchment Intelligence access, enforced server-side.',
-          'The API discovers origins with an exact 30-day matched comparison; an empty comparisons list means none qualify.',
-          'Each comparison carries significance verbatim; classification (quiet|normal|notable|exceptional) is null until eight baseline windows exist, meaning not enough history, never quiet.',
+          'Requires Parchment Intelligence access.',
+          'Lists every origin with an exact 30-day matched comparison; an empty comparisons list means none qualify.',
+          'Each comparison carries significance unchanged; classification (quiet|normal|notable|exceptional) is null until eight baseline windows exist, meaning not enough history, never quiet.',
         ],
         examples: [
           'purvey price-index comparisons --pretty',
@@ -1412,14 +1962,23 @@ const commandGroups: CliCommandGroupContract[] = [
         auth: 'member',
         sdkMethods: ['priceIndex.comparison'],
         options: [
-          { flags: '--origin <origin>', notes: ['required'] },
-          { flags: '--from <date>', notes: ['required; ISO date YYYY-MM-DD'] },
-          { flags: '--to <date>', notes: ['required; ISO date within 365 days of --from'] },
-          { flags: '--wholesale <true|false>' },
+          { flags: '--origin <origin>', description: 'Required. Origin to compare' },
+          {
+            flags: '--from <date>',
+            description: 'Required. Starting date, as YYYY-MM-DD (UTC)',
+          },
+          {
+            flags: '--to <date>',
+            description: 'Required. Ending date, as YYYY-MM-DD (UTC), within 365 days of --from',
+          },
+          {
+            flags: '--wholesale <true|false>',
+            description: 'true to compare wholesale listings, false for retail',
+            defaultValue: 'false',
+          },
         ],
         notes: [
-          'Backed by the canonical API GET /v1/price-index/comparison via @purveyors/sdk.',
-          'Requires Parchment Intelligence access, enforced server-side.',
+          'Requires Parchment Intelligence access.',
           'status insufficient_fresh_coverage returns a null changePercent, never zero.',
         ],
         examples: [
@@ -1428,28 +1987,39 @@ const commandGroups: CliCommandGroupContract[] = [
       },
       {
         name: 'history',
-        summary: 'Tier-one price-index chart history; windows up to 90 days are public',
+        summary: 'Daily price-index history for charts; windows up to 90 days are public',
         auth: 'none',
         sdkMethods: ['priceIndex.history'],
         options: [
           {
             flags: '--window-days <n>',
-            description: `Trailing window in days, ${CLI_NUMERIC_BOUNDS.priceIndexHistoryWindowDays.minimum}-${CLI_NUMERIC_BOUNDS.priceIndexHistoryWindowDays.maximum}`,
+            description:
+              'Number of past days to include; up to 90 works without signing in, longer windows need Parchment Intelligence',
+            defaultValue: 90,
             minimum: CLI_NUMERIC_BOUNDS.priceIndexHistoryWindowDays.minimum,
             maximum: CLI_NUMERIC_BOUNDS.priceIndexHistoryWindowDays.maximum,
           },
-          { flags: '--page <n>' },
+          {
+            flags: '--page <n>',
+            description: 'Page number, starting at 1',
+            defaultValue: 1,
+            minimum: 1,
+          },
           {
             flags: '--limit <n>',
-            description: `Results per page, ${CLI_NUMERIC_BOUNDS.priceIndexHistoryLimit.minimum}-${CLI_NUMERIC_BOUNDS.priceIndexHistoryLimit.maximum}`,
+            description: 'Number of data points per page',
+            defaultValue: 100,
             minimum: CLI_NUMERIC_BOUNDS.priceIndexHistoryLimit.minimum,
             maximum: CLI_NUMERIC_BOUNDS.priceIndexHistoryLimit.maximum,
           },
-          { flags: '--order <asc|desc>' },
+          {
+            flags: '--order <asc|desc>',
+            description: 'Date order: asc (oldest first) or desc (newest first)',
+            defaultValue: 'asc',
+          },
         ],
         notes: [
-          'Backed by the canonical API GET /v1/price-index/history via @purveyors/sdk.',
-          'Windows up to 90 days (the default) run without credentials; 91-365 days require Parchment Intelligence access, enforced server-side.',
+          'Windows up to 90 days (the default) run without credentials; 91-365 days require Parchment Intelligence access.',
         ],
         examples: [
           'purvey price-index history --pretty',
@@ -1460,7 +2030,7 @@ const commandGroups: CliCommandGroupContract[] = [
   },
   {
     name: 'procurement',
-    summary: 'Read saved sourcing briefs and their catalog matches from the canonical API',
+    summary: 'Read your saved sourcing briefs and the catalog coffees that match them',
     auth: 'member',
     subcommands: [
       {
@@ -1468,10 +2038,7 @@ const commandGroups: CliCommandGroupContract[] = [
         summary: 'List your saved sourcing briefs',
         auth: 'member',
         sdkMethods: ['procurement.briefs.list'],
-        notes: [
-          'Backed by the canonical API GET /v1/procurement/briefs via @purveyors/sdk.',
-          'Brief creation is a write handled by the Phase 2 write build-out (PADR-0016), not this read surface.',
-        ],
+        notes: ['The CLI reads saved briefs; it does not create them.'],
         examples: ['purvey procurement list --pretty'],
       },
       {
@@ -1487,7 +2054,6 @@ const commandGroups: CliCommandGroupContract[] = [
             required: true,
           },
         ],
-        notes: ['Backed by the canonical API GET /v1/procurement/briefs/{id} via @purveyors/sdk.'],
         examples: ['purvey procurement get <brief-id> --pretty'],
       },
       {
@@ -1504,17 +2070,19 @@ const commandGroups: CliCommandGroupContract[] = [
           },
         ],
         options: [
-          { flags: '--page <n>' },
+          {
+            flags: '--page <n>',
+            description: 'Page number, starting at 1',
+            defaultValue: 1,
+            minimum: 1,
+          },
           {
             flags: '--limit <n>',
-            description: `Matches per page, ${CLI_NUMERIC_BOUNDS.procurementMatchesLimit.minimum}-${CLI_NUMERIC_BOUNDS.procurementMatchesLimit.maximum}`,
+            description: 'Number of matching coffees per page',
+            defaultValue: 25,
             minimum: CLI_NUMERIC_BOUNDS.procurementMatchesLimit.minimum,
             maximum: CLI_NUMERIC_BOUNDS.procurementMatchesLimit.maximum,
           },
-        ],
-        notes: [
-          'Backed by the canonical API GET /v1/procurement/briefs/{id}/matches via @purveyors/sdk.',
-          '--limit maxes at 100 (default 25); --page is 1-based (default 1).',
         ],
         examples: [
           'purvey procurement matches <brief-id> --pretty',
@@ -1525,7 +2093,7 @@ const commandGroups: CliCommandGroupContract[] = [
   },
   {
     name: 'reference-profile',
-    summary: 'Compare, preview, save, and export Studio reference plans through the canonical API',
+    summary: 'Import, compare, adjust, save, and export Studio reference roast plans',
     auth: 'member',
     subcommands: [
       {
@@ -1533,11 +2101,13 @@ const commandGroups: CliCommandGroupContract[] = [
         summary: 'List your Studio reference profiles',
         auth: 'member',
         sdkMethods: ['referenceProfiles.list'],
-        options: [{ flags: '--include-archived' }],
-        notes: [
-          'Backed by GET /v1/reference-profiles via @purveyors/sdk.',
-          'Requires a member credential and Studio access; entitlement is enforced by Parchment.',
+        options: [
+          {
+            flags: '--include-archived',
+            description: 'Also list reference profiles you have archived',
+          },
         ],
+        notes: ['Requires a member credential and Studio access on your account.'],
         examples: ['purvey reference-profile list --pretty'],
       },
       {
@@ -1549,7 +2119,7 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'reference_profile_id',
             cliToken: 'profile-id',
-            description: 'owner-scoped reference profile UUID',
+            description: 'Reference profile UUID',
             required: true,
             idType: 'reference_profile_id',
           },
@@ -1559,27 +2129,24 @@ const commandGroups: CliCommandGroupContract[] = [
       },
       {
         name: 'chart',
-        summary: 'Get the typed Artisan chart for a reference revision',
+        summary: 'Get the Artisan chart for a reference revision',
         auth: 'member',
         sdkMethods: ['referenceProfiles.chart'],
         arguments: [
           {
             name: 'reference_profile_id',
             cliToken: 'profile-id',
-            description: 'owner-scoped reference profile UUID',
+            description: 'Reference profile UUID',
             required: true,
             idType: 'reference_profile_id',
           },
           {
             name: 'reference_revision_id',
             cliToken: 'revision-id',
-            description: 'immutable revision UUID belonging to the profile',
+            description: 'Revision UUID belonging to the profile',
             required: true,
             idType: 'reference_revision_id',
           },
-        ],
-        notes: [
-          'Backed by GET /v1/reference-profiles/{id}/revisions/{revisionId}/chart via @purveyors/sdk.',
         ],
         examples: [
           'purvey reference-profile chart 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --pretty',
@@ -1598,13 +2165,17 @@ const commandGroups: CliCommandGroupContract[] = [
           },
         ],
         options: [
-          { flags: '--title <text>' },
-          { flags: '--notes <text>' },
-          { flags: '--idempotency-key <key>', description: 'Stable key for safe retries' },
+          { flags: '--title <text>', description: 'Title for the new reference profile' },
+          { flags: '--notes <text>', description: 'Notes about the reference profile' },
+          {
+            flags: '--idempotency-key <key>',
+            description:
+              'Key that makes retries safe: repeating the upload with the same key does not create a second profile. A new key is generated when omitted',
+          },
         ],
         notes: [
-          'Backed by POST /v1/reference-profiles/imports via @purveyors/sdk; parsing and private retention are server-owned.',
-          'A new idempotency key is generated when omitted; reuse an explicit key to replay the same upload.',
+          'The uploaded file is parsed on purveyors.io and kept private to your account.',
+          'Reuse an explicit idempotency key to replay the same upload.',
           'Import creates a reference profile, not executed roast history.',
         ],
         examples: [
@@ -1631,19 +2202,23 @@ const commandGroups: CliCommandGroupContract[] = [
           },
         ],
         options: [
-          { flags: '--unit <F|C>', defaultValue: 'F' },
+          {
+            flags: '--unit <F|C>',
+            description: 'Temperature unit for the compared series: F (Fahrenheit) or C (Celsius)',
+            defaultValue: 'F',
+          },
           {
             flags: '--target-points <n>',
-            description: 'Samples per aligned series, 50-1000',
+            description: 'Number of samples in each aligned temperature series',
             defaultValue: 400,
             minimum: 50,
             maximum: 1000,
           },
         ],
         notes: [
-          'Backed by POST /v1/profile-comparisons via @purveyors/sdk; output is the canonical comparison envelope.',
+          'Output is the comparison result unchanged.',
           'profile:<uuid> resolves the profile currentRevisionId; roast:<roast-id> resolves data.metadata.revision from roast chart data.',
-          'Parchment aligns both sides at charge; a reference profile is never executed roast history.',
+          'Both sides are aligned at charge; a reference profile is never executed roast history.',
         ],
         examples: [
           'purvey reference-profile compare roast:123 profile:5ea1af6f-234c-43a9-9bf8-5678dd24f854 --pretty',
@@ -1659,24 +2234,29 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'reference_profile_id',
             cliToken: 'profile-id',
-            description: 'owner-scoped reference profile UUID',
+            description: 'Reference profile UUID',
             required: true,
             idType: 'reference_profile_id',
           },
           {
             name: 'reference_revision_id',
             cliToken: 'revision-id',
-            description: 'immutable parent revision UUID',
+            description: 'Revision UUID to adjust; it is never changed',
             required: true,
             idType: 'reference_revision_id',
           },
         ],
-        options: [{ flags: '--request <file>', requiredInFlagMode: true }],
+        options: [
+          {
+            flags: '--request <file>',
+            description:
+              'Required. JSON file with a title and up to 12 temperature adjustments; save accepts the same file',
+          },
+        ],
         notes: [
-          'Backed by POST /v1/reference-profiles/{id}/revisions/{revisionId}/preview via @purveyors/sdk.',
           'Request JSON contains title, optional notes, optional userGoal (600 chars), modelRecommendation (800), and userEdits (800) provenance, and changes.temperatureAdjustments; each adjustment has kind, startMilliseconds, endMilliseconds, and delta.',
           'At most 12 adjustments are accepted; intervals must be ordered and each nonzero delta is bounded to -20 through 20.',
-          'Parchment recalculates from the immutable parent; preview never persists or changes the source.',
+          'The plan is recalculated from the unchanged parent revision; preview never saves anything.',
         ],
         examples: [
           'purvey reference-profile preview 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --pretty',
@@ -1692,25 +2272,31 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'reference_profile_id',
             cliToken: 'profile-id',
-            description: 'owner-scoped reference profile UUID',
+            description: 'Reference profile UUID',
             required: true,
             idType: 'reference_profile_id',
           },
           {
             name: 'reference_revision_id',
             cliToken: 'revision-id',
-            description: 'immutable parent revision UUID',
+            description: 'Revision UUID the new plan is based on; it is never changed',
             required: true,
             idType: 'reference_revision_id',
           },
         ],
         options: [
-          { flags: '--request <file>', requiredInFlagMode: true },
-          { flags: '--idempotency-key <key>', description: 'Stable key for safe retries' },
+          {
+            flags: '--request <file>',
+            description: 'Required. The same JSON request file you previewed',
+          },
+          {
+            flags: '--idempotency-key <key>',
+            description:
+              'Key that makes retries safe: repeating the save with the same key does not create a second plan. A new key is generated when omitted',
+          },
         ],
         notes: [
-          'Backed by POST /v1/reference-profiles/{id}/revisions/{revisionId}/generated via @purveyors/sdk.',
-          'A new idempotency key is generated when omitted; reuse an explicit key to replay the same save.',
+          'Reuse an explicit idempotency key to replay the same save.',
           'Generated references are plans and never create executed roast history.',
         ],
         examples: [
@@ -1726,24 +2312,26 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'reference_profile_id',
             cliToken: 'profile-id',
-            description: 'saved generated reference profile UUID',
+            description: 'UUID of a saved generated reference profile',
             required: true,
             idType: 'reference_profile_id',
           },
           {
             name: 'reference_revision_id',
             cliToken: 'revision-id',
-            description: 'saved generated revision UUID',
+            description: 'UUID of the saved generated revision',
             required: true,
             idType: 'reference_revision_id',
           },
         ],
         options: [
-          { flags: '--output <file>', requiredInFlagMode: true },
-          { flags: '--force', description: 'Overwrite the destination file if it exists' },
+          {
+            flags: '--output <file>',
+            description: 'Required. Path to write the .alog file to',
+          },
+          { flags: '--force', description: 'Overwrite the output file if it already exists' },
         ],
         notes: [
-          'Backed by GET /v1/reference-profiles/{id}/revisions/{revisionId}/export via @purveyors/sdk.',
           'Only a saved generated revision can be exported; output is a local file plus a JSON receipt.',
           'The CLI does not claim verified Artisan 4.2 playback compatibility.',
         ],
@@ -1760,7 +2348,7 @@ const workflows: CliWorkflowContract[] = [
     title: 'Catalog to inventory',
     commands: [
       'purvey catalog search --origin "Ethiopia" --stocked --pretty',
-      'purvey inventory add --catalog-id 128 --qty 10 --cost 8.50',
+      'purvey inventory add --catalog-id 128 --qty 10 --cost 85.00',
     ],
   },
   {
@@ -1921,7 +2509,7 @@ export function getCliManifest(): CliManifest {
         'Use --json to request compact JSON explicitly.',
         'Use --pretty for indented JSON.',
         'Use --csv for array-shaped results that support CSV output.',
-        'Set PURVEYORS_API_KEY or PARCHMENT_API_KEY when intentionally using API-key backed catalog proof reads.',
+        'PURVEYORS_API_KEY or PARCHMENT_API_KEY, when set, is used instead of the key stored by `purvey auth login`.',
         '`purvey context` prints dense human-readable operator reference text unless --json or --pretty is passed.',
         '`purvey manifest` is the preferred machine-readable contract and always emits it on stdout.',
         '`purvey context --json` stays available for compatibility parity with existing context-based callers.',

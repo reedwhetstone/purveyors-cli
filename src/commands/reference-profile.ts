@@ -25,11 +25,8 @@ import { outputData } from '../lib/output.js';
 import { parseStrictPositiveCount } from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
 
-function idempotencyKeyOption(command: Command, description: string): Command {
-  return command.option(
-    '--idempotency-key <key>',
-    `${description}; a new UUID is generated when omitted`
-  );
+function idempotencyKeyOption(command: Command): Command {
+  return command.option('--idempotency-key <key>');
 }
 
 /** `purvey reference-profile` — owner-scoped Studio plans through Parchment's SDK. */
@@ -41,7 +38,7 @@ export function buildReferenceProfileCommand(): Command {
   referenceProfile
     .command('list')
     .description('List your Studio reference profiles')
-    .option('--include-archived', 'Include archived reference profiles')
+    .option('--include-archived')
     .addHelpText(
       'after',
       `
@@ -50,7 +47,7 @@ Examples:
   purvey reference-profile list --include-archived --json
 
 Notes:
-  Requires a member credential and Studio access; entitlement is enforced by Parchment.`
+  Requires a member credential and Studio access on your account.`
     )
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
@@ -106,12 +103,8 @@ Example:
   referenceProfile
     .command('compare <left> <right>')
     .description('Compare two immutable roast or reference revisions with measured deltas')
-    .option('--unit <F|C>', 'Temperature unit for the comparison series', 'F')
-    .option(
-      '--target-points <n>',
-      `Samples per aligned series (${PROFILE_COMPARISON_TARGET_POINTS.minimum}-${PROFILE_COMPARISON_TARGET_POINTS.maximum})`,
-      String(PROFILE_COMPARISON_TARGET_POINTS.default)
-    )
+    .option('--unit <F|C>', '', 'F')
+    .option('--target-points <n>', '', String(PROFILE_COMPARISON_TARGET_POINTS.default))
     .addHelpText(
       'after',
       `
@@ -129,7 +122,7 @@ Selectors:
 Notes:
   Parchment aligns both sides at charge and returns measured deltas and milestones unchanged.
   A reference profile is a plan or comparison reference, never executed roast history.
-  Requires a member credential and Studio access; entitlement is enforced by Parchment.`
+  Requires a member credential and Studio access on your account.`
     )
     .action(
       withErrorHandling(
@@ -168,8 +161,8 @@ Notes:
   const importCommand = referenceProfile
     .command('import <file>')
     .description('Upload an Artisan reference file as a private Studio profile')
-    .option('--title <text>', 'Title for the reference profile')
-    .option('--notes <text>', 'Notes about the reference profile')
+    .option('--title <text>')
+    .option('--notes <text>')
     .addHelpText(
       'after',
       `
@@ -181,7 +174,7 @@ Notes:
   Parchment parses and retains the private source (up to 10,000,000 bytes); this command does not create roast history.
   Reuse an explicit idempotency key to safely retry the same upload.`
     );
-  idempotencyKeyOption(importCommand, 'Stable key for safe retries');
+  idempotencyKeyOption(importCommand);
   importCommand.action(
     withErrorHandling(async (inputPath: string, opts: Record<string, unknown>, cmd: Command) => {
       const globalOpts = cmd.optsWithGlobals() as OutputOptions;
@@ -223,10 +216,7 @@ Notes:
   const previewCommand = referenceProfile
     .command('preview <profile-id> <revision-id>')
     .description('Preview a bounded set of temperature adjustments without saving')
-    .requiredOption(
-      '--request <file>',
-      'JSON file with a title and bounded temperature adjustments'
-    )
+    .requiredOption('--request <file>')
     .addHelpText(
       'after',
       `
@@ -256,11 +246,8 @@ Parchment recalculates from the immutable parent; preview never changes or store
   const saveCommand = referenceProfile
     .command('save <profile-id> <revision-id>')
     .description('Save the previewed changes as a new immutable generated reference')
-    .requiredOption(
-      '--request <file>',
-      'JSON file with a title and bounded temperature adjustments'
-    );
-  idempotencyKeyOption(saveCommand, 'Stable key for safe retries');
+    .requiredOption('--request <file>');
+  idempotencyKeyOption(saveCommand);
   saveCommand.addHelpText(
     'after',
     `
@@ -295,8 +282,8 @@ Notes:
   const exportCommand = referenceProfile
     .command('export <profile-id> <revision-id>')
     .description('Download a saved generated reference as an unsigned Artisan .alog plan')
-    .requiredOption('--output <file>', 'Destination for the generated .alog file')
-    .option('--force', 'Overwrite the destination file if it already exists')
+    .requiredOption('--output <file>')
+    .option('--force')
     .addHelpText(
       'after',
       `
