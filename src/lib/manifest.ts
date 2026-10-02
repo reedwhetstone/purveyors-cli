@@ -221,6 +221,8 @@ const idTypes: CliIdContract[] = [
     usedBy: [
       'catalog get',
       'catalog similar',
+      'catalog compare',
+      'catalog price-history',
       'inventory add --catalog-id',
       'tasting get <bean-id>',
       'roast list --catalog-id',
@@ -575,7 +577,7 @@ const commandGroups: CliCommandGroupContract[] = [
           },
         ],
         notes: [
-          'Without a field, prints every facet with its counted values and meta (values, facets, meta).',
+          'Without a field, prints every non-grading facet with its counted values and meta (values, facets, meta); name a grading field to get its counts.',
           "With a field, prints { field, facet, data, meta }: that facet's counted values and meta.",
           'Counts for multi-valued dimensions can overlap, so do not sum them.',
           'Defaults to currently stocked coffees; use --all for every coffee you can see.',
@@ -901,15 +903,15 @@ const commandGroups: CliCommandGroupContract[] = [
             name: 'ids',
             description: '2 to 6 catalog IDs, space- or comma-separated',
             required: true,
+            idType: 'catalog_id',
           },
         ],
         options: [
           {
             flags: '--quantity <lb>',
             description:
-              'Pounds you plan to buy; each coffee is priced at the tier that applies to this quantity (default 1)',
-            minimum: 0,
-            maximum: 10000,
+              'Pounds you plan to buy, any positive number up to 10000; each coffee is priced at the tier that applies to this quantity',
+            defaultValue: 1,
           },
         ],
         notes: [
@@ -927,7 +929,15 @@ const commandGroups: CliCommandGroupContract[] = [
         summary: 'Daily smallest-tier price history for one coffee',
         auth: 'member',
         sdkMethods: ['catalog.priceHistory'],
-        arguments: [{ name: 'id', description: 'catalog ID', required: true }],
+        arguments: [
+          {
+            name: 'catalog_id',
+            cliToken: 'id',
+            description: 'Catalog ID of the coffee',
+            required: true,
+            idType: 'catalog_id',
+          },
+        ],
         options: [
           {
             flags: '--days <n>',

@@ -13,8 +13,10 @@ vi.mock('../src/lib/output.js', async (importOriginal) => {
 import { buildCatalogCommand } from '../src/commands/catalog.js';
 import { createParchmentClient } from '../src/lib/parchment.js';
 import { outputData } from '../src/lib/output.js';
+import { getCliManifest } from '../src/lib/manifest.js';
 import {
   compareCatalog,
+  getCatalogFacets,
   getCatalogPriceHistory,
   listCatalogFacets,
   listCatalogGrades,
@@ -27,6 +29,12 @@ async function run(...args: string[]) {
   const command = buildCatalogCommand();
   command.exitOverride();
   await command.parseAsync(['node', 'catalog', ...args]);
+}
+
+function catalogSubcommand(name: string) {
+  return getCliManifest()
+    .commandGroups.find((group) => group.name === 'catalog')
+    ?.subcommands?.find((command) => command.name === name);
 }
 
 beforeEach(() => {
@@ -112,6 +120,17 @@ describe('grading facets', () => {
     expect(createParchmentClient).toHaveBeenCalledWith('member');
     expect(result.data).toEqual([{ value: 'GT:SHB', count: 3 }]);
   });
+
+  it('keeps the unfiltered facets read viewer-safe and documents that grading is omitted', async () => {
+    const facets = vi.fn().mockResolvedValue(ok({ facets: {}, values: {}, meta: {} }));
+    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { facets } } as never);
+    await getCatalogFacets();
+    expect(facets).toHaveBeenCalledWith({ stocked: 'true' });
+    expect(createParchmentClient).toHaveBeenCalledWith('viewer');
+
+    const contract = catalogSubcommand('facets');
+    expect(contract?.notes?.[0]).toContain('every non-grading facet');
+  });
 });
 
 describe('compare, price history, and grades', () => {
@@ -122,6 +141,39 @@ describe('compare, price history, and grades', () => {
     expect(compare).toHaveBeenCalledWith({ ids: '416,8806,1182', quantityLbs: '5' });
     expect(outputData).toHaveBeenCalled();
     await expect(compareCatalog({ ids: [416, 416] })).rejects.toThrow('distinct');
+  });
+
+  it('rejects a zero quantity with the positive-only bound', async () => {
+    const compare = vi.fn();
+    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { compare } } as never);
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit ${code}`);
+    }) as never);
+    try {
+      await expect(run('compare', '416', '8806', '--quantity', '0')).rejects.toThrow('exit');
+      expect(String(stderr.mock.calls.flat().join(''))).toContain(
+        'Must be a positive number of pounds up to 10000'
+      );
+      expect(compare).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+      exit.mockRestore();
+    }
+  });
+
+  it('publishes catalog ID types and the quantity default for compare and price history', () => {
+    const manifest = getCliManifest();
+    const compareContract = catalogSubcommand('compare');
+    const historyContract = catalogSubcommand('price-history');
+    expect(compareContract?.arguments?.[0]?.idType).toBe('catalog_id');
+    expect(historyContract?.arguments?.[0]).toMatchObject({ cliToken: 'id', idType: 'catalog_id' });
+    expect(manifest.idTypes.find((id) => id.name === 'catalog_id')?.usedBy).toEqual(
+      expect.arrayContaining(['catalog compare', 'catalog price-history'])
+    );
+    const quantity = compareContract?.options?.find((option) => option.flags === '--quantity <lb>');
+    expect(quantity).toMatchObject({ defaultValue: 1 });
+    expect(quantity?.minimum).toBeUndefined();
   });
 
   it('reads price history with the member credential', async () => {

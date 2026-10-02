@@ -394,7 +394,7 @@ Grading filters (member access or a customer API key; results then carry a `grad
 
 - Fields: `supplier`, `country`, `processing_base_method`, `fermentation_type`, `drying_method`, `wholesale`
 - Grading fields (member access or API key): `grade_size`, `grade_altitude`, `grade_defects`, `grade_cup`, `grade_preparation`, `screen_size_min`, `elevation_band`
-- Without a field, prints the canonical `/v1/catalog/facets` envelope (`values`, `facets`, `meta`) unchanged. With a field, prints `{ field, facet, data, meta }` for that counted facet.
+- Without a field, prints the canonical `/v1/catalog/facets` envelope (`values`, `facets`, `meta`) unchanged; it omits grading facets, so name a grading field to get those counts. With a field, prints `{ field, facet, data, meta }` for that counted facet.
 - `--all`; use all visible catalog rows instead of the default stocked-only scope.
 
 `catalog rank` options:

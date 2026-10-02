@@ -478,7 +478,7 @@ Notes:
 Examples:
   purvey catalog facets supplier --pretty
   purvey catalog facets country --all --json
-  purvey catalog facets --pretty      # every counted facet
+  purvey catalog facets --pretty      # every non-grading facet
   purvey catalog facets grade_altitude --pretty
 
 Fields:
@@ -487,7 +487,8 @@ Fields:
   grade_cup, grade_preparation, screen_size_min, elevation_band
 
 Notes:
-  Without a field, prints every facet with its counted values and meta (values, facets, meta).
+  Without a field, prints every non-grading facet with its counted values and
+  meta (values, facets, meta); name a grading field to get its counts.
   With a field, prints { field, facet, data, meta }: that facet's counted values and meta.
   Counts include only coffees you can see; counts for multi-valued dimensions can
   overlap, so do not sum them.
@@ -914,7 +915,7 @@ Notes:
         if (quantityLbs !== undefined && (quantityLbs <= 0 || quantityLbs > 10000)) {
           throw new PrvrsError(
             'INVALID_ARGUMENT',
-            `Invalid --quantity: "${String(opts.quantity)}". Must be between 0 and 10000 lb.`
+            `Invalid --quantity: "${String(opts.quantity)}". Must be a positive number of pounds up to 10000.`
           );
         }
         outputData(await compareCatalog({ ids: parsedIds, quantityLbs }), globalOpts);

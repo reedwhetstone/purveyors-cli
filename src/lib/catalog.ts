@@ -1155,8 +1155,9 @@ export async function getCatalogStats(): Promise<CatalogStats> {
 }
 
 /**
- * Fetch every counted catalog facet from the canonical `/v1/catalog/facets`
- * endpoint. The envelope (values, facets, meta) is returned unchanged.
+ * Fetch counted catalog facets from the canonical `/v1/catalog/facets`
+ * endpoint; grading facets are included only with `includeGrading`. The
+ * envelope (values, facets, meta) is returned unchanged.
  */
 export async function getCatalogFacets(
   input: { stockedOnly?: boolean; includeGrading?: boolean } = {}
