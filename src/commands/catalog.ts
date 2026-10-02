@@ -21,6 +21,12 @@ import {
   catalogFacetFields,
   catalogRankObjectives,
   catalogSimilarityModes,
+  compareCatalog,
+  getCatalogPriceHistory,
+  gradeDimensions,
+  listCatalogGrades,
+  scoreProtocols,
+  type GradeDimension,
 } from '../lib/catalog.js';
 import type { CatalogItem, CatalogStats, CatalogSortField } from '../lib/catalog.js';
 import { CLI_NUMERIC_BOUNDS } from '../lib/numeric-contracts.js';
@@ -133,6 +139,16 @@ export function buildCatalogCommand(): Command {
     .option('--offset <n>', '', '0')
     .option('--limit <n>', '', '10')
     .option('--include-proof')
+    .option('--elevation-min <masl>')
+    .option('--elevation-max <masl>')
+    .option('--screen-min <n>')
+    .option('--screen-max <n>')
+    .option('--grade <codes>')
+    .option('--grade-kind <kind>')
+    .option('--peaberry')
+    .option('--lab-analyzed')
+    .option('--moisture-max <pct>')
+    .option('--score-protocol <protocol>')
     .addHelpText(
       'after',
       `
@@ -153,6 +169,9 @@ Examples:
   purvey catalog search --supplier "Royal" --stocked --pretty
   purvey catalog search --flavor "blueberry,jasmine" --drying-method "raised bed" --pretty
   purvey catalog search --origin "Ethiopia" --include-proof --json
+  purvey catalog search --grade KE:AA,KE:AB --screen-min 17 --stocked --pretty
+  purvey catalog search --grade-kind altitude --elevation-min 1600 --pretty
+  purvey catalog search --lab-analyzed --moisture-max 11 --pretty
 
 Sort fields:
   price       cheapest first
@@ -173,6 +192,9 @@ Notes:
   --offset + --limit enables pagination through large result sets.
   --include-proof adds a proof summary to each coffee; without it the output shape
   is unchanged.
+  Grading filters (--elevation-*, --screen-*, --grade, --grade-kind, --peaberry,
+  --lab-analyzed, --moisture-max, --score-protocol) add a grading object to each
+  result. List codes with 'purvey catalog grades'.
   Requires a sign-in ('purvey auth login') or an API key with catalog:read.
 `
     )
@@ -273,6 +295,71 @@ Notes:
           }
         }
 
+        const intOption = (flag: string, value: unknown, min: number, max: number) => {
+          if (value === undefined) return undefined;
+          const parsed = parsePositiveIntegerArg(
+            String(value),
+            `Invalid ${flag}: "${String(value)}". Must be a whole number from ${min} to ${max}.`
+          );
+          if (parsed < min || parsed > max) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              `Invalid ${flag}: "${String(value)}". Must be a whole number from ${min} to ${max}.`
+            );
+          }
+          return parsed;
+        };
+        const elevationMin = intOption('--elevation-min', opts.elevationMin, 1, 6000);
+        const elevationMax = intOption('--elevation-max', opts.elevationMax, 1, 6000);
+        const screenMin = intOption('--screen-min', opts.screenMin, 8, 20);
+        const screenMax = intOption('--screen-max', opts.screenMax, 8, 20);
+        let gradeCodes: string[] | undefined;
+        if (opts.grade !== undefined) {
+          gradeCodes = String(opts.grade)
+            .split(',')
+            .map((code) => code.trim().toUpperCase())
+            .filter(Boolean);
+          const invalid = gradeCodes.find(
+            (code) => !/^[A-Z][A-Z0-9_]*:[A-Z0-9][A-Z0-9_]*$/.test(code)
+          );
+          if (gradeCodes.length === 0 || invalid) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              `Invalid --grade: "${String(opts.grade)}". Use comma-separated codes like KE:AA,PREP:EP (see 'purvey catalog grades').`
+            );
+          }
+        }
+        const gradeKind = opts.gradeKind as string | undefined;
+        if (gradeKind !== undefined && !gradeDimensions.includes(gradeKind as GradeDimension)) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid --grade-kind: "${gradeKind}". Must be one of: ${gradeDimensions.join(', ')}.`
+          );
+        }
+        const moistureMax =
+          opts.moistureMax !== undefined
+            ? parseFiniteNumberArg(
+                opts.moistureMax as string,
+                `Invalid --moisture-max: "${String(opts.moistureMax)}". Must be a number from 0 to 20.`
+              )
+            : undefined;
+        if (moistureMax !== undefined && (moistureMax < 0 || moistureMax > 20)) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid --moisture-max: "${String(opts.moistureMax)}". Must be a number from 0 to 20.`
+          );
+        }
+        const scoreProtocol = opts.scoreProtocol as string | undefined;
+        if (
+          scoreProtocol !== undefined &&
+          !(scoreProtocols as readonly string[]).includes(scoreProtocol)
+        ) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid --score-protocol: "${scoreProtocol}". Must be one of: ${scoreProtocols.join(', ')}.`
+          );
+        }
+
         const includeProof = opts.includeProof ? true : undefined;
         const data = await searchCatalog({
           origin: opts.origin as string | undefined,
@@ -296,6 +383,16 @@ Notes:
           offset,
           limit,
           includeProof,
+          elevationMin,
+          elevationMax,
+          screenMin,
+          screenMax,
+          gradeCodes,
+          gradeDimension: gradeKind as GradeDimension | undefined,
+          peaberry: opts.peaberry ? true : undefined,
+          labAnalyzed: opts.labAnalyzed ? true : undefined,
+          moistureMax,
+          scoreProtocol: scoreProtocol as (typeof scoreProtocols)[number] | undefined,
         });
 
         if (data.length === 0) {
@@ -381,13 +478,17 @@ Notes:
 Examples:
   purvey catalog facets supplier --pretty
   purvey catalog facets country --all --json
-  purvey catalog facets --pretty      # every counted facet
+  purvey catalog facets --pretty      # every non-grading facet
+  purvey catalog facets grade_altitude --pretty
 
 Fields:
-  supplier, country, processing_base_method, fermentation_type, drying_method, grade, wholesale
+  supplier, country, processing_base_method, fermentation_type, drying_method, wholesale
+  Grading: grade_size, grade_altitude, grade_defects,
+  grade_cup, grade_preparation, screen_size_min, elevation_band
 
 Notes:
-  Without a field, prints every facet with its counted values and meta (values, facets, meta).
+  Without a field, prints every non-grading facet with its counted values and
+  meta (values, facets, meta); name a grading field to get its counts.
   With a field, prints { field, facet, data, meta }: that facet's counted values and meta.
   Counts include only coffees you can see; counts for multi-valued dimensions can
   overlap, so do not sum them.
@@ -769,6 +870,133 @@ Notes:
         });
 
         outputData(response, globalOpts);
+      })
+    );
+
+  // ── catalog compare <ids...> ──────────────────────────────────────────────
+  catalog
+    .command('compare <ids...>')
+    .description('Compare 2 to 6 coffees side by side, priced at your quantity')
+    .option('--quantity <lb>')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey catalog compare 416 8806 --pretty
+  purvey catalog compare 416 8806 1182 --quantity 5 --json | jq '.data.bestPriceLotIds'
+
+Notes:
+  Rows are grouped (Price, Availability, Origin, Process, Coffee, Grading, Taste,
+  Listing) and marked same, partial, or different; price rows name the cheapest
+  lots. Grading rows never carry best marks.
+  Viewer accounts compare 2 coffees; member accounts and API keys compare up to 6.
+`
+    )
+    .action(
+      withErrorHandling(async (ids: string[], opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        const parsedIds = ids
+          .flatMap((token) => token.split(','))
+          .map((token) => token.trim())
+          .filter(Boolean)
+          .map((token) =>
+            parseInt4IdArg(token, `Invalid ID: "${token}". Each ID must be a positive integer.`)
+          );
+        if (parsedIds.length < 2 || parsedIds.length > 6) {
+          throw new PrvrsError('INVALID_ARGUMENT', 'Compare takes 2 to 6 catalog IDs.');
+        }
+        const quantityLbs =
+          opts.quantity !== undefined
+            ? parseFiniteNumberArg(
+                opts.quantity as string,
+                `Invalid --quantity: "${String(opts.quantity)}". Must be a positive number of pounds.`
+              )
+            : undefined;
+        if (quantityLbs !== undefined && (quantityLbs <= 0 || quantityLbs > 10000)) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid --quantity: "${String(opts.quantity)}". Must be a positive number of pounds up to 10000.`
+          );
+        }
+        outputData(await compareCatalog({ ids: parsedIds, quantityLbs }), globalOpts);
+      })
+    );
+
+  // ── catalog price-history <id> ────────────────────────────────────────────
+  catalog
+    .command('price-history <id>')
+    .description('Daily smallest-tier price history for one coffee')
+    .option('--days <n>', '', '180')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey catalog price-history 1182 --pretty
+  purvey catalog price-history 1182 --days 90 --json | jq '.data.summary'
+
+Notes:
+  Prices track the smallest order tier. Events flag days when the smallest
+  tier's quantity changed, which makes prices before and after not directly
+  comparable. Parchment decides access; the key 'purvey auth login' stores works.
+`
+    )
+    .action(
+      withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        const coffeeId = parseInt4IdArg(
+          id,
+          `Invalid ID: "${id}". Please provide a numeric catalog ID.`
+        );
+        const days = parseBoundedPositiveIntegerArg(opts.days as string, '--days', 7, 365);
+        outputData(await getCatalogPriceHistory({ id: coffeeId, days }), globalOpts);
+      })
+    );
+
+  // ── catalog grades [codes...] ─────────────────────────────────────────────
+  catalog
+    .command('grades [codes...]')
+    .description('Explain green grade codes such as KE:AA, ET:G1, GT:SHB, or PREP:EP')
+    .option('--kind <kind>')
+    .option('--system <system>')
+    .option('--include-retired')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey catalog grades --pretty
+  purvey catalog grades KE:AA ET:G1 --pretty
+  purvey catalog grades --kind altitude --json | jq '.data[].code'
+  purvey catalog grades --system BR --pretty
+
+Notes:
+  Codes are <system>:<token>. Kinds are size, altitude, defects, cup, and
+  preparation; composite grades such as ET:G1 carry more than one. Implied
+  ranges come from the published definition, not from any lot's disclosure.
+  Unknown codes are listed under unknownCodes.
+`
+    )
+    .action(
+      withErrorHandling(async (codes: string[], opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        const kind = opts.kind as string | undefined;
+        if (kind !== undefined && !gradeDimensions.includes(kind as GradeDimension)) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid --kind: "${kind}". Must be one of: ${gradeDimensions.join(', ')}.`
+          );
+        }
+        outputData(
+          await listCatalogGrades({
+            codes: codes
+              .flatMap((code) => code.split(','))
+              .map((code) => code.trim())
+              .filter(Boolean),
+            dimension: kind as GradeDimension | undefined,
+            system: opts.system as string | undefined,
+            includeRetired: opts.includeRetired ? true : undefined,
+          }),
+          globalOpts
+        );
       })
     );
 

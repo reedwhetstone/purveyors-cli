@@ -221,6 +221,8 @@ const idTypes: CliIdContract[] = [
     usedBy: [
       'catalog get',
       'catalog similar',
+      'catalog compare',
+      'catalog price-history',
       'inventory add --catalog-id',
       'tasting get <bean-id>',
       'roast list --catalog-id',
@@ -450,9 +452,60 @@ const commandGroups: CliCommandGroupContract[] = [
             description:
               'Add a proof summary to each coffee: how well its process, provenance, freshness, and pricing details are supported (strong, partial, limited, or not available)',
           },
+          {
+            flags: '--elevation-min <masl>',
+            description: `Lowest growing elevation in meters; coffees whose disclosed range overlaps match`,
+            minimum: 1,
+            maximum: 6000,
+          },
+          {
+            flags: '--elevation-max <masl>',
+            description: `Highest growing elevation in meters`,
+            minimum: 1,
+            maximum: 6000,
+          },
+          {
+            flags: '--screen-min <n>',
+            description: `Smallest disclosed screen size (64ths of an inch); an 18+ lot matches any minimum up to its range`,
+            minimum: 8,
+            maximum: 20,
+          },
+          {
+            flags: '--screen-max <n>',
+            description: `Largest disclosed screen size (64ths of an inch)`,
+            minimum: 8,
+            maximum: 20,
+          },
+          {
+            flags: '--grade <codes>',
+            description: `Comma-separated grade codes such as KE:AA,PREP:EP; a coffee matches if it carries any of them. List codes with \`purvey catalog grades\``,
+          },
+          {
+            flags: '--grade-kind <kind>',
+            description: `Only coffees with a grade of this kind: size, altitude, defects, cup, or preparation`,
+          },
+          {
+            flags: '--peaberry',
+            description: `Only peaberry lots`,
+          },
+          {
+            flags: '--lab-analyzed',
+            description: `Only coffees with lab values such as moisture, water activity, density, or defect counts`,
+          },
+          {
+            flags: '--moisture-max <pct>',
+            description: `Highest disclosed moisture percentage; coffees without a moisture reading are excluded`,
+            minimum: 0,
+            maximum: 20,
+          },
+          {
+            flags: '--score-protocol <protocol>',
+            description: `Only cup scores from this protocol: sca_2004, cva_affective, q_arabica, coe, or supplier_unspecified`,
+          },
         ],
         notes: [
           'All filters are optional. Without flags, returns up to --limit results.',
+          'Grading filters add a grading object to each coffee: disclosed screen size, labeled grade codes, lab analysis, and cup score with its protocol.',
           '--ids fetches specific catalog items by ID, ignoring --limit and --offset.',
           '--offset + --limit enables pagination through large result sets.',
           'Without --include-proof, the output shape is unchanged.',
@@ -466,6 +519,8 @@ const commandGroups: CliCommandGroupContract[] = [
           'purvey catalog search --stocked-days 30 --pretty',
           'purvey catalog search --supplier "Royal" --flavor "blueberry,jasmine" --stocked --pretty',
           'purvey catalog search --origin "Ethiopia" --include-proof --json',
+          'purvey catalog search --grade KE:AA,KE:AB --screen-min 17 --stocked --pretty',
+          'purvey catalog search --grade-kind altitude --elevation-min 1600 --pretty',
         ],
       },
       {
@@ -510,7 +565,7 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'field',
             description:
-              'The facet to list: supplier, country, processing_base_method, fermentation_type, drying_method, grade, or wholesale. Without it, every facet is listed',
+              'The facet to list: supplier, country, processing_base_method, fermentation_type, drying_method, wholesale, grade_size, grade_altitude, grade_defects, grade_cup, grade_preparation, screen_size_min, or elevation_band. Without it, every facet is listed',
             required: false,
           },
         ],
@@ -522,7 +577,7 @@ const commandGroups: CliCommandGroupContract[] = [
           },
         ],
         notes: [
-          'Without a field, prints every facet with its counted values and meta (values, facets, meta).',
+          'Without a field, prints every non-grading facet with its counted values and meta (values, facets, meta); name a grading field to get its counts.',
           "With a field, prints { field, facet, data, meta }: that facet's counted values and meta.",
           'Counts for multi-valued dimensions can overlap, so do not sum them.',
           'Defaults to currently stocked coffees; use --all for every coffee you can see.',
@@ -531,6 +586,7 @@ const commandGroups: CliCommandGroupContract[] = [
           'purvey catalog facets supplier --pretty',
           'purvey catalog facets country --all --json',
           'purvey catalog facets --pretty',
+          'purvey catalog facets grade_altitude --pretty',
         ],
       },
       {
@@ -835,6 +891,106 @@ const commandGroups: CliCommandGroupContract[] = [
         examples: [
           'purvey catalog similar 1182 --threshold 0.85 --stocked-only --json',
           "purvey catalog similar 1182 --mode likely_same --json | jq '.data.groups.canonical_candidates'",
+        ],
+      },
+      {
+        name: 'compare',
+        summary: 'Compare 2 to 6 coffees side by side, priced at your quantity',
+        auth: 'viewer',
+        sdkMethods: ['catalog.compare'],
+        arguments: [
+          {
+            name: 'ids',
+            description: '2 to 6 catalog IDs, space- or comma-separated',
+            required: true,
+            idType: 'catalog_id',
+          },
+        ],
+        options: [
+          {
+            flags: '--quantity <lb>',
+            description:
+              'Pounds you plan to buy, any positive number up to 10000; each coffee is priced at the tier that applies to this quantity',
+            defaultValue: 1,
+          },
+        ],
+        notes: [
+          'Rows are grouped Price, Availability, Origin, Process, Coffee, Grading, Taste, and Listing, each marked same, partial, or different.',
+          'Price rows name the cheapest lots in bestLotIds; grading rows never carry best marks.',
+          'Viewer accounts compare 2 coffees; member accounts and API keys compare up to 6.',
+        ],
+        examples: [
+          'purvey catalog compare 416 8806 --pretty',
+          "purvey catalog compare 416 8806 1182 --quantity 5 --json | jq '.data.bestPriceLotIds'",
+        ],
+      },
+      {
+        name: 'price-history',
+        summary: 'Daily smallest-tier price history for one coffee',
+        auth: 'viewer',
+        sdkMethods: ['catalog.priceHistory'],
+        arguments: [
+          {
+            name: 'catalog_id',
+            cliToken: 'id',
+            description: 'Catalog ID of the coffee',
+            required: true,
+            idType: 'catalog_id',
+          },
+        ],
+        options: [
+          {
+            flags: '--days <n>',
+            description: 'How many days of history to return',
+            defaultValue: 180,
+            minimum: 7,
+            maximum: 365,
+          },
+        ],
+        notes: [
+          'Prices track the smallest order tier.',
+          'Parchment decides access: member accounts, Parchment Intelligence, and API keys with catalog:read, including the key `purvey auth login` stores.',
+          "Events flag days when the smallest tier's quantity changed, which makes prices before and after not directly comparable.",
+        ],
+        examples: [
+          'purvey catalog price-history 1182 --pretty',
+          "purvey catalog price-history 1182 --days 90 --json | jq '.data.summary'",
+        ],
+      },
+      {
+        name: 'grades',
+        summary: 'Explain green grade codes such as KE:AA, ET:G1, GT:SHB, or PREP:EP',
+        auth: 'viewer',
+        sdkMethods: ['catalog.grades'],
+        arguments: [
+          {
+            name: 'codes',
+            description: 'optional grade codes to explain, space- or comma-separated',
+            required: false,
+          },
+        ],
+        options: [
+          {
+            flags: '--kind <kind>',
+            description: 'Only codes of this kind: size, altitude, defects, cup, or preparation',
+          },
+          {
+            flags: '--system <system>',
+            description: 'Only codes from this grading system, such as KE, ET, BR, ALT, or PREP',
+          },
+          {
+            flags: '--include-retired',
+            description: 'Include retired codes, which stay valid on older listings',
+          },
+        ],
+        notes: [
+          'Codes are <system>:<token>; composite grades such as ET:G1 carry more than one kind.',
+          'Implied ranges come from the published definition, not from any listing.',
+          'Codes not in the vocabulary are listed under unknownCodes.',
+        ],
+        examples: [
+          'purvey catalog grades KE:AA ET:G1 --pretty',
+          "purvey catalog grades --kind altitude --json | jq '.data[].code'",
         ],
       },
     ],
