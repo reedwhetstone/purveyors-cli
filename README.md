@@ -1133,7 +1133,7 @@ Use the [ID reference](#id-reference) section above. `catalog_id` and inventory 
 
 **Pagination only shows the first page**
 
-All list commands default to 20 results. Use `--limit` and `--offset`.
+Only `catalog search` (default 10 results), `inventory list`, `roast list`, and `sales list` (default 20) page with `--limit` and `--offset`.
 
 ```bash
 purvey inventory list --limit 20 --offset 0

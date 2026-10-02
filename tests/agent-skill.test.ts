@@ -192,6 +192,61 @@ describe('generated agent skill', () => {
     expect(skill).toContain('nothing is pasted back');
   });
 
+  it('labels each command with its own access when a group mixes access levels', () => {
+    const labels = { none: 'public default view', viewer: 'sign-in', member: 'member role' };
+    for (const group of getCliManifest().commandGroups.filter((g) => g.auth !== 'none')) {
+      const line = skill.split('\n').find((l) => l.startsWith(`- **${group.name}** (`));
+      expect(line, group.name).toBeDefined();
+      const commands = [
+        ...(group.command ? [{ name: `${group.name} itself`, auth: group.command.auth }] : []),
+        ...(group.subcommands ?? []),
+      ];
+      if (commands.every((command) => command.auth === group.auth)) continue;
+      // Every run of commands ends with the label of the access those commands need.
+      const runs = line!.split('Commands: ')[1].replace(/\.$/, '').split('; ');
+      const rendered = new Map<string, string>();
+      for (const run of runs) {
+        const [, names, label] = run.match(/^(.*) \(([^)]+)\)$/)!;
+        for (const name of names.split(', ')) rendered.set(name, label);
+      }
+      for (const command of commands) {
+        expect(rendered.get(command.name), `${group.name} ${command.name}`).toBe(
+          labels[command.auth]
+        );
+      }
+    }
+    expect(skill).toContain(
+      'price-index itself, comparisons, comparison (member role); history (public default view)'
+    );
+  });
+
+  it('keeps required positional arguments and limits pagination to commands with --offset', () => {
+    expect(skill).not.toContain('Pass every value as a flag');
+    expect(skill).toContain('positional arguments per `--help`');
+
+    const paged: string[] = [];
+    for (const group of getCliManifest().commandGroups) {
+      for (const command of [
+        ...(group.command ? [group.command] : []),
+        ...(group.subcommands ?? []),
+      ]) {
+        const flags = (command.options ?? []).map((option) => option.flags.split(' ')[0]);
+        if (flags.includes('--offset')) {
+          expect(flags, command.name).toContain('--limit');
+          paged.push(command === group.command ? group.name : `${group.name} ${command.name}`);
+        }
+      }
+    }
+    const rule = skill.split('\n').find((l) => l.startsWith('- Pagination'))!;
+    const named = rule
+      .match(/\(default --limit\): ([^.]+)\./)![1]
+      .split(', ')
+      .map((entry) => entry.replace(/ \d+$/, ''));
+    expect(named).toEqual(paged);
+    expect(named).not.toContain('procurement list');
+    expect(named).not.toContain('reference-profile list');
+  });
+
   it('points to `purvey manifest` as the full contract', () => {
     expect(skill).toContain('`purvey manifest` prints the full contract');
     expect(agentsMd).toContain('Full contract: `purvey manifest`');

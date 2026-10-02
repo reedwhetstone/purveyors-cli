@@ -6,6 +6,7 @@ import { PrvrsError } from './errors.js';
 import {
   HEADLESS_LOGIN_STEPS,
   getCliManifest,
+  type CliAuthRequirement,
   type CliCommandGroupContract,
   type CliManifest,
 } from './manifest.js';
@@ -48,7 +49,14 @@ const ACCESS_LABELS: Record<CliCommandGroupContract['auth'], string> = {
   none: 'no sign-in',
   viewer: 'sign-in',
   member: 'member role',
-  mixed: 'public summaries; filters need sign-in and a plan',
+  mixed: 'mixed access',
+};
+
+// Per-command labels, used when a group's commands differ in access.
+const COMMAND_ACCESS_LABELS: Record<CliAuthRequirement, string> = {
+  none: 'public default view',
+  viewer: 'sign-in',
+  member: 'member role',
 };
 
 // Error patterns whose guidance another skill section already gives in full.
@@ -67,12 +75,27 @@ function sha256(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
-function groupCommandNames(group: CliCommandGroupContract): string[] {
-  const names = group.command ? [`${group.name} itself`] : [];
-  for (const subcommand of group.subcommands ?? []) {
-    names.push(subcommand.name);
+/**
+ * List a group's commands. When access differs across them, label each run of
+ * commands with its own access so an agent never picks a protected command
+ * expecting the public slice.
+ */
+function renderGroupCommands(group: CliCommandGroupContract): string {
+  const commands = [
+    ...(group.command ? [{ name: `${group.name} itself`, auth: group.command.auth }] : []),
+    ...(group.subcommands ?? []).map(({ name, auth }) => ({ name, auth })),
+  ];
+  if (commands.every((command) => command.auth === group.auth)) {
+    return commands.map((command) => command.name).join(', ');
   }
-  return names;
+
+  const byAccess = new Map<CliAuthRequirement, string[]>();
+  for (const command of commands) {
+    byAccess.set(command.auth, [...(byAccess.get(command.auth) ?? []), command.name]);
+  }
+  return [...byAccess]
+    .map(([auth, names]) => `${names.join(', ')} (${COMMAND_ACCESS_LABELS[auth]})`)
+    .join('; ');
 }
 
 /** Drop transport boilerplate that matters to maintainers, not to an agent choosing a command. */
@@ -91,7 +114,7 @@ function renderWhenToUse(manifest: CliManifest): string[] {
     '',
     ...dataGroups.map(
       (group) =>
-        `- **${group.name}** (${ACCESS_LABELS[group.auth]}): ${agentSummary(group.summary)}. Commands: ${groupCommandNames(group).join(', ')}.`
+        `- **${group.name}** (${ACCESS_LABELS[group.auth]}): ${agentSummary(group.summary)}. Commands: ${renderGroupCommands(group)}.`
     ),
   ];
 }
@@ -108,7 +131,7 @@ function renderSetup(manifest: CliManifest): string[] {
     '   If your shell tool shows output only after a command exits, run it in the background to read the URL. Show the URL to the user; sign-in is done when the command exits 0. Rerun it if the request expires.',
     '4. Never ask the user to paste an API key, token, or password into the chat. The CLI stores its own scoped key in ' +
       `\`${manifest.files.credentials}\`; \`PURVEYORS_API_KEY\` or \`PARCHMENT_API_KEY\` in the environment overrides it.`,
-    '5. Any signed-in account can use groups marked "sign-in". Groups marked "member role" need a Purveyors membership. Filtered market and price-index data also need Parchment Intelligence access, and reference-profile needs Studio access. Missing access exits 3; relay the message to the user instead of retrying.',
+    '5. "sign-in" commands work for any signed-in account; "member role" needs a Purveyors membership; "public default view" runs signed out, but filters and longer windows need Parchment Intelligence. reference-profile needs Studio access. Missing access exits 3; relay the message to the user instead of retrying.',
   ];
 }
 
@@ -150,7 +173,7 @@ function renderRules(manifest: CliManifest): string[] {
   return [
     '## Working rules',
     '',
-    '- Pass every value as a flag. Do not use `--form`, which prompts interactively.',
+    '- Give every value on the command line: positional arguments per `--help`, flags for the rest. Do not use `--form`, which prompts interactively.',
     '- Confirm with the user before commands that change their data: add, create, update, delete, record, rate, import, save, and watch.',
     ...manifest.errorPatterns
       .filter((pattern) => !ERROR_PATTERNS_COVERED_ELSEWHERE.has(pattern.title))

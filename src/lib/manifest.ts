@@ -1810,7 +1810,9 @@ const errorPatterns: CliErrorPatternContract[] = [
   {
     title: 'Missing required args in write commands',
     exitCodes: [EXIT_CODES.INVALID_ARGUMENT],
-    guidance: ['Pass the required flags; `--form` is an interactive terminal alternative.'],
+    guidance: [
+      'Pass the required positional arguments and flags shown by `--help`; `--form` is an interactive terminal alternative.',
+    ],
   },
   {
     title: 'Parser mistakes like unknown options or commands',
@@ -1831,14 +1833,31 @@ const errorPatterns: CliErrorPatternContract[] = [
     guidance: ['`roast watch` forbids using --auto-match together with --coffee-id.'],
   },
   {
-    title: 'Pagination only returning the first 20 results',
+    title: 'Pagination only returning the first page',
     exitCodes: [],
     guidance: [
-      'All list commands default to --limit 20.',
-      'Use --offset to page, for example `--limit 20 --offset 40` returns items 41-60.',
+      `Only these commands page with --offset (default --limit): ${paginatedCommands(commandGroups).join(', ')}.`,
+      'For example `--limit 20 --offset 40` returns items 41-60.',
     ],
   },
 ];
+
+/** Commands that take both --limit and --offset, so pagination guidance cannot name one that lacks them. */
+function paginatedCommands(groups: CliCommandGroupContract[]): string[] {
+  const paged: string[] = [];
+  for (const group of groups) {
+    const commands = [...(group.command ? [group.command] : []), ...(group.subcommands ?? [])];
+    for (const command of commands) {
+      const options = command.options ?? [];
+      const limit = options.find((option) => option.flags.startsWith('--limit '));
+      if (limit && options.some((option) => option.flags.startsWith('--offset '))) {
+        const name = command === group.command ? group.name : `${group.name} ${command.name}`;
+        paged.push(limit.defaultValue === undefined ? name : `${name} ${limit.defaultValue}`);
+      }
+    }
+  }
+  return paged;
+}
 
 export function getCliManifest(): CliManifest {
   return {
