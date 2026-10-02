@@ -32,6 +32,7 @@ Current command groups:
 - `config`: `list`, `get`, `set`, `reset`
 - `context`: dense human-readable reference, plus manifest-compatible JSON with `--json` or `--pretty`
 - `manifest`: preferred machine-readable CLI contract
+- `skill`: `print` and `install` for agent instructions (SKILL.md or an AGENTS.md block) rendered from the manifest
 
 The command surface is implemented explicitly in `src/program.ts` and `src/commands/*.ts`. It is not generated dynamically at runtime.
 
@@ -101,13 +102,14 @@ When documentation or help text needs verification, use these files first:
 - `src/commands/context.ts` for the human-readable reference command
 - `src/commands/manifest.ts` for the manifest command contract
 - `src/lib/manifest.ts` for shared manifest metadata, reference text, ID guidance, and workflows
+- `src/lib/agent-skill.ts` for the agent SKILL.md and AGENTS.md block rendered from that manifest, and their install locations
 - `package.json` for package metadata, scripts, binary entrypoint, Node engine, and exported subpaths
 
 ### Auth and roles
 
 The shipped auth model is role- and scope-based:
 
-- No pre-existing credentials required: `auth`, `config`, `context`, `manifest`
+- No pre-existing credentials required: `auth`, `config`, `context`, `manifest`, `skill`
 - Authenticated `viewer` role required: `catalog`
 - Mixed public and entitled access: `market` and `price-index history` public teaser slices are unauthenticated; filtered market slices, `market evidence`, price-index comparisons, and history windows over 90 days require Parchment Intelligence access enforced server-side; `market overview` requires any signed-in session or API key
 - Authenticated `member` role plus Studio entitlement required: `reference-profile`, enforced by Parchment
@@ -178,6 +180,7 @@ Reference surfaces:
 - `purvey context` is the dense human-readable reference.
 - `purvey context --json` emits the same JSON as `purvey manifest`, but is maintained for compatibility with existing wrappers and parity checks.
 - `@purveyors/cli/manifest` exposes the same contract in-process for Node.js consumers.
+- `purvey skill print` renders agent instructions from the manifest rather than from hand-written prose, so they cannot drift from the contract. `purvey skill install` places them where Claude Code (`~/.claude/skills/`), Agent Skills clients such as Codex and Cursor (`~/.agents/skills/`), or a repository `AGENTS.md` load them. It writes safely: identical content is left alone, unedited earlier output is updated, and local edits need `--force`.
 - `@purveyors/cli/catalog`, `/market`, `/inventory`, `/roast`, `/sales`, `/tasting`, `/lib`, `/manifest`, and `/cherry` expose reusable CLI-package functions for intentional in-process consumers. `/ai` remains a deprecated compatibility re-export of `/cherry`. Coffee-app uses `@purveyors/sdk` directly.
 
 Package export changes are product changes for supported CLI-package consumers. They do not define the coffee-app integration contract.
@@ -227,7 +230,7 @@ When the command surface, output behavior, auth model, IDs, or docs links change
 4. `docs/CLI_STRATEGY.md`
 5. `src/commands/context.ts`
 6. `src/commands/manifest.ts`
-7. `src/lib/manifest.ts`
+7. `src/lib/manifest.ts`, which also feeds the generated agent skill in `src/lib/agent-skill.ts`
 8. help text in `src/program.ts` and affected command files
 9. compiled artifact validation after `npm run build`
 

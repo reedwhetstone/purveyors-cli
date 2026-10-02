@@ -11,7 +11,7 @@ Use `purvey --help` for quick command discovery, `purvey context` for the dense 
 - Official binary: `purvey`
 - Package: `@purveyors/cli`
 - Runtime: Node.js 20+
-- No pre-existing credentials required: `auth`, `config`, `context`, `manifest`
+- No pre-existing credentials required: `auth`, `config`, `context`, `manifest`, `skill`
 - Viewer role required: `catalog` (excluding structured process filters on `catalog search`)
 - Member role required: `procurement`, `inventory`, `roast`, `sales`, `tasting`
 - Mixed public and entitled access: `market` and `price-index` public teaser slices are unauthenticated; filtered, non-public, and evidence slices require a credential and, where entitled, Parchment Intelligence access
@@ -19,6 +19,7 @@ Use `purvey --help` for quick command discovery, `purvey context` for the dense 
 - Dense human-readable reference: `purvey context`
 - Compatibility JSON alias: `purvey context --json`
 - In-process machine contract: `@purveyors/cli/manifest`
+- Agent instructions generated from the manifest: `purvey skill print`, `purvey skill install`
 
 ## Installation
 
@@ -105,6 +106,7 @@ Use the right reference surface for the job:
 - `purvey context` is the dense human-readable operator reference for reviewers and interactive use.
 - `purvey context --json` and `purvey context --pretty` emit the same JSON payload as `purvey manifest`, but exist mainly for compatibility with tooling that already shells out to `context`.
 - `@purveyors/cli/manifest` exposes the same contract in-process for Node.js and agent runtimes.
+- `purvey skill print` renders a compact agent guide (SKILL.md) from the manifest, and `purvey skill install` puts it where Claude Code, Codex, Cursor, or a repository AGENTS.md will load it.
 
 Manifest commands carry `sdkMethods`, the `@purveyors/sdk` operations whose canonical endpoints
 they consume, and, for writes, `confirmedActionEquivalents`, the Purveyors web assistant's
@@ -142,7 +144,7 @@ Export discipline:
 
 ## Authentication and access model
 
-No pre-existing credentials are required for `auth`, `config`, `context`, or `manifest`.
+No pre-existing credentials are required for `auth`, `config`, `context`, `manifest`, or `skill`.
 
 Remote data commands require a valid owner-bound API key with the required scope:
 
@@ -204,7 +206,7 @@ The `reference-profile` commands also require Studio access; the API enforces th
 
 Market Index teaser slices are public. Filtered `market signals`, origin/process/wholesale `market stats`, non-public `market metadata`, `market evidence`, `price-index comparisons`, `price-index comparison`, and `price-index history` windows over 90 days require Parchment Intelligence access; API-key denial is enforced by the canonical API. The stored login key carries `catalog:read`, which is also the canonical read scope for Market Index, Price Index, and procurement.
 
-`auth`, `config`, `context`, and `manifest` remain available without pre-existing credentials.
+`auth`, `config`, `context`, `manifest`, and `skill` remain available without pre-existing credentials.
 
 Commands that require a higher role exit with code `3` on auth failure. That includes missing, revoked, or invalid credentials and an insufficient role.
 
@@ -964,6 +966,30 @@ Notes:
 - Use `purvey manifest` for new automation and treat `purvey context --json` as a compatibility alias.
 - `--csv` is not supported.
 
+### skill
+
+- `purvey skill print`
+- `purvey skill print --agents-md`
+- `purvey skill install --target <claude|agents|agents-md> [--scope user|project] [--force] [--dry-run]`
+
+`skill print` writes a SKILL.md in the open [Agent Skills](https://agentskills.io/specification) format to stdout. It is rendered from `purvey manifest`, so it changes only when the CLI contract changes. It covers when to use `purvey`, headless sign-in, output and exit codes, the ID map, and the manifest's workflows, and points to `purvey manifest` for everything else. `--agents-md` prints a shorter block for a repository's AGENTS.md instead. `--json` or `--pretty` wraps either as `{ name, file, cliVersion, bytes, content }`.
+
+`skill install` writes the same content to a location an agent loads:
+
+| Target      | User scope (default)                  | Project scope (`--scope project`)    | Loaded by                                            |
+| ----------- | ------------------------------------- | ------------------------------------ | ---------------------------------------------------- |
+| `claude`    | `~/.claude/skills/purveyors/SKILL.md` | `.claude/skills/purveyors/SKILL.md`  | Claude Code                                          |
+| `agents`    | `~/.agents/skills/purveyors/SKILL.md` | `.agents/skills/purveyors/SKILL.md`  | Codex, Cursor, and other Agent Skills clients        |
+| `agents-md` | n/a                                   | `AGENTS.md` in the current directory | Agents that read AGENTS.md, such as Codex and Cursor |
+
+Notes:
+
+- No credentials or network access are needed.
+- Prints `{ target, scope, path, action, written, dryRun, cliVersion, bytes }` as JSON; `action` is `create`, `update`, `unchanged`, `append`, or `overwrite`.
+- Re-running is safe. Identical content is left alone, and an unedited file from an earlier CLI version is updated in place. Rerun after upgrading the CLI.
+- A file with local edits, or one `purvey` did not write, is refused with exit code `6` unless you pass `--force`. `--dry-run` reports the path and action without writing.
+- `agents-md` adds one marked block to `AGENTS.md` (creating the file if needed) and leaves the rest of the file untouched.
+
 ### In-process manifest export
 
 - `@purveyors/cli/manifest`
@@ -1055,10 +1081,12 @@ Use the right ID for the right command.
 Recommended bootstrap order:
 
 ```bash
-purvey manifest
-purvey context
+purvey skill install --target claude   # or: --target agents, --target agents-md
 purvey auth login --headless
+purvey manifest
 ```
+
+The installed skill gives a coding agent the sign-in flow, output contract, ID map, and workflows up front, and sends it to `purvey manifest` for the full contract.
 
 Use `purvey manifest` as the authoritative machine-readable entry point. Keep `purvey context` for dense operator context, or use `purvey context --json` only when you need compatibility with an existing wrapper.
 

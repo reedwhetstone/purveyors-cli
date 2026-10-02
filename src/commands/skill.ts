@@ -1,0 +1,126 @@
+import { Command } from 'commander';
+import {
+  AGENT_SKILL_FILE,
+  AGENT_SKILL_NAME,
+  installAgentSkill,
+  renderAgentSkill,
+  renderAgentsMdBlock,
+} from '../lib/agent-skill.js';
+import { PrvrsError, withErrorHandling } from '../lib/errors.js';
+import { info, outputData, shouldUseInteractiveOutput, success } from '../lib/output.js';
+import type { OutputOptions } from '../types/index.js';
+
+const ACTION_LABELS = {
+  create: 'Created',
+  update: 'Updated',
+  unchanged: 'Already current:',
+  append: 'Appended the purvey block to',
+  overwrite: 'Replaced',
+} as const;
+
+export function buildSkillCommand(version: string): Command {
+  const skill = new Command('skill').description(
+    'Print or install agent instructions generated from the CLI manifest'
+  );
+
+  skill
+    .command('print')
+    .description('Write the generated SKILL.md (or the AGENTS.md block) to stdout')
+    .option('--agents-md', 'Print the compact AGENTS.md block instead of SKILL.md')
+    .addHelpText(
+      'after',
+      `
+Prints Markdown by default. --json or --pretty wraps it as { name, file, cliVersion, bytes, content }.
+The output is rendered from \`purvey manifest\`; no credentials are needed.
+
+Examples:
+  purvey skill print
+  purvey skill print --agents-md
+  purvey skill print > SKILL.md
+`
+    )
+    .action(
+      withErrorHandling(async (opts: { agentsMd?: boolean }, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        if (globalOpts.csv) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            'The skill print command does not support --csv. Use Markdown (default), --json, or --pretty.'
+          );
+        }
+
+        const content = opts.agentsMd ? renderAgentsMdBlock(version) : renderAgentSkill(version);
+        if (globalOpts.json || globalOpts.pretty) {
+          outputData(
+            {
+              name: AGENT_SKILL_NAME,
+              file: opts.agentsMd ? 'AGENTS.md' : AGENT_SKILL_FILE,
+              cliVersion: version,
+              bytes: Buffer.byteLength(content, 'utf8'),
+              content,
+            },
+            { pretty: globalOpts.pretty }
+          );
+          return;
+        }
+
+        process.stdout.write(content);
+      })
+    );
+
+  skill
+    .command('install')
+    .description(
+      'Install the generated instructions for Claude Code, Agent Skills clients such as Codex and Cursor, or a repository AGENTS.md'
+    )
+    .option('--target <target>', 'claude, agents, or agents-md (required)')
+    .option(
+      '--scope <scope>',
+      'user (home directory) or project (current directory); defaults to user, or project for agents-md'
+    )
+    .option('--force', 'Replace a file or AGENTS.md block that has local edits')
+    .option('--dry-run', 'Report the path and action without writing')
+    .addHelpText(
+      'after',
+      `
+Targets:
+  claude      ~/.claude/skills/purveyors/SKILL.md        (Claude Code)
+  agents      ~/.agents/skills/purveyors/SKILL.md        (Codex, Cursor, other Agent Skills clients)
+  agents-md   ./AGENTS.md, as one marked block            (repository-level instructions)
+
+--scope project writes .claude/skills/... or .agents/skills/... under the current directory instead.
+Re-running is safe: identical files are left alone and unedited earlier output is updated.
+Files with local edits are refused (exit 6) unless --force is passed. No credentials are needed.
+
+Examples:
+  purvey skill install --target claude
+  purvey skill install --target agents --dry-run
+  purvey skill install --target claude --scope project
+  purvey skill install --target agents-md
+`
+    )
+    .action(
+      withErrorHandling(
+        async (
+          opts: { target?: string; scope?: string; force?: boolean; dryRun?: boolean },
+          cmd: Command
+        ) => {
+          const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+          const result = await installAgentSkill({ ...opts, version });
+
+          if (shouldUseInteractiveOutput(globalOpts)) {
+            const label = ACTION_LABELS[result.action];
+            if (result.dryRun) {
+              info(`Dry run, nothing written. Would ${result.action}: ${result.path}`);
+            } else {
+              success(`${label} ${result.path}`);
+            }
+          }
+
+          outputData(result, globalOpts);
+        }
+      )
+    );
+
+  return skill;
+}

@@ -63,7 +63,7 @@ tests/                Vitest coverage
 - Use `requireAuth('viewer')` for catalog commands and other viewer-level access, except `catalog search` structured processing filters, which require `member`.
 - Use `requireAuth('member')` for personal data, entitled market intelligence, Studio reference profiles, and writes.
 - SDK-backed Parchment commands should use `src/lib/parchment.ts`. Explicit environment API keys take precedence over the scoped key created by `purvey auth login`; the canonical API enforces owner-bound scopes and entitlements.
-- `auth`, `config`, `context`, and `manifest` do not require pre-existing credentials.
+- `auth`, `config`, `context`, `manifest`, and `skill` do not require pre-existing credentials.
 - `catalog`, `inventory`, `roast`, `reference-profile`, `sales`, and `tasting` require authentication. Reference profiles additionally require Studio access enforced by Parchment.
 - Keep docs aligned with actual handler behavior. If auth requirements change, update README, help text, and context in the same PR.
 - Preserve both supported login paths: browser approval with automatic polling, and `auth login --headless` for agents, CI, SSH sessions, and remote hosts. Neither path uses a localhost callback or pasted URL.
@@ -124,7 +124,7 @@ The package runs from `dist/`, not `src/`; source tests alone do not prove packa
 - `roast --coffee-id` expects an inventory ID, not a catalog ID.
 - `sales list --coffee-id` expects an inventory ID; `sales record --roast-id` expects a roast ID.
 - `reference-profile` commands use separate reference-profile and immutable revision UUIDs; only `compare` accepts roast IDs, through `roast:<roast-id>` selectors. Export requires a saved generated revision, not an unsaved preview.
-- `context.ts` and `manifest.ts` are easy to forget when command flags or output behavior change.
+- `context.ts` and `manifest.ts` are easy to forget when command flags or output behavior change. `purvey skill print` renders from the manifest, and its tests fail if it names a command or flag the manifest lacks or grows past 8 KB.
 - `inventory list`, `roast list`, and `sales list` all support `--offset` for pagination. Keep docs in sync when adding new list flags.
 - `roast import` and `roast watch` normalize file and directory path input by trimming whitespace, removing one layer of matching quotes, and unescaping common shell-escaped characters. Preserve this when changing Artisan workflows.
 - `roast watch` must remain graceful on shutdown: Ctrl+C, raw Ctrl+C key input, or SIGTERM should wait for active imports, commit queued batch-mode roasts, print the verification summary, and keep `--resume` state coherent.

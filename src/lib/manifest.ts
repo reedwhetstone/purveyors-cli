@@ -1152,6 +1152,73 @@ const commandGroups: CliCommandGroupContract[] = [
     },
   },
   {
+    name: 'skill',
+    summary: 'Print or install agent instructions generated from this manifest',
+    auth: 'none',
+    subcommands: [
+      {
+        name: 'print',
+        summary: 'Write the generated SKILL.md (or the AGENTS.md block) to stdout',
+        auth: 'none',
+        options: [
+          {
+            flags: '--agents-md',
+            description: 'Print the compact AGENTS.md block instead of SKILL.md',
+          },
+        ],
+        notes: [
+          'Prints Markdown by default; --json or --pretty wraps it as { name, file, cliVersion, bytes, content }.',
+          '--csv is not supported.',
+          'Rendered from this manifest, so it changes only when the CLI contract changes.',
+        ],
+        examples: [
+          'purvey skill print',
+          'purvey skill print --agents-md',
+          'purvey skill print > SKILL.md',
+        ],
+      },
+      {
+        name: 'install',
+        summary:
+          'Install the generated instructions for Claude Code, Agent Skills clients such as Codex and Cursor, or a repository AGENTS.md',
+        auth: 'none',
+        options: [
+          {
+            flags: '--target <target>',
+            description: 'claude, agents, or agents-md',
+            notes: [
+              'required',
+              'claude: ~/.claude/skills/purveyors/SKILL.md (project scope: .claude/skills/purveyors/SKILL.md)',
+              'agents: ~/.agents/skills/purveyors/SKILL.md, read by Codex and Cursor (project scope: .agents/skills/purveyors/SKILL.md)',
+              'agents-md: ./AGENTS.md in the current directory; adds or refreshes one marked block and leaves the rest of the file alone',
+            ],
+          },
+          {
+            flags: '--scope <scope>',
+            description:
+              'user (home directory) or project (current directory); defaults to user, or project for agents-md',
+          },
+          {
+            flags: '--force',
+            description: 'Replace a file or AGENTS.md block that has local edits',
+          },
+          { flags: '--dry-run', description: 'Report the path and action without writing' },
+        ],
+        notes: [
+          'Needs no credentials and makes no network calls.',
+          'Emits { target, scope, path, action, written, dryRun, cliVersion, bytes } as JSON on stdout; action is create, update, unchanged, append, or overwrite.',
+          'Re-running is safe: an identical file is left unchanged, and an unedited file from an earlier CLI version is updated in place.',
+          'A file with local edits, or one purvey did not write, is refused with exit 6 unless --force is passed.',
+        ],
+        examples: [
+          'purvey skill install --target claude',
+          'purvey skill install --target agents --dry-run',
+          'purvey skill install --target agents-md',
+        ],
+      },
+    ],
+  },
+  {
     name: 'market',
     summary:
       'Market Index decision surface: value signals, movement stats, metadata trends, overview, and evidence via the canonical API',
@@ -1682,6 +1749,14 @@ const workflows: CliWorkflowContract[] = [
     ],
   },
   {
+    title: 'Check prices and market moves',
+    commands: [
+      'purvey market signals --summary --pretty',
+      'purvey market stats --origin "Colombia" --window 30d --json',
+      'purvey price-index history --window-days 90 --json',
+    ],
+  },
+  {
     title: 'Import a roast from Artisan',
     commands: [
       'purvey inventory list --stocked --pretty',
@@ -1729,13 +1804,13 @@ const errorPatterns: CliErrorPatternContract[] = [
     exitCodes: [EXIT_CODES.INVALID_ARGUMENT, EXIT_CODES.NOT_FOUND],
     guidance: [
       'Verify whether the command wants catalog_id, inventory_id, roast_id, sale_id, reference_profile_id, or reference_revision_id.',
-      'See the ID MAP section.',
+      'See the ID map.',
     ],
   },
   {
     title: 'Missing required args in write commands',
     exitCodes: [EXIT_CODES.INVALID_ARGUMENT],
-    guidance: ['Pass the required flags or use --form.'],
+    guidance: ['Pass the required flags; `--form` is an interactive terminal alternative.'],
   },
   {
     title: 'Parser mistakes like unknown options or commands',
@@ -1862,9 +1937,16 @@ function renderRoles(
     'Commands that talk to purveyors.io generally require authentication unless listed above as public, local-only, or mixed-access teaser slices.',
     ...roleContracts.map((role) => `${role.role.padEnd(7, ' ')} ${role.description}`),
     '',
-    'Both roles are granted on sign-in through purveyors.io.',
+    'viewer comes with any purveyors.io sign-in; member requires a membership (https://purveyors.io/account).',
   ];
 }
+
+/** Device-approval steps for `purvey auth login --headless`, shared by context text and the agent skill. */
+export const HEADLESS_LOGIN_STEPS = [
+  'CLI prints a purveyors.io approval URL',
+  'User opens it in any browser, signs in, and approves access',
+  'CLI completes automatically; nothing is pasted back',
+] as const;
 
 function renderAuthSection(): string[] {
   return [
@@ -1876,9 +1958,7 @@ function renderAuthSection(): string[] {
     '',
     'Headless login:',
     '  purvey auth login --headless',
-    '  1. CLI prints a purveyors.io approval URL',
-    '  2. User opens it in any browser, signs in, and approves access',
-    '  3. CLI completes automatically; nothing is pasted back',
+    ...HEADLESS_LOGIN_STEPS.map((step, index) => `  ${index + 1}. ${step}`),
     '',
     'Status:',
     '  purvey auth status',

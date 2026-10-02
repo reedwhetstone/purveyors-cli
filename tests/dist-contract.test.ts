@@ -84,4 +84,15 @@ describe('compiled dist artifact parity', () => {
     expect(distContext).toEqual(sourceContext);
     expect(distContext).toEqual(sourceManifest);
   }, 15000);
+
+  it('renders the same agent SKILL.md from dist and source', () => {
+    const distSkill = run('node', ['dist/index.js', 'skill', 'print']);
+    const sourceSkill = run('pnpm', ['exec', 'tsx', 'src/index.ts', 'skill', 'print']);
+
+    expect(distSkill.status).toBe(0);
+    expect(distSkill.stderr).toBe('');
+    expect(sourceSkill.status).toBe(0);
+    expect(distSkill.stdout).toBe(sourceSkill.stdout);
+    expect(distSkill.stdout).toMatch(/^---\nname: purveyors\n/);
+  }, 15000);
 });
