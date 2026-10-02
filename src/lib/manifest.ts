@@ -401,7 +401,6 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             flags: '--stocked-days <n>',
             description: 'Only coffees that came into stock within the last N days',
-            minimum: 1,
           },
           {
             flags: '--supplier <name>',
@@ -432,7 +431,6 @@ const commandGroups: CliCommandGroupContract[] = [
             flags: '--offset <n>',
             description: 'Number of results to skip when paging; must be a multiple of --limit',
             defaultValue: 0,
-            minimum: 0,
           },
           {
             flags: '--limit <n>',
@@ -868,13 +866,11 @@ const commandGroups: CliCommandGroupContract[] = [
             flags: '--limit <n>',
             description: 'Maximum number of items to return',
             defaultValue: 20,
-            minimum: 1,
           },
           {
             flags: '--offset <n>',
             description: 'Number of items to skip when paging',
             defaultValue: 0,
-            minimum: 0,
           },
         ],
         notes: [
@@ -1053,13 +1049,11 @@ const commandGroups: CliCommandGroupContract[] = [
             flags: '--limit <n>',
             description: 'Maximum number of roasts to return',
             defaultValue: 20,
-            minimum: 1,
           },
           {
             flags: '--offset <n>',
             description: 'Number of roasts to skip when paging',
             defaultValue: 0,
-            minimum: 0,
           },
         ],
         notes: [
@@ -1330,13 +1324,11 @@ const commandGroups: CliCommandGroupContract[] = [
             flags: '--limit <n>',
             description: 'Maximum number of sales to return',
             defaultValue: 20,
-            minimum: 1,
           },
           {
             flags: '--offset <n>',
             description: 'Number of sales to skip when paging',
             defaultValue: 0,
-            minimum: 0,
           },
         ],
         notes: [
@@ -1912,7 +1904,6 @@ const commandGroups: CliCommandGroupContract[] = [
           flags: '--page <n>',
           description: 'Page number, starting at 1',
           defaultValue: 1,
-          minimum: 1,
         },
         {
           flags: '--limit <n>',
@@ -2003,7 +1994,6 @@ const commandGroups: CliCommandGroupContract[] = [
             flags: '--page <n>',
             description: 'Page number, starting at 1',
             defaultValue: 1,
-            minimum: 1,
           },
           {
             flags: '--limit <n>',
@@ -2074,7 +2064,6 @@ const commandGroups: CliCommandGroupContract[] = [
             flags: '--page <n>',
             description: 'Page number, starting at 1',
             defaultValue: 1,
-            minimum: 1,
           },
           {
             flags: '--limit <n>',

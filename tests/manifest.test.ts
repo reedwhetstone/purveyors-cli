@@ -271,6 +271,14 @@ describe('CLI manifest contract', () => {
     }
   });
 
+  it('publishes option bounds as minimum and maximum pairs', () => {
+    const unpaired = manifestOptions()
+      .filter(([, option]) => (option.minimum === undefined) !== (option.maximum === undefined))
+      .map(([key, option]) => `${key} ${option.flags}`);
+
+    expect(unpaired).toEqual([]);
+  });
+
   it('marks options required in flag mode only on commands that offer --form', () => {
     for (const [key, command] of flattenManifestCommands()) {
       const options = command?.options ?? [];
