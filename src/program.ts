@@ -136,6 +136,9 @@ Catalog (any signed-in account or API key with catalog:read):
   catalog get       Get details for a specific coffee by ID
   catalog stats     Aggregate statistics for the catalog
   catalog facets    Counted facet values for filter discovery
+  catalog compare   Compare 2 to 6 coffees side by side, priced at your quantity
+  catalog price-history Daily smallest-tier price history for one coffee
+  catalog grades    Explain grade codes like KE:AA, ET:G1, and PREP:EP
   catalog rank      Rank catalog coffees for a goal such as premium or value
   catalog rank-premium  Rank premium catalog candidates by Purveyor Score
   catalog supplier-rank Rank suppliers by average Purveyor Score
