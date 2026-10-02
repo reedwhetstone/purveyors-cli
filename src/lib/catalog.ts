@@ -63,6 +63,8 @@ export interface CatalogItem {
   wholesale: boolean | null;
   price_tiers: Array<{ min_lbs: number; price: number }> | null;
   proof?: CatalogProofSummary | null;
+  /** ADR-016 grading (paid tiers): disclosed screen, labeled codes, lab analysis, cup score protocol. */
+  grading?: components['schemas']['CatalogItem']['grading'];
 }
 
 export interface SimilarBean {
@@ -335,14 +337,7 @@ export interface SupplierAggregateResponse {
   };
 }
 
-export type CatalogFacetField =
-  | 'supplier'
-  | 'country'
-  | 'processing_base_method'
-  | 'fermentation_type'
-  | 'drying_method'
-  | 'grade'
-  | 'wholesale';
+export type CatalogFacetField = (typeof catalogFacetFields)[number];
 
 export interface CatalogFacetValue {
   value: string;
@@ -401,6 +396,17 @@ export type CatalogSortField = (typeof catalogSortFields)[number];
 export const SUPPLIER_MIN_COFFEES_MAX = CLI_NUMERIC_BOUNDS.supplierMinCoffees.maximum;
 export const CATALOG_SEARCH_MAX_LIMIT = CLI_NUMERIC_BOUNDS.catalogSearchLimit.maximum;
 
+export const gradeDimensions = ['size', 'altitude', 'defects', 'cup', 'preparation'] as const;
+export type GradeDimension = (typeof gradeDimensions)[number];
+export const scoreProtocols = [
+  'sca_2004',
+  'cva_affective',
+  'q_arabica',
+  'coe',
+  'supplier_unspecified',
+] as const;
+export const GRADE_CODE_PATTERN = /^[A-Z][A-Z0-9_]*:[A-Z0-9][A-Z0-9_]*$/;
+
 export const searchCatalogSchema = z
   .object({
     origin: z.string().optional(),
@@ -429,6 +435,21 @@ export const searchCatalogSchema = z
     processingDisclosureLevel: z.string().optional(),
     processingConfidenceMin: z.number().min(0).max(1).optional(),
     includeProof: z.boolean().optional(),
+    // ADR-016 grading filters (paid tiers; Parchment strips them otherwise)
+    elevationMin: z.number().int().min(0).max(6000).optional(),
+    elevationMax: z.number().int().min(0).max(6000).optional(),
+    screenMin: z.number().int().min(8).max(20).optional(),
+    screenMax: z.number().int().min(8).max(20).optional(),
+    gradeCodes: z
+      .array(z.string().regex(GRADE_CODE_PATTERN, 'Grade codes look like KE:AA or PREP:EP'))
+      .min(1)
+      .max(20)
+      .optional(),
+    gradeDimension: z.enum(gradeDimensions).optional(),
+    peaberry: z.boolean().optional(),
+    labAnalyzed: z.boolean().optional(),
+    moistureMax: z.number().min(0).max(20).optional(),
+    scoreProtocol: z.enum(scoreProtocols).optional(),
   })
   .strict();
 
@@ -495,14 +516,25 @@ export const supplierAggregateSchema = z.object({
 
 export type SupplierAggregateInput = z.input<typeof supplierAggregateSchema>;
 
+/** Grading facets Parchment returns only with include=grading (paid tiers). */
+export const catalogGradingFacetFields = [
+  'grade_size',
+  'grade_altitude',
+  'grade_defects',
+  'grade_cup',
+  'grade_preparation',
+  'screen_size_min',
+  'elevation_band',
+] as const;
+
 export const catalogFacetFields = [
   'supplier',
   'country',
   'processing_base_method',
   'fermentation_type',
   'drying_method',
-  'grade',
   'wholesale',
+  ...catalogGradingFacetFields,
 ] as const;
 
 /** CLI facet field names mapped to the canonical counted-facet keys. */
@@ -512,8 +544,14 @@ export const catalogFacetKeys: Record<CatalogFacetField, CatalogFacetKey> = {
   processing_base_method: 'processing_base_method',
   fermentation_type: 'fermentation_type',
   drying_method: 'drying_method',
-  grade: 'grade',
   wholesale: 'wholesale',
+  grade_size: 'grade_size',
+  grade_altitude: 'grade_altitude',
+  grade_defects: 'grade_defects',
+  grade_cup: 'grade_cup',
+  grade_preparation: 'grade_preparation',
+  screen_size_min: 'screen_size_min',
+  elevation_band: 'elevation_band',
 };
 
 export const catalogFacetsSchema = z.object({
@@ -1069,6 +1107,16 @@ export async function searchCatalog(opts: SearchCatalogInput): Promise<CatalogIt
     order: sort?.direction,
     limit: hasCatalogIdFilter(parsed) ? Math.min(parsed.ids?.length ?? 1, 100) : parsed.limit,
     page: hasCatalogIdFilter(parsed) ? 1 : Math.floor(offset / parsed.limit) + 1,
+    elevationMinMasl: parsed.elevationMin,
+    elevationMaxMasl: parsed.elevationMax,
+    screenMin: parsed.screenMin,
+    screenMax: parsed.screenMax,
+    gradeCode: parsed.gradeCodes,
+    gradeDimension: parsed.gradeDimension,
+    peaberry: parsed.peaberry ? 'true' : undefined,
+    labAnalyzed: parsed.labAnalyzed ? 'true' : undefined,
+    moistureMax: parsed.moistureMax,
+    scoreProtocol: parsed.scoreProtocol,
   });
   const envelope = unwrapParchment(
     result,
@@ -1111,12 +1159,15 @@ export async function getCatalogStats(): Promise<CatalogStats> {
  * endpoint. The envelope (values, facets, meta) is returned unchanged.
  */
 export async function getCatalogFacets(
-  input: { stockedOnly?: boolean } = {}
+  input: { stockedOnly?: boolean; includeGrading?: boolean } = {}
 ): Promise<CanonicalCatalogFacetsResponse> {
   const stockedOnly = input.stockedOnly ?? true;
-  const client = await createParchmentClient('viewer');
+  const client = await createParchmentClient(input.includeGrading ? 'member' : 'viewer');
   return unwrapParchment(
-    await client.catalog.facets({ stocked: stockedOnly ? 'true' : 'all' }),
+    await client.catalog.facets({
+      stocked: stockedOnly ? 'true' : 'all',
+      ...(input.includeGrading ? { include: 'grading' as const } : {}),
+    }),
     'Catalog facets'
   );
 }
@@ -1129,7 +1180,10 @@ export async function getCatalogFacets(
 export async function listCatalogFacets(input: CatalogFacetsInput): Promise<CatalogFacetsResponse> {
   const parsed = catalogFacetsSchema.parse(input);
   const facet = catalogFacetKeys[parsed.field];
-  const envelope = await getCatalogFacets({ stockedOnly: parsed.stockedOnly });
+  const envelope = await getCatalogFacets({
+    stockedOnly: parsed.stockedOnly,
+    includeGrading: (catalogGradingFacetFields as readonly string[]).includes(parsed.field),
+  });
   return {
     field: parsed.field,
     facet,
@@ -1281,4 +1335,99 @@ export async function findSimilarBeans(input: FindSimilarBeansInput): Promise<Si
     avg_similarity: match.score.average,
     chunk_matches: match.score.chunk_matches,
   }));
+}
+
+// ─── Comparison, price history, grade vocabulary ─────────────────────────────
+
+export type CatalogComparisonResponse = components['schemas']['CatalogComparisonResponse'];
+export type LotPriceHistoryResponse = components['schemas']['LotPriceHistoryResponse'];
+export type CatalogGradesResponse = components['schemas']['CatalogGradesResponse'];
+
+export const compareCatalogSchema = z
+  .object({
+    ids: z.array(z.number().int().min(1).max(POSTGRES_INT4_MAX)).min(2).max(6),
+    quantityLbs: z.number().positive().max(10000).optional(),
+  })
+  .strict();
+export type CompareCatalogInput = z.input<typeof compareCatalogSchema>;
+
+/** Compare 2 to 6 coffees side by side (viewers 2, members and API keys 6). */
+export async function compareCatalog(
+  input: CompareCatalogInput
+): Promise<CatalogComparisonResponse> {
+  const parsed = compareCatalogSchema.parse(input);
+  if (new Set(parsed.ids).size !== parsed.ids.length) {
+    throw new PrvrsError('INVALID_ARGUMENT', 'Compare needs distinct catalog IDs.');
+  }
+  const client = await createParchmentClient('viewer');
+  return unwrapParchment(
+    await client.catalog.compare({
+      ids: parsed.ids.join(','),
+      ...(parsed.quantityLbs !== undefined ? { quantityLbs: String(parsed.quantityLbs) } : {}),
+    }),
+    'Catalog comparison'
+  );
+}
+
+export const catalogPriceHistorySchema = z
+  .object({
+    id: z.number().int().min(1).max(POSTGRES_INT4_MAX),
+    days: z.number().int().min(7).max(365).optional(),
+  })
+  .strict();
+export type CatalogPriceHistoryInput = z.input<typeof catalogPriceHistorySchema>;
+
+/** Daily price history for one coffee, with smallest-order-size change events. */
+export async function getCatalogPriceHistory(
+  input: CatalogPriceHistoryInput
+): Promise<LotPriceHistoryResponse> {
+  const parsed = catalogPriceHistorySchema.parse(input);
+  const client = await createParchmentClient('member');
+  return unwrapParchment(
+    await client.catalog.priceHistory(String(parsed.id), {
+      ...(parsed.days !== undefined ? { days: String(parsed.days) } : {}),
+    }),
+    'Catalog price history'
+  );
+}
+
+export const catalogGradesSchema = z
+  .object({
+    codes: z.array(z.string().trim().min(1)).max(50).optional(),
+    dimension: z.enum(gradeDimensions).optional(),
+    system: z.string().trim().min(1).optional(),
+    includeRetired: z.boolean().optional(),
+  })
+  .strict();
+export type CatalogGradesInput = z.input<typeof catalogGradesSchema>;
+
+/**
+ * Grade designation vocabulary, filtered locally by code, dimension, or
+ * system. Codes not in the vocabulary are reported under `unknownCodes`.
+ */
+export async function listCatalogGrades(
+  input: CatalogGradesInput = {}
+): Promise<CatalogGradesResponse & { unknownCodes?: string[] }> {
+  const parsed = catalogGradesSchema.parse(input);
+  const client = await createParchmentClient('viewer');
+  const envelope = unwrapParchment(
+    await client.catalog.grades(parsed.includeRetired ? { includeRetired: 'true' } : {}),
+    'Grade vocabulary'
+  );
+  const wanted = new Set((parsed.codes ?? []).map((code) => code.toUpperCase()));
+  const system = parsed.system?.toUpperCase();
+  const data = envelope.data.filter(
+    (designation) =>
+      (wanted.size === 0 || wanted.has(designation.code)) &&
+      (!parsed.dimension || designation.dimensions.includes(parsed.dimension)) &&
+      (!system || designation.system === system)
+  );
+  const unknownCodes = [...wanted].filter(
+    (code) => !envelope.data.some((designation) => designation.code === code)
+  );
+  return {
+    ...envelope,
+    data,
+    ...(unknownCodes.length > 0 ? { unknownCodes } : {}),
+  };
 }
