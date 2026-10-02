@@ -1163,7 +1163,8 @@ export async function getCatalogFacets(
   input: { stockedOnly?: boolean; includeGrading?: boolean } = {}
 ): Promise<CanonicalCatalogFacetsResponse> {
   const stockedOnly = input.stockedOnly ?? true;
-  const client = await createParchmentClient(input.includeGrading ? 'member' : 'viewer');
+  // Parchment decides access to grading facets.
+  const client = await createParchmentClient('viewer');
   return unwrapParchment(
     await client.catalog.facets({
       stocked: stockedOnly ? 'true' : 'all',
@@ -1383,7 +1384,8 @@ export async function getCatalogPriceHistory(
   input: CatalogPriceHistoryInput
 ): Promise<LotPriceHistoryResponse> {
   const parsed = catalogPriceHistorySchema.parse(input);
-  const client = await createParchmentClient('member');
+  // Parchment decides access: members, Intelligence, and customer API keys.
+  const client = await createParchmentClient('viewer');
   return unwrapParchment(
     await client.catalog.priceHistory(String(parsed.id), {
       ...(parsed.days !== undefined ? { days: String(parsed.days) } : {}),

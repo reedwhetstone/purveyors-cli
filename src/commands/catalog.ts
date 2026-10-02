@@ -483,7 +483,7 @@ Examples:
 
 Fields:
   supplier, country, processing_base_method, fermentation_type, drying_method, wholesale
-  Grading (member access or API key): grade_size, grade_altitude, grade_defects,
+  Grading: grade_size, grade_altitude, grade_defects,
   grade_cup, grade_preparation, screen_size_min, elevation_band
 
 Notes:
@@ -937,7 +937,7 @@ Examples:
 Notes:
   Prices track the smallest order tier. Events flag days when the smallest
   tier's quantity changed, which makes prices before and after not directly
-  comparable. Member access or a customer API key is required.
+  comparable. Parchment decides access; the key 'purvey auth login' stores works.
 `
     )
     .action(

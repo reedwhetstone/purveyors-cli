@@ -927,7 +927,7 @@ const commandGroups: CliCommandGroupContract[] = [
       {
         name: 'price-history',
         summary: 'Daily smallest-tier price history for one coffee',
-        auth: 'member',
+        auth: 'viewer',
         sdkMethods: ['catalog.priceHistory'],
         arguments: [
           {
@@ -949,6 +949,7 @@ const commandGroups: CliCommandGroupContract[] = [
         ],
         notes: [
           'Prices track the smallest order tier.',
+          'Parchment decides access: member accounts, Parchment Intelligence, and API keys with catalog:read, including the key `purvey auth login` stores.',
           "Events flag days when the smallest tier's quantity changed, which makes prices before and after not directly comparable.",
         ],
         examples: [

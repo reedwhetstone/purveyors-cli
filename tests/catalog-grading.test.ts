@@ -42,7 +42,7 @@ beforeEach(() => {
 });
 
 describe('grading search', () => {
-  it('forwards grading filters and uses the member credential', async () => {
+  it('forwards grading filters and lets Parchment decide access', async () => {
     const list = vi.fn().mockResolvedValue(ok({ data: [] }));
     vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { list } } as never);
     await searchCatalog({
@@ -55,7 +55,7 @@ describe('grading search', () => {
       moistureMax: 11,
       scoreProtocol: 'sca_2004',
     });
-    expect(createParchmentClient).toHaveBeenCalledWith('member');
+    expect(createParchmentClient).toHaveBeenCalledWith('viewer');
     expect(list).toHaveBeenCalledWith(
       expect.objectContaining({
         gradeCode: ['KE:AA', 'KE:AB'],
@@ -117,7 +117,7 @@ describe('grading facets', () => {
     vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { facets } } as never);
     const result = await listCatalogFacets({ field: 'grade_altitude' });
     expect(facets).toHaveBeenCalledWith({ stocked: 'true', include: 'grading' });
-    expect(createParchmentClient).toHaveBeenCalledWith('member');
+    expect(createParchmentClient).toHaveBeenCalledWith('viewer');
     expect(result.data).toEqual([{ value: 'GT:SHB', count: 3 }]);
   });
 
@@ -176,11 +176,11 @@ describe('compare, price history, and grades', () => {
     expect(quantity?.minimum).toBeUndefined();
   });
 
-  it('reads price history with the member credential', async () => {
+  it('reads price history and lets Parchment decide access', async () => {
     const priceHistory = vi.fn().mockResolvedValue(ok({ data: { points: [] } }));
     vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { priceHistory } } as never);
     await getCatalogPriceHistory({ id: 1182, days: 90 });
-    expect(createParchmentClient).toHaveBeenCalledWith('member');
+    expect(createParchmentClient).toHaveBeenCalledWith('viewer');
     expect(priceHistory).toHaveBeenCalledWith('1182', { days: '90' });
   });
 

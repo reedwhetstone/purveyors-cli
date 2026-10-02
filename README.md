@@ -358,7 +358,7 @@ Notes:
 - `--limit <n>`; default `10`, min `1`, max `1000`
 - `--include-proof`; request canonical proof summaries from `/v1/catalog?include=proof`
 
-Grading filters (member access or a customer API key; results then carry a `grading` object):
+Grading filters (results then carry a `grading` object):
 
 - `--elevation-min <masl>`, `--elevation-max <masl>`; disclosed elevation range overlap
 - `--screen-min <n>`, `--screen-max <n>`; disclosed screen size, 8 to 20 (an `18+` lot is open-ended)
@@ -374,7 +374,7 @@ Grading filters (member access or a customer API key; results then carry a `grad
 - 2 to 6 catalog IDs, space- or comma-separated; viewers compare 2, members and API keys up to 6
 - `--quantity <lb>`; price each coffee at the tier for this quantity (default 1)
 
-`catalog price-history <id>` options (member access or API key):
+`catalog price-history <id>` options:
 
 - `--days <n>`; `7` to `365`, default `180`
 
@@ -393,7 +393,7 @@ Grading filters (member access or a customer API key; results then carry a `grad
 `catalog facets [field]` options:
 
 - Fields: `supplier`, `country`, `processing_base_method`, `fermentation_type`, `drying_method`, `wholesale`
-- Grading fields (member access or API key): `grade_size`, `grade_altitude`, `grade_defects`, `grade_cup`, `grade_preparation`, `screen_size_min`, `elevation_band`
+- Grading fields: `grade_size`, `grade_altitude`, `grade_defects`, `grade_cup`, `grade_preparation`, `screen_size_min`, `elevation_band`
 - Without a field, prints the canonical `/v1/catalog/facets` envelope (`values`, `facets`, `meta`) unchanged; it omits grading facets, so name a grading field to get those counts. With a field, prints `{ field, facet, data, meta }` for that counted facet.
 - `--all`; use all visible catalog rows instead of the default stocked-only scope.
 
