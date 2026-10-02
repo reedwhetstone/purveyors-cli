@@ -936,7 +936,8 @@ const commandGroups: CliCommandGroupContract[] = [
           },
           {
             flags: '--form',
-            description: 'Prompt for each field interactively, including a catalog picker',
+            description:
+              'Prompt for a catalog coffee, quantity, total cost, and notes; the purchase date is set to today',
           },
         ],
         notes: [
@@ -1155,7 +1156,8 @@ const commandGroups: CliCommandGroupContract[] = [
           },
           {
             flags: '--form',
-            description: 'Prompt for each field interactively, including an inventory picker',
+            description:
+              'Prompt for an inventory coffee, batch name, weight in, notes, and targets; the roast date is set to today and targets are saved in the notes',
           },
         ],
       },
@@ -1372,7 +1374,8 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--sell-date <YYYY-MM-DD>', description: 'Date of the sale; defaults to today' },
           {
             flags: '--form',
-            description: 'Prompt for each field interactively, including a roast picker',
+            description:
+              'Prompt for a roast, ounces sold, sale price, and buyer; the sale date is set to today',
           },
         ],
         notes: [
@@ -1470,35 +1473,35 @@ const commandGroups: CliCommandGroupContract[] = [
         options: [
           {
             flags: '--aroma <1-5>',
-            description: 'Aroma score, a whole number from 1 (low) to 5 (excellent)',
+            description: 'Aroma score, a whole number; higher is better',
             minimum: 1,
             maximum: 5,
             requiredInFlagMode: true,
           },
           {
             flags: '--body <1-5>',
-            description: 'Body score, a whole number from 1 (low) to 5 (excellent)',
+            description: 'Body score, a whole number; higher is better',
             minimum: 1,
             maximum: 5,
             requiredInFlagMode: true,
           },
           {
             flags: '--acidity <1-5>',
-            description: 'Acidity score, a whole number from 1 (low) to 5 (excellent)',
+            description: 'Acidity score, a whole number; higher is better',
             minimum: 1,
             maximum: 5,
             requiredInFlagMode: true,
           },
           {
             flags: '--sweetness <1-5>',
-            description: 'Sweetness score, a whole number from 1 (low) to 5 (excellent)',
+            description: 'Sweetness score, a whole number; higher is better',
             minimum: 1,
             maximum: 5,
             requiredInFlagMode: true,
           },
           {
             flags: '--aftertaste <1-5>',
-            description: 'Aftertaste score, a whole number from 1 (low) to 5 (excellent)',
+            description: 'Aftertaste score, a whole number; higher is better',
             minimum: 1,
             maximum: 5,
             requiredInFlagMode: true,
@@ -1510,7 +1513,7 @@ const commandGroups: CliCommandGroupContract[] = [
           { flags: '--notes <text>', description: 'Free-text tasting notes' },
           {
             flags: '--form',
-            description: 'Pick the coffee and enter scores interactively',
+            description: 'Pick the coffee, then enter the five scores and notes interactively',
           },
         ],
         notes: ['Rating again replaces the earlier scores for that inventory item.'],

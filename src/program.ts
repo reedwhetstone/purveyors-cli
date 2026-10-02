@@ -67,6 +67,13 @@ function describeOptions(options: readonly Option[], contracts: CliOptionContrac
   }
 }
 
+function applyHelpOptionDescription(command: Command, description: string): void {
+  command.helpOption('-h, --help', description);
+  for (const subcommand of command.commands) {
+    applyHelpOptionDescription(subcommand, description);
+  }
+}
+
 /**
  * Option help comes from the manifest, so `--help`, `purvey manifest`, the agent
  * skill, and the public CLI reference describe every flag in the same words.
@@ -74,6 +81,9 @@ function describeOptions(options: readonly Option[], contracts: CliOptionContrac
 function applyManifestOptionHelp(program: Command): void {
   const manifest = getCliManifest();
   describeOptions(program.options, manifest.globalOptions);
+  // Commander builds each command's -h, --help outside `options`.
+  const help = manifest.globalOptions.find((option) => option.flags === '--help');
+  if (help?.description) applyHelpOptionDescription(program, help.description);
   for (const group of manifest.commandGroups) {
     const groupCommand = program.commands.find((command) => command.name() === group.name);
     if (!groupCommand) continue;

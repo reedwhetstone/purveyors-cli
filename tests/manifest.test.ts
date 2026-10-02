@@ -255,6 +255,31 @@ describe('CLI manifest contract', () => {
     expect(limit?.description).toContain(manifestLimit?.description);
   });
 
+  it('renders the built-in -h, --help option from the manifest on every command', () => {
+    const help = getCliManifest().globalOptions.find((option) => option.flags === '--help');
+    expect(help?.description).toBeTruthy();
+
+    for (const [path, text] of renderedHelp(createProgram('0.12.0-test'))) {
+      const line = text.split('\n').find((candidate) => /^\s*-h, --help\b/.test(candidate));
+      expect(line, `${path} -h, --help`).toContain(help?.description);
+    }
+  });
+
+  it('keeps fixed option bounds in minimum/maximum, not in description text', () => {
+    const repeated = manifestOptions()
+      .filter(([, option]) => option.minimum !== undefined && option.maximum !== undefined)
+      .filter(([, option]) =>
+        [option.minimum, option.maximum].every((bound) =>
+          new RegExp(`(^|[^0-9.])${String(bound).replace('.', '\\.')}(?![0-9])`).test(
+            option.description ?? ''
+          )
+        )
+      )
+      .map(([key, option]) => `${key} ${option.flags}: ${option.description}`);
+
+    expect(repeated).toEqual([]);
+  });
+
   it('declares every commander default in the manifest with the same value', () => {
     const manifestCommands = flattenManifestCommands();
 
