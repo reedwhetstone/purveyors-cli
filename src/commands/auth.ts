@@ -371,7 +371,7 @@ export function buildAuthCommand(): Command {
   auth
     .command('login')
     .description('Log in to purveyors.io')
-    .option('--headless', 'Print the approval URL without opening a browser')
+    .option('--headless')
     .action(async (opts: { headless?: boolean }) => login(Boolean(opts.headless)))
     .addHelpText(
       'after',
@@ -395,8 +395,8 @@ Notes:
   auth
     .command('status')
     .description('Show current authentication status')
-    .option('--pretty', 'Pretty-print JSON output')
-    .option('--csv', 'Output as CSV')
+    .option('--pretty')
+    .option('--csv')
     .addHelpText(
       'after',
       `
@@ -424,9 +424,7 @@ Notes:
 
   auth
     .command('whoami')
-    .description(
-      'Show the canonical identity, plan, scopes, and capabilities for the active credential'
-    )
+    .description('Show the identity, plan, scopes, and capabilities of the active credential')
     .addHelpText(
       'after',
       `
@@ -435,11 +433,11 @@ Examples:
   purvey auth whoami | jq '.capabilities.profileStudio'
 
 Notes:
-  Prints Parchment's GET /v1/me response unchanged: authenticated, userId, appRoles,
+  Prints your account details unchanged: authenticated, userId, appRoles,
   primaryAppRole, apiPlan, ppiAccess, apiScopes, and capabilities (for example
   capabilities.profileStudio for Studio reference-profile access).
   Uses PARCHMENT_API_KEY or PURVEYORS_API_KEY when set, otherwise the key stored by
-  'purvey auth login'. With no credential it prints Parchment's anonymous principal
+  'purvey auth login'. With no credential it prints the anonymous principal
   (authenticated: false). Use 'purvey auth status' for a local check.
 `
     )

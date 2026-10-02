@@ -204,6 +204,8 @@ Credentials are stored at `~/.config/purvey/credentials.json`.
 
 The `reference-profile` commands also require Studio access; the API enforces this entitlement.
 
+`catalog similar` checks for member access when it uses the key stored by `purvey auth login`. An API key in `PURVEYORS_API_KEY` or `PARCHMENT_API_KEY` works on any API plan when it has the `catalog:read` scope.
+
 Market Index teaser slices are public. Filtered `market signals`, origin/process/wholesale `market stats`, non-public `market metadata`, `market evidence`, `price-index comparisons`, `price-index comparison`, and `price-index history` windows over 90 days require Parchment Intelligence access; API-key denial is enforced by the canonical API. The stored login key carries `catalog:read`, which is also the canonical read scope for Market Index, Price Index, and procurement.
 
 `auth`, `config`, `context`, `manifest`, and `skill` remain available without pre-existing credentials.
@@ -356,7 +358,7 @@ Notes:
 
 `catalog similar <id>` options:
 
-- `--threshold <score>`; canonical similarity threshold `0.5` to `0.99`, default `0.70`
+- `--threshold <score>`; canonical similarity threshold `0.5` to `0.99`, default `0.7`
 - `--limit <count>`; default `10`, max `25`
 - `--stocked-only`; request only currently stocked coffees
 - `--mode <all|likely_same|similar_profile>`; default `all`
@@ -438,7 +440,7 @@ Notes:
 - Catalog intelligence responses include `meta.sample_limited`, `meta.sample_order`, `meta.truncated`, and rows-examined style metadata where relevant so agents can distinguish ranked samples from full supplier aggregates. Supplier aggregate responses also include `meta.rows_examined`.
 - Supplier aggregate commands summarize catalog row counts, stocked counts, Purveyor Score coverage, average score, average confidence, price range, origin/process coverage, and representative top coffees with score qualifiers.
 - `catalog similar` uses the beta canonical `/v1/catalog/{id}/similar` API contract, not the legacy direct RPC path.
-- `catalog similar --json` requires member access or a paid API tier and returns the grouped canonical response object: `data.target`, `data.groups.canonical_candidates`, `data.groups.similar_recommendations`, optional `data.matches`, and `meta`.
+- `catalog similar --json` requires member access with the `purvey auth login` key, or an API key with `catalog:read` on any API plan, and returns the grouped canonical response object: `data.target`, `data.groups.canonical_candidates`, `data.groups.similar_recommendations`, optional `data.matches`, and `meta`.
 - `canonical_candidates` are likely same-lot candidates; `similar_recommendations` are substitutes/profile matches and include blocker reasons when identity gates disagree.
 - The command preserves `classification_version`, `query_strategy`, score dimensions, proof summaries, pricing metadata, and classification/blocker details supplied by the API.
 - `catalog stats` returns aggregate catalog metrics, not your personal inventory metrics.
@@ -608,7 +610,7 @@ Notes:
 - `--catalog-id <id>`; the catalog lot to add
 - `--manual-name <name>`; name for a coffee that is not in the catalog (flag mode needs exactly one of `--catalog-id` or `--manual-name`)
 - `--qty <lbs>`; required in flag mode
-- `--cost <dollars>`
+- `--cost <dollars>`; total amount paid for the beans, not the price per pound
 - `--tax-ship <dollars>`
 - `--notes <text>`
 - `--purchase-date <YYYY-MM-DD>`
@@ -631,7 +633,7 @@ Examples:
 
 ```bash
 purvey inventory list --stocked --pretty
-purvey inventory add --catalog-id 128 --qty 10 --cost 8.50
+purvey inventory add --catalog-id 128 --qty 10 --cost 85.00
 purvey inventory add --manual-name "Farm-gate Ethiopia lot 7" --qty 12 --cost 96
 purvey inventory add --form
 purvey inventory update 7 --stocked false
@@ -1017,7 +1019,7 @@ const manifest = getCliManifest();
 
 ```bash
 purvey catalog search --origin "Ethiopia" --process "natural" --stocked --pretty
-purvey inventory add --catalog-id 128 --qty 10 --cost 8.50
+purvey inventory add --catalog-id 128 --qty 10 --cost 85.00
 purvey roast import ~/artisan/guji-light.alog --coffee-id 7 --pretty
 purvey tasting rate 7 --aroma 5 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
 purvey sales record --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz 12 --price 22.00 --buyer "Jane Smith"
@@ -1081,7 +1083,7 @@ Use the right ID for the right command.
 
 - `PURVEYORS_BASE_URL`: override the Purveyors web base URL
 - `PURVEYORS_API_KEY`: explicit API-key override for canonical Parchment commands
-- `PARCHMENT_API_KEY`: preferred API-key variable for SDK-backed Parchment commands; also accepted for API-backed proof and paid-tier similarity paths
+- `PARCHMENT_API_KEY`: preferred API-key variable for SDK-backed Parchment commands; also accepted for API-backed proof and API-key similarity requests
 - `PARCHMENT_API_BASE_URL`: override the SDK-backed Parchment API base URL, including `market`, `price-index`, `procurement`, `reference-profile`, and roast auto-classification requests
 - `PURVEY_DEBUG`: enable verbose error output
 

@@ -9,14 +9,14 @@ export function buildManifestCommand(): Command {
     .description(
       'Output the preferred stable machine-readable CLI manifest contract for shells and agents'
     )
-    .option('--json', 'Emit the manifest as compact JSON (default)')
-    .option('--pretty', 'Emit the manifest as indented JSON')
+    .option('--json')
+    .option('--pretty')
     .addHelpText(
       'after',
       `
 Preferred machine-readable entrypoint for shells, scripts, and agents.
 Use \`purvey context --json\` only for compatibility with existing context-based callers.
-The \`reference-profile\` command group describes the SDK-backed Studio Artisan plan workflow.
+The \`reference-profile\` command group describes the Studio Artisan plan workflow.
 
 Examples:
   purvey manifest

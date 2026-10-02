@@ -103,6 +103,8 @@ tests/                Vitest coverage
 - Keep examples copy-pasteable.
 - Do not document flags that are not wired in code.
 - Do not leave stale release numbers or command names in help text.
+- Option descriptions live only in `src/lib/manifest.ts`. `createProgram()` copies them into commander, so `.option()` calls carry flags, defaults, and parsers but no description (`''` where a later argument needs a placeholder). Every option needs a description; tests fail otherwise.
+- Write option descriptions, summaries, and notes for customers: what the flag does, accepted values and units, and interactions with other flags. Put fixed defaults in `defaultValue` and bounds in `minimum`/`maximum` rather than in the text; help and the public reference render them. Leave endpoints, SDK plumbing, table names, and design references out; a jargon test checks the manifest and every `--help` page.
 
 ### Documentation and validation
 

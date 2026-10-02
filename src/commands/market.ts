@@ -69,7 +69,7 @@ function parseIsoDate(rawValue: string, flag: string): string {
 }
 
 /** Repeatable/comma-separated `--type` collector preserving all requested types. */
-function collectSignalTypes(rawValue: string, previous: string[]): string[] {
+function collectSignalTypes(rawValue: string, previous: string[] = []): string[] {
   const parts = rawValue
     .split(',')
     .map((part) => part.trim())
@@ -92,33 +92,22 @@ function collectSignalTypes(rawValue: string, previous: string[]): string[] {
  */
 export function buildMarketCommand(): Command {
   const market = new Command('market').description(
-    'Market Index decision surface: value signals, movement stats, metadata trends, overview, and evidence'
+    'Market Index value signals, price movement, metadata trends, market overview, and named-lot evidence'
   );
 
   // market signals
   market
     .command('signals')
     .description('Actionable market value signals (public summary via --summary)')
-    .option(
-      '--summary',
-      'Return the unfiltered public signal summary (counts only; no auth needed)'
-    )
-    .option(
-      '--type <type>',
-      'Signal type filter; repeatable or comma-separated (price_drop|below_market|value_quality)',
-      collectSignalTypes,
-      [] as string[]
-    )
-    .option('--origin <origin>', 'Filter by origin')
-    .option('--process <method>', 'Filter by process bucket')
-    .option('--market <retail|wholesale|all>', 'Market scope')
-    .option('--min-discount <n>', 'Minimum signal magnitude / discount percent')
-    .option('--min-score <n>', 'Minimum score_value')
-    .option('--window <7d|30d>', 'Trailing window')
-    .option(
-      '--limit <n>',
-      `Results per page (${CLI_NUMERIC_BOUNDS.marketSignalsLimit.minimum}-${CLI_NUMERIC_BOUNDS.marketSignalsLimit.maximum})`
-    )
+    .option('--summary')
+    .option('--type <type>', '', collectSignalTypes)
+    .option('--origin <origin>')
+    .option('--process <method>')
+    .option('--market <retail|wholesale|all>')
+    .option('--min-discount <n>')
+    .option('--min-score <n>')
+    .option('--window <7d|30d>')
+    .option('--limit <n>')
     .addHelpText(
       'after',
       `
@@ -137,7 +126,7 @@ Notes:
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
         const query: MarketSignalsQuery = {};
         if (opts.summary === true) query.summary = 'true';
-        const types = opts.type as string[];
+        const types = (opts.type as string[] | undefined) ?? [];
         if (types.length > 0) query.type = types;
         if (opts.origin !== undefined) query.origin = opts.origin as string;
         if (opts.process !== undefined) query.process = opts.process as string;
@@ -166,11 +155,11 @@ Notes:
   market
     .command('stats')
     .description('Price movement-significance stats (public retail summary works unauthenticated)')
-    .option('--origin <origin>', 'Filter by origin')
-    .option('--process <method>', 'Filter by process bucket')
-    .option('--market <retail|wholesale|all>', 'Market scope')
-    .option('--window <7d|30d>', 'Move window')
-    .option('--baseline-weeks <n>', 'Baseline weeks (8-52)')
+    .option('--origin <origin>')
+    .option('--process <method>')
+    .option('--market <retail|wholesale|all>')
+    .option('--window <7d|30d>')
+    .option('--baseline-weeks <n>')
     .addHelpText(
       'after',
       `
@@ -211,12 +200,12 @@ Notes:
   market
     .command('metadata')
     .description('Metadata-trend index (public process/retail/month slice works unauthenticated)')
-    .option('--dimension <process|disclosure|score>', 'Metadata dimension (default process)')
-    .option('--origin <origin>', 'Filter by origin')
-    .option('--market <retail|wholesale|all>', 'Market scope')
-    .option('--grain <week|month>', 'Time grain')
-    .option('--from <date>', 'Include periods on/after this ISO date (YYYY-MM-DD)')
-    .option('--to <date>', 'Include periods on/before this ISO date (YYYY-MM-DD)')
+    .option('--dimension <process|disclosure|score>')
+    .option('--origin <origin>')
+    .option('--market <retail|wholesale|all>')
+    .option('--grain <week|month>')
+    .option('--from <date>')
+    .option('--to <date>')
     .addHelpText(
       'after',
       `
@@ -227,7 +216,7 @@ Examples:
 
 Notes:
   Public slice is dimension=process, no origin, market=retail, grain=month; anything else requires Intelligence access.
-  cultivar and drying dimensions are out of scope for v1 (await taxonomy normalization).`
+  Cultivar and drying dimensions are not available yet.`
     )
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {

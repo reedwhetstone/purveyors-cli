@@ -146,11 +146,6 @@ function renderGroupCommands(group: CliCommandGroupContract): string {
     .join('; ');
 }
 
-/** Drop transport boilerplate that matters to maintainers, not to an agent choosing a command. */
-function agentSummary(summary: string): string {
-  return summary.replace(/ (?:via|through|from) the canonical API$/, '');
-}
-
 function renderWhenToUse(manifest: CliManifest): string[] {
   // Credential-free groups (auth, config, context, manifest, skill) are setup
   // and reference surfaces, covered in their own sections below.
@@ -162,7 +157,7 @@ function renderWhenToUse(manifest: CliManifest): string[] {
     '',
     ...dataGroups.map(
       (group) =>
-        `- **${group.name}** (${ACCESS_LABELS[group.auth]}): ${agentSummary(group.summary)}. Commands: ${renderGroupCommands(group)}.`
+        `- **${group.name}** (${ACCESS_LABELS[group.auth]}): ${group.summary}. Commands: ${renderGroupCommands(group)}.`
     ),
   ];
 }

@@ -66,13 +66,9 @@ export function buildTastingCommand(): Command {
   tasting
     .command('get <bean-id>')
     .description(
-      'Retrieve tasting notes for a bean (by coffee_catalog ID). Combines supplier and user notes.'
+      'Retrieve tasting notes for a bean (by catalog ID). Combines supplier and user notes.'
     )
-    .option(
-      '--filter <type>',
-      'Which notes to show: user, supplier, or both (default: both)',
-      'both'
-    )
+    .option('--filter <type>', '', 'both')
     .addHelpText(
       'after',
       `
@@ -83,10 +79,10 @@ Examples:
   purvey tasting get 42 | jq '.user.aroma'
 
 Notes:
-  <bean-id> is coffee_catalog.catalog_id (NOT inventory id).
+  <bean-id> is a catalog ID (NOT an inventory ID).
   --filter both returns: {supplier: {flavor_notes, ...}, user: {aroma, body, ...}}
   --filter supplier: only the supplier's flavor notes from the catalog.
-  --filter user: only your cupping scores from green_coffee_inv.
+  --filter user: only your own cupping scores from your inventory.
   Returns null fields if no notes exist for that filter.
   Requires authentication (member role).
 `
@@ -119,16 +115,16 @@ Notes:
   // ── tasting rate <bean-id> ────────────────────────────────────────────────
   tasting
     .command('rate')
-    .description('Rate a bean from your inventory using cupping scores (updates green_coffee_inv)')
-    .argument('[bean-id]', 'Inventory item ID (green_coffee_inv.id), or use --form')
-    .option('--aroma <1-5>', '[REQUIRED in flag mode] Aroma score, integer 1-5')
-    .option('--body <1-5>', '[REQUIRED in flag mode] Body score, integer 1-5')
-    .option('--acidity <1-5>', '[REQUIRED in flag mode] Acidity score, integer 1-5')
-    .option('--sweetness <1-5>', '[REQUIRED in flag mode] Sweetness score, integer 1-5')
-    .option('--aftertaste <1-5>', '[REQUIRED in flag mode] Aftertaste score, integer 1-5')
-    .option('--brew-method <method>', 'Brew method used (e.g. pour_over, french_press, espresso)')
-    .option('--notes <text>', 'Additional tasting notes')
-    .option('--form', 'Interactive form mode (browse inventory + guided scoring)')
+    .description('Rate a bean from your inventory using cupping scores')
+    .argument('[bean-id]', 'Inventory ID of the coffee, or use --form')
+    .option('--aroma <1-5>')
+    .option('--body <1-5>')
+    .option('--acidity <1-5>')
+    .option('--sweetness <1-5>')
+    .option('--aftertaste <1-5>')
+    .option('--brew-method <method>')
+    .option('--notes <text>')
+    .option('--form')
     .addHelpText(
       'after',
       `
@@ -139,10 +135,10 @@ Examples:
   purvey tasting rate --form     # interactive wizard
 
 Required (flag mode): <bean-id> + all five score flags (--aroma, --body, --acidity, --sweetness, --aftertaste)
-  <bean-id> is green_coffee_inv.id (your inventory ID, NOT catalog_id).
+  <bean-id> is your inventory ID, NOT a catalog ID.
   Use 'purvey inventory list' to find your bean IDs.
   Scores: integer 1 (low) to 5 (excellent).
-  Scores are stored on your green_coffee_inv row (overwrite on re-rate).
+  Scores are saved on your inventory item; rating again replaces them.
   Requires authentication (member role).
 `
     )

@@ -257,16 +257,16 @@ export function buildRoastCommand(): Command {
   roast
     .command('list')
     .description('List your roast profiles, sorted by date (newest first)')
-    .option('--coffee-id <id>', 'Filter by green_coffee_inv ID')
-    .option('--roast-id <id>', 'Filter by roast profile ID')
-    .option('--batch-name <text>', 'Filter by batch name (partial match, case-insensitive)')
-    .option('--coffee-name <text>', 'Filter by bean name (partial match, case-insensitive)')
-    .option('--date-start <YYYY-MM-DD>', 'Only show roasts on or after this date')
-    .option('--date-end <YYYY-MM-DD>', 'Only show roasts on or before this date')
-    .option('--stocked', 'Only show roasts for currently stocked beans')
-    .option('--catalog-id <id>', 'Filter by coffee_catalog ID')
-    .option('--limit <n>', 'Maximum results to return', '20')
-    .option('--offset <n>', 'Skip N results (for pagination)', '0')
+    .option('--coffee-id <id>')
+    .option('--roast-id <id>')
+    .option('--batch-name <text>')
+    .option('--coffee-name <text>')
+    .option('--date-start <YYYY-MM-DD>')
+    .option('--date-end <YYYY-MM-DD>')
+    .option('--stocked')
+    .option('--catalog-id <id>')
+    .option('--limit <n>', '', '20')
+    .option('--offset <n>', '', '0')
     .addHelpText(
       'after',
       `
@@ -284,9 +284,9 @@ Examples:
   purvey roast list --limit 20 --offset 20   # page 2
 
 Notes:
-  --coffee-id filters by inventory item (green_coffee_inv.id), not catalog_id.
+  --coffee-id filters by inventory ID, not catalog ID.
   --roast-id filters by the exact roast profile ID while preserving list output shape.
-  --catalog-id filters by coffee_catalog ID (cross-reference from catalog search).
+  --catalog-id filters by catalog ID (from catalog search).
   --batch-name accepts partial matches (case-insensitive).
   --coffee-name accepts partial matches on the bean name (case-insensitive).
   --date-start and --date-end accept YYYY-MM-DD format; use together for a range.
@@ -355,8 +355,8 @@ Notes:
   roast
     .command('get <id>')
     .description('Fetch a single roast profile by roast_id')
-    .option('--include-temps', 'Include temperature curve data (roast_temperatures)')
-    .option('--include-events', 'Include roast events (roast_events)')
+    .option('--include-temps')
+    .option('--include-events')
     .addHelpText(
       'after',
       `
@@ -367,7 +367,7 @@ Examples:
   purvey roast get 123 --include-temps --include-events --csv
 
 Notes:
-  <id> is roast_data.roast_id (integer).
+  <id> is the roast ID (integer).
   --include-temps adds the full temperature curve array (can be large).
   --include-events adds roast event markers (FC start, drop, etc.).
   Requires authentication (member role).
@@ -389,10 +389,7 @@ Notes:
   roast
     .command('chart <id>')
     .description('Fetch the sampled chart model for one roast (series, events, revision)')
-    .option(
-      '--target-points <n>',
-      `Approximate samples per series (${ROAST_CHART_TARGET_POINTS.minimum}-${ROAST_CHART_TARGET_POINTS.maximum}; Parchment defaults to 400)`
-    )
+    .option('--target-points <n>')
     .addHelpText(
       'after',
       `
@@ -402,8 +399,8 @@ Examples:
   purvey roast chart 123 | jq '.data.metadata.revision'
 
 Notes:
-  <id> is roast_data.roast_id (integer).
-  Returns Parchment's canonical chart-data envelope unchanged: sampled series,
+  <id> is the roast ID (integer).
+  Returns the roast chart data unchanged: sampled series,
   discrete events, and metadata. data.metadata.revision identifies the immutable
   chart revision accepted by 'purvey reference-profile compare roast:<id>@<revision>'.
   Requires authentication (member role); API keys need the roast:read scope.
@@ -428,15 +425,15 @@ Notes:
   roast
     .command('create')
     .description('Create a new roast profile')
-    .option('--coffee-id <id>', '[REQUIRED] green_coffee_inv ID for this roast')
-    .option('--batch-name <name>', "Batch name (defaults to coffee name + today's date)")
-    .option('--oz-in <oz>', 'Green weight in ounces')
-    .option('--oz-out <oz>', 'Roasted weight in ounces')
-    .option('--roast-date <YYYY-MM-DD>', 'Roast date (defaults to today)')
-    .option('--notes <text>', 'Roast notes')
-    .option('--targets <text>', 'Roast targets (planning goals for this roast)')
-    .option('--roaster-type <text>', 'Roaster model or type')
-    .option('--form', 'Interactive form mode (browse and select bean)')
+    .option('--coffee-id <id>')
+    .option('--batch-name <name>')
+    .option('--oz-in <oz>')
+    .option('--oz-out <oz>')
+    .option('--roast-date <YYYY-MM-DD>')
+    .option('--notes <text>')
+    .option('--targets <text>')
+    .option('--roaster-type <text>')
+    .option('--form')
     .addHelpText(
       'after',
       `
@@ -448,7 +445,7 @@ Examples:
   purvey roast create --coffee-id 7 --targets "FC at 390F, 18% development" --roaster-type "Aillio Bullet"
   purvey roast create --form     # interactive wizard
 
-Required flags: --coffee-id (green_coffee_inv.id)
+Required flags: --coffee-id (inventory ID)
   Use 'purvey inventory list' to find your --coffee-id.
   Prefer 'purvey roast import' if you have an Artisan .alog file.
   Requires authentication (member role).
@@ -580,10 +577,10 @@ Required flags: --coffee-id (green_coffee_inv.id)
   roast
     .command('update <id>')
     .description('Update an existing roast profile (must be yours)')
-    .option('--notes <text>', 'Updated roast notes')
-    .option('--oz-out <oz>', 'Updated roasted weight (oz) — triggers weight loss recalculation')
-    .option('--batch-name <name>', 'Updated batch name')
-    .option('--targets <text>', 'Updated roast targets')
+    .option('--notes <text>')
+    .option('--oz-out <oz>')
+    .option('--batch-name <name>')
+    .option('--targets <text>')
     .addHelpText(
       'after',
       `
@@ -597,7 +594,7 @@ Examples:
 Notes:
   At least one flag required. Pass only the fields you want to change.
   --oz-out triggers automatic weight_loss_percent recalculation if oz_in exists.
-  --targets updates the roast_targets column (planning/goals for the roast).
+  --targets replaces the roast targets (your plan or goals for the roast).
   Requires authentication (member role).
 `
     )
@@ -641,7 +638,7 @@ Notes:
   roast
     .command('delete <id>')
     .description('Delete a roast profile (must be yours)')
-    .option('-y, --yes', 'Skip confirmation prompt')
+    .option('-y, --yes')
     .addHelpText(
       'after',
       `
@@ -677,12 +674,12 @@ Notes:
     .command('import')
     .description('Import an Artisan .alog file and create a new roast profile')
     .argument('[file]', 'Path to .alog file (or use --form for interactive mode)')
-    .option('--coffee-id <id>', '[REQUIRED] green_coffee_inv ID for this roast')
-    .option('--batch-name <name>', 'Batch name (auto-generated from coffee name + date if omitted)')
-    .option('--oz-in <oz>', 'Green weight in ounces (extracted from .alog if omitted)')
-    .option('--roast-notes <notes>', 'Additional roast notes')
-    .option('--roast-targets <targets>', 'Roast targets to store with the import')
-    .option('--form', 'Interactive form mode (browse and select bean)')
+    .option('--coffee-id <id>')
+    .option('--batch-name <name>')
+    .option('--oz-in <oz>')
+    .option('--roast-notes <notes>')
+    .option('--roast-targets <targets>')
+    .option('--form')
     .addHelpText(
       'after',
       `
@@ -913,28 +910,16 @@ Required: <file> path and --coffee-id (unless using --form)
     .command('watch')
     .description('Watch a directory for new .alog files and queue or auto-import them')
     .argument('[directory]', 'Directory to watch for .alog files')
-    .option(
-      '--coffee-id <id>',
-      '[REQUIRED unless --auto-match] green_coffee_inv ID for all imports'
-    )
-    .option(
-      '--batch-prefix <name>',
-      'Batch name prefix for auto-named batches (defaults to coffee name)'
-    )
-    .option(
-      '--prompt-each',
-      'Prompt for bean selection on each new file (instead of using --coffee-id)'
-    )
-    .option(
-      '--auto-match',
-      'Use AI to auto-match beans per file (mutually exclusive with --coffee-id)'
-    )
-    .option('--commit-mode <mode>', 'Commit mode: batch (default) or individual')
-    .option('--oz-in <oz>', 'Green weight in ounces for watched imports')
-    .option('--roast-notes <notes>', 'Roast notes to apply to watched imports')
-    .option('--roast-targets <targets>', 'Roast targets to apply to watched imports')
-    .option('--resume', 'Resume a previous watch session from where it left off')
-    .option('--form', 'Interactive form mode (prompts for directory + bean selection)')
+    .option('--coffee-id <id>')
+    .option('--batch-prefix <name>')
+    .option('--prompt-each')
+    .option('--auto-match')
+    .option('--commit-mode <mode>')
+    .option('--oz-in <oz>')
+    .option('--roast-notes <notes>')
+    .option('--roast-targets <targets>')
+    .option('--resume')
+    .option('--form')
     .addHelpText(
       'after',
       `

@@ -74,11 +74,8 @@ Examples:
   procurement
     .command('matches <id>')
     .description('Run a saved brief against the catalog and page through matches')
-    .option('--page <n>', '1-based page number (default 1)')
-    .option(
-      '--limit <n>',
-      `Matches per page (${CLI_NUMERIC_BOUNDS.procurementMatchesLimit.minimum}-${CLI_NUMERIC_BOUNDS.procurementMatchesLimit.maximum}; default 25)`
-    )
+    .option('--page <n>')
+    .option('--limit <n>')
     .addHelpText(
       'after',
       `

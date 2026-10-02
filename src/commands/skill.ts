@@ -65,12 +65,8 @@ export function buildSkillCommand(version: string): Command {
   skill
     .command('print')
     .description('Write the generated SKILL.md, workflows.md, or the AGENTS.md block to stdout')
-    .option(
-      '--file <file>',
-      `Skill file to print: ${AGENT_SKILL_FILES.join(', ')}, or all (needs --json or --pretty)`,
-      AGENT_SKILL_FILE
-    )
-    .option('--agents-md', 'Print the compact AGENTS.md block instead of the skill')
+    .option('--file <file>', '', AGENT_SKILL_FILE)
+    .option('--agents-md')
     .addHelpText(
       'after',
       `
@@ -144,17 +140,11 @@ Examples:
     .description(
       'Install the generated instructions for Claude Code, Agent Skills clients such as Codex and Cursor, or a repository AGENTS.md'
     )
-    .option('--target <target>', 'claude, agents, or agents-md (required)')
-    .option(
-      '--scope <scope>',
-      'user (home directory) or project (current directory); defaults to user, or project for agents-md'
-    )
-    .option('--force', 'Replace skill files or an AGENTS.md block that have local edits')
-    .option('--dry-run', 'Report the path and action without writing')
-    .option(
-      '--link-claude-md',
-      'agents-md only: add an @AGENTS.md import to ./CLAUDE.md so Claude Code loads the block'
-    )
+    .option('--target <target>')
+    .option('--scope <scope>')
+    .option('--force')
+    .option('--dry-run')
+    .option('--link-claude-md')
     .addHelpText(
       'after',
       `
