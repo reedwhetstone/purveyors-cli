@@ -370,6 +370,7 @@ describe('CLI manifest contract', () => {
       ['price-index history', '--limit', CLI_NUMERIC_BOUNDS.priceIndexHistoryLimit],
       ['price-index history', '--window-days', CLI_NUMERIC_BOUNDS.priceIndexHistoryWindowDays],
       ['procurement matches', '--limit', CLI_NUMERIC_BOUNDS.procurementMatchesLimit],
+      ['reference-profile roasts', '--limit', CLI_NUMERIC_BOUNDS.referenceProfileRoastsLimit],
     ] as const;
 
     for (const [commandName, flag, bounds] of expectedBounds) {

@@ -111,7 +111,8 @@ Use the right reference surface for the job:
 Manifest commands carry `sdkMethods`, the `@purveyors/sdk` operations whose canonical endpoints
 they consume, and, for writes, `confirmedActionEquivalents`, the Purveyors web assistant's
 confirmed-action types they perform with an API key. An agent that knows an SDK operation can
-use these fields to find the matching command.
+use these fields to find the matching command. Every read and confirmed action available to the
+web assistant has a command, with no exceptions.
 
 ## Package exports and integration boundary
 
@@ -683,6 +684,7 @@ Notes:
 - `purvey roast update <id>`
 - `purvey roast delete <id>`
 - `purvey roast import [file]`
+- `purvey roast from-reference <profile-id> <revision-id> --coffee-id <id>`
 - `purvey roast watch [directory]`
 
 `roast list` filters:
@@ -739,6 +741,17 @@ events, and metadata. `data.metadata.revision` is the immutable chart revision t
 - `--roast-targets <text>`
 - `--form`
 
+`roast from-reference <profile-id> <revision-id>` flags:
+
+- `--coffee-id <id>`; required
+- `--batch-name <name>`
+- `--roast-date <YYYY-MM-DD>`; defaults to the date in the saved Artisan file
+- `--oz-in <oz>`
+- `--oz-out <oz>`
+- `--roast-notes <text>`
+- `--roast-targets <text>`
+- `--idempotency-key <key>`
+
 `roast watch [directory]` options:
 
 - `--coffee-id <id>`; required unless `--auto-match`
@@ -760,6 +773,7 @@ purvey roast get 123 --include-temps --pretty
 purvey roast chart 123 --target-points 120 --json
 purvey roast create --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz-in 16
 purvey roast import ~/artisan/ethiopia.alog --coffee-id 7 --roast-targets "Aim for 18% development"
+purvey roast from-reference 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --coffee-id 7
 purvey roast watch ~/artisan/ --auto-match
 ```
 
@@ -768,6 +782,7 @@ Notes:
 - Roast commands require an authenticated `member` role.
 - `--coffee-id` uses inventory IDs.
 - `roast import` and `roast watch` normalize pasted paths by trimming whitespace, removing one layer of matching quotes, and accepting common shell-escaped characters.
+- `roast from-reference` creates a roast from the Artisan file uploaded with `reference-profile import`, so the `.alog` does not need to be on this machine. It also requires Studio access. Only an uploaded Artisan reference qualifies: a generated plan is never recorded as a roast, and a reference saved from a past roast is refused because that roast is already in your history. Output is Parchment's response unchanged: the created roast with its curve, an import summary, and the reference it came from.
 - `roast watch --auto-match` is mutually exclusive with `--coffee-id`.
 - `roast watch --auto-match` uses the `@purveyors/cli/cherry` helper to send roast metadata and the current stocked-inventory candidates to the canonical Parchment `POST /v1/roasts/classify` endpoint via `@purveyors/sdk`; it never calls an AI provider directly.
 - `roast watch --commit-mode` defaults to `batch`: new roasts are queued and saved together when you stop watching, all under the `--batch-prefix` name (the coffee name by default), so the session appears as one batch on the roast page. `--resume` keeps the same batch name.
@@ -782,6 +797,9 @@ Notes:
 - `purvey reference-profile compare <left> <right> [--unit F|C] [--target-points <n>]`
 - `purvey reference-profile import <file>`
 - `purvey reference-profile preview <profile-id> <revision-id> --request <file>`
+- `purvey reference-profile roasts [--limit <n>]`
+- `purvey reference-profile preview-from-roast <roast-id> --request <file> [--roast-revision <token>]`
+- `purvey reference-profile from-roast <roast-id> [--artisan-source] [--roast-revision <token>] [--title <text>] [--notes <text>]`
 - `purvey reference-profile save <profile-id> <revision-id> --request <file>`
 - `purvey reference-profile export <profile-id> <revision-id> --output <file>`
 
@@ -841,8 +859,40 @@ purvey reference-profile save 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a
 purvey reference-profile export 0b7e9f52-3c61-4d8a-9e24-6f1a8c3d5b90 c43a1d7e-95b2-4e06-8f7c-1d2b3a4e5f68 --output ~/artisan/next-batch.alog
 ```
 
+#### Plan from a past roast
+
+A roast you imported from an Artisan file can be the base for a plan, with no separate upload.
+
+- `roasts` lists the roasts that qualify, newest first (`--limit` `1` to `50`, default `15`).
+  Each entry carries the `roastId` and `roastRevision` the next two commands accept, and the
+  reference the roast is or would be saved under. `data.ineligibleRoastCount` counts your other
+  roasts, which have no usable Artisan file on record.
+- `preview-from-roast` previews the plan with the same request file as `preview`. Nothing is
+  saved and the roast is not changed. `data.parentProfileId` and `data.parentRevisionId` name
+  the reference the roast is saved under.
+- `from-roast --artisan-source` saves the roast's Artisan file as a reference profile. Saving the
+  same roast again returns the existing reference. Pass its `data.id` and
+  `data.currentRevisionId` to `save`, then `export` the saved plan. Without `--artisan-source`
+  the reference is a chart for comparison only and cannot be planned from.
+- `--roast-revision` pins the exact roast revision you looked at; when omitted, the roast's
+  current revision is used. If the roast changes in between, the command exits 5.
+
+A roast that was entered by hand, logged live, imported before Artisan files were kept, or
+whose file is too large cannot be a plan base. The command exits 2 with a message that says
+why and what to do next, for example re-importing the roast's `.alog`.
+
+The plan is never a roast you ran: none of these commands create, edit, or duplicate a roast.
+
+```bash
+purvey reference-profile roasts --pretty
+purvey reference-profile preview-from-roast 4529 --request changes.json --pretty
+purvey reference-profile from-roast 4529 --artisan-source --pretty
+purvey reference-profile save 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --pretty
+purvey reference-profile export 0b7e9f52-3c61-4d8a-9e24-6f1a8c3d5b90 c43a1d7e-95b2-4e06-8f7c-1d2b3a4e5f68 --output ~/artisan/next-batch.alog
+```
+
 Writes generate a new idempotency key per invocation. Pass `--idempotency-key <key>` on
-`import` or `save` and reuse that key to safely retry the same request. `export` requires a
+`import`, `from-roast`, or `save` and reuse that key to safely retry the same request. `export` requires a
 saved generated revision, writes the unsigned `.alog` plan locally, and emits a JSON
 receipt; it refuses to overwrite an existing file unless `--force` is passed. A generated
 profile is never executed roast history, and this CLI does not claim verified Artisan 4.2
@@ -1079,6 +1129,21 @@ purvey reference-profile export 0b7e9f52-3c61-4d8a-9e24-6f1a8c3d5b90 c43a1d7e-95
 Review the preview before saving. The export is an unsigned plan; Artisan 4.2 playback
 compatibility has not yet been established.
 
+### Plan the next roast from a past roast
+
+Replace the sample roast ID and UUIDs with the values returned by your own commands.
+
+```bash
+purvey reference-profile roasts --pretty
+purvey reference-profile preview-from-roast 4529 --request changes.json --pretty
+purvey reference-profile from-roast 4529 --artisan-source --pretty
+purvey reference-profile save 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json
+purvey reference-profile export 0b7e9f52-3c61-4d8a-9e24-6f1a8c3d5b90 c43a1d7e-95b2-4e06-8f7c-1d2b3a4e5f68 --output ~/artisan/next-batch.alog
+```
+
+Only roasts imported from an Artisan file that is still on record are listed. The saved plan
+is a reference profile, not a roast in your history.
+
 ### Export records for spreadsheets
 
 ```bash
@@ -1102,11 +1167,11 @@ Use the right ID for the right command.
 
 - `catalog_id`: `coffee_catalog` rows; used by `catalog get`, `catalog similar`, `inventory add --catalog-id`, `tasting get`, `roast list --catalog-id`
 - `inventory id`: `green_coffee_inv` rows; used by `inventory get/update/delete`, `roast --coffee-id`, `tasting rate`, `roast list --coffee-id`
-- `roast_id`: `roast_data` rows; used by `roast get/delete`, `sales record --roast-id`, `roast list --roast-id`
+- `roast_id`: `roast_data` rows; used by `roast get/delete`, `sales record --roast-id`, `roast list --roast-id`, `reference-profile preview-from-roast/from-roast`
 - `sales record` also supports resolving a roast from `inventory id` plus `--batch-name`; because sales retain inventory + batch rather than roast ID, roasts that share a batch name on one inventory item are sold as one batch
 - `sale id`: `coffee_sales` rows; used by `sales update/delete`
-- `reference_profile_id`: owner-scoped Studio profile UUID; used by `reference-profile get/chart/preview/save/export`
-- `reference_revision_id`: immutable revision UUID; used by `reference-profile chart/preview/save/export`
+- `reference_profile_id`: owner-scoped Studio profile UUID; used by `reference-profile get/chart/preview/save/export` and `roast from-reference`
+- `reference_revision_id`: immutable revision UUID; used by `reference-profile chart/preview/save/export` and `roast from-reference`
 
 ## Environment variables
 

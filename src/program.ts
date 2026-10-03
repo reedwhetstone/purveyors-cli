@@ -157,6 +157,7 @@ Personal Data (member role required):
   roast update      Update a roast profile
   roast delete      Delete a roast profile
   roast import      Import an Artisan .alog roast file
+  roast from-reference  Create a roast from a saved reference profile's Artisan file
   roast watch       Watch a directory for new .alog files
   sales list        List your sales records
   sales record      Record a new sale
@@ -186,6 +187,9 @@ Studio reference profiles (member credential plus Studio access):
   reference-profile compare  Compare two roast or reference revisions
   reference-profile import   Upload an Artisan file as a reference profile
   reference-profile preview  Preview bounded temperature adjustments
+  reference-profile roasts   List past roasts a plan can be built from
+  reference-profile preview-from-roast  Preview a plan built from a past roast
+  reference-profile from-roast  Save a past roast as a reference profile
   reference-profile save     Save an immutable generated plan
   reference-profile export   Download a saved plan as an unsigned .alog
 
