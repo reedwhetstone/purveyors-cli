@@ -609,6 +609,108 @@ describe('startWatch', () => {
     await rm(watchDir, { recursive: true, force: true });
   });
 
+  it('continues after the highest saved position when a resumed session has a gap', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-resume-gap-'));
+    const runtime = createRuntime();
+    runtime.roastImporter.mockResolvedValue(createImportResult(608));
+
+    // Two files were detected together; the second finished and was saved, and
+    // the process ended before the first was persisted.
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-7',
+      watchDir,
+      {
+        coffeeId: 7,
+        coffeeName: 'Original Bean',
+        batchPrefix: 'Original Bean',
+        commitMode: 'individual',
+        resumeImports: [
+          {
+            fileName: 'second.alog',
+            roastId: 99,
+            batchName: 'Original Bean #2',
+            sequence: 2,
+            status: 'success',
+            importedAt: '2026-04-12T00:00:00.000Z',
+            selectedCoffeeId: 7,
+            selectedCoffeeName: 'Original Bean',
+          },
+        ],
+      },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    await writeFile(join(watchDir, 'next.alog'), 'next content');
+    runtime.emitFileEvent('next.alog');
+    await sleep(10);
+
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.roastImporter).toHaveBeenCalledTimes(1);
+    expect(runtime.roastImporter).toHaveBeenCalledWith(
+      expect.objectContaining({ fileName: 'next.alog', batchName: 'Original Bean #3' })
+    );
+    expect(
+      session.imports.map((record) => [record.sequence, record.fileName, record.batchName])
+    ).toEqual([
+      [2, 'second.alog', 'Original Bean #2'],
+      [3, 'next.alog', 'Original Bean #3'],
+    ]);
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('does not reuse a numbered name from a session saved without positions', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-resume-legacy-gap-'));
+    const runtime = createRuntime();
+    runtime.roastImporter.mockResolvedValue(createImportResult(609));
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-7',
+      watchDir,
+      {
+        coffeeId: 7,
+        coffeeName: 'Original Bean',
+        batchPrefix: 'Original Bean',
+        commitMode: 'individual',
+        resumeImports: [
+          {
+            fileName: 'second.alog',
+            roastId: 99,
+            batchName: 'Original Bean #2',
+            status: 'success',
+            importedAt: '2026-04-12T00:00:00.000Z',
+            selectedCoffeeId: 7,
+            selectedCoffeeName: 'Original Bean',
+          },
+        ],
+      },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    await writeFile(join(watchDir, 'next.alog'), 'next content');
+    runtime.emitFileEvent('next.alog');
+    await sleep(10);
+
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.roastImporter).toHaveBeenCalledWith(
+      expect.objectContaining({ fileName: 'next.alog', batchName: 'Original Bean #3' })
+    );
+    expect(session.imports.map((record) => [record.sequence, record.batchName])).toEqual([
+      [2, 'Original Bean #2'],
+      [3, 'Original Bean #3'],
+    ]);
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
   it('skips a file and keeps the session alive when bean selection is cancelled', async () => {
     const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-cancel-'));
     const runtime = createRuntime();

@@ -770,9 +770,9 @@ Notes:
 - `roast import` and `roast watch` normalize pasted paths by trimming whitespace, removing one layer of matching quotes, and accepting common shell-escaped characters.
 - `roast watch --auto-match` is mutually exclusive with `--coffee-id`.
 - `roast watch --auto-match` uses the `@purveyors/cli/cherry` helper to send roast metadata and the current stocked-inventory candidates to the canonical Parchment `POST /v1/roasts/classify` endpoint via `@purveyors/sdk`; it never calls an AI provider directly.
-- `roast watch --commit-mode` defaults to `batch`: new roasts are queued and saved together when you stop watching, all under the `--batch-prefix` name (the coffee name by default), so the session appears as one batch on the roast page. `--resume` keeps adding to the same batch.
+- `roast watch --commit-mode` defaults to `batch`: new roasts are queued and saved together when you stop watching, all under the `--batch-prefix` name (the coffee name by default), so the session appears as one batch on the roast page. `--resume` keeps the same batch name.
 - `roast watch --commit-mode individual` saves each roast as soon as its file appears, under its own batch name: `<name> #1`, `<name> #2`, and so on.
-- Roasts are grouped into a batch by batch name and roast date. To move an existing roast into a batch, rename it with `purvey roast update <id> --batch-name "<name>"`.
+- Roasts are grouped into a batch by batch name and roast date, so roasts with a different roast date appear as a separate batch even when a resumed session keeps the name. To move an existing roast into a batch, rename it with `purvey roast update <id> --batch-name "<name>"`.
 
 ### reference-profile
 
@@ -900,7 +900,7 @@ Notes:
 
 - Sales commands require an authenticated `member` role.
 - Use exactly one selector mode for `sales record`: `--roast-id`, or `--coffee-id` plus `--batch-name`.
-- Sales retain inventory and batch, not roast ID. Duplicate batch names on one inventory item are rejected even when selected through `--roast-id`.
+- Sales retain inventory and batch, not roast ID. When several roasts share a batch name on one inventory item, such as a `roast watch` batch, the sale is recorded against that batch as a whole, whether you select it with `--roast-id` or with `--coffee-id` plus `--batch-name`.
 - `--price` is total sale price, not per-ounce price.
 
 ### tasting
@@ -1103,7 +1103,7 @@ Use the right ID for the right command.
 - `catalog_id`: `coffee_catalog` rows; used by `catalog get`, `catalog similar`, `inventory add --catalog-id`, `tasting get`, `roast list --catalog-id`
 - `inventory id`: `green_coffee_inv` rows; used by `inventory get/update/delete`, `roast --coffee-id`, `tasting rate`, `roast list --coffee-id`
 - `roast_id`: `roast_data` rows; used by `roast get/delete`, `sales record --roast-id`, `roast list --roast-id`
-- `sales record` also supports resolving a roast from `inventory id` plus `--batch-name`; because sales retain inventory + batch rather than roast ID, duplicate batch names on one inventory item are rejected
+- `sales record` also supports resolving a roast from `inventory id` plus `--batch-name`; because sales retain inventory + batch rather than roast ID, roasts that share a batch name on one inventory item are sold as one batch
 - `sale id`: `coffee_sales` rows; used by `sales update/delete`
 - `reference_profile_id`: owner-scoped Studio profile UUID; used by `reference-profile get/chart/preview/save/export`
 - `reference_revision_id`: immutable revision UUID; used by `reference-profile chart/preview/save/export`

@@ -200,6 +200,7 @@ Important command boundaries:
 - `tasting rate [bean-id]` expects an inventory ID
 - `roast --coffee-id` expects an inventory ID
 - `sales list --coffee-id` expects an inventory ID; `sales record --roast-id` expects a roast ID
+- a sale retains inventory + batch name, not a roast ID, so roasts that share a batch name on one inventory item are sold as one batch
 
 Maintained docs should call out these distinctions explicitly because they are a common source of operator and agent mistakes.
 

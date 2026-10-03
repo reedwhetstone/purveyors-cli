@@ -24,7 +24,14 @@ export interface Sale {
 export interface ResolvedSaleTarget {
   greenCoffeeInvId?: number;
   batchName?: string;
+  /** The selected roast in exact mode; the first matching roast in resolved mode. */
   roastId: number;
+  /**
+   * Every roast that shares this inventory item and batch name, in ascending order.
+   * A sale retains inventory + batch rather than a roast ID, so more than one
+   * entry means the sale is recorded against the batch as a whole.
+   */
+  batchRoastIds?: number[];
   mode: 'exact' | 'resolved';
 }
 
@@ -152,10 +159,13 @@ async function listExactSaleRoastMatches(
         (row) => row.coffee_id === coffeeId && (row.batch_name ?? undefined) === batchName
       )
     );
-    if (exactMatches.length > 1) break;
     offset += unseenRows.length;
   } while (true);
   return exactMatches;
+}
+
+function sortedRoastIds(roastIds: number[]): number[] {
+  return [...new Set(roastIds)].sort((a, b) => a - b);
 }
 
 export async function listSales(
@@ -198,17 +208,14 @@ export async function resolveSaleRoast(
       );
     }
     const batchName = roast.batch_name ?? undefined;
+    // Roasts that share an inventory item and batch name are one batch, and the
+    // sale is recorded against that batch; the siblings are reported, not rejected.
     const exactMatches = await listExactSaleRoastMatches(client, roast.coffee_id, batchName);
-    if (exactMatches.length > 1) {
-      throw new PrvrsError(
-        'INVALID_ARGUMENT',
-        `Roast profile ${parsed.roastId} shares inventory item ${roast.coffee_id} and batch name "${batchName ?? ''}" with roast IDs ${exactMatches.map((row) => row.roast_id).join(', ')}. The canonical sales record cannot retain a roast ID; give each roast a unique batch name before recording this sale.`
-      );
-    }
     return {
       greenCoffeeInvId: roast.coffee_id,
       batchName,
       roastId: roast.roast_id,
+      batchRoastIds: sortedRoastIds([roast.roast_id, ...exactMatches.map((row) => row.roast_id)]),
       mode: 'exact',
     };
   }
@@ -221,16 +228,12 @@ export async function resolveSaleRoast(
       `No roast profile found for --coffee-id ${parsed.coffeeId} with batch name "${parsed.batchName}". Use 'purvey roast list --coffee-id ${parsed.coffeeId}' to inspect candidates, or pass --roast-id directly.`
     );
   }
-  if (exactMatches.length > 1) {
-    throw new PrvrsError(
-      'INVALID_ARGUMENT',
-      `Multiple roast profiles match --coffee-id ${parsed.coffeeId} and batch name "${parsed.batchName}". Matching roast IDs: ${exactMatches.map((row) => row.roast_id).join(', ')}. The canonical sales record cannot retain a roast ID; give each roast a unique batch name before recording this sale.`
-    );
-  }
+  const batchRoastIds = sortedRoastIds(exactMatches.map((row) => row.roast_id));
   return {
     greenCoffeeInvId: parsed.coffeeId!,
     batchName: parsed.batchName,
-    roastId: exactMatches[0].roast_id,
+    roastId: batchRoastIds[0],
+    batchRoastIds,
     mode: 'resolved',
   };
 }

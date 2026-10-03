@@ -940,7 +940,9 @@ Notes:
   under the --batch-prefix name when you stop, so the session appears as one
   batch. --commit-mode individual saves each roast right away under its own
   name: "<name> #1", "<name> #2", and so on.
-  Session state is saved for --resume, which keeps adding to the same batch.
+  Session state is saved for --resume, which keeps the same batch name.
+  Batches are grouped by batch name and roast date, so roasts with a
+  different roast date appear as a separate batch.
   Requires authentication (member role).
 `
     )

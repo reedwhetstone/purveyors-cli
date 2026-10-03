@@ -229,6 +229,9 @@ export function resolveWatchBatchName(
  * position, and in batch commit mode roasts that are not saved yet and still
  * carry a numbered "{prefix} #{n}" name from an older saved session join the
  * shared batch. Saved roasts keep the name they were saved under.
+ *
+ * A record saved without a position takes the number from its numbered name
+ * when it has one, so a name that is already in use is never handed out again.
  */
 function normalizeResumedImports(
   records: ImportRecord[],
@@ -236,17 +239,37 @@ function normalizeResumedImports(
   commitMode: 'batch' | 'individual'
 ): ImportRecord[] {
   const numberedPrefix = `${batchPrefix} #`;
-  const isNumberedName = (name: string): boolean =>
-    name.startsWith(numberedPrefix) && /^\d+$/.test(name.slice(numberedPrefix.length));
+  const numberedPosition = (name: string): number | undefined => {
+    if (!name.startsWith(numberedPrefix)) return undefined;
+    const suffix = name.slice(numberedPrefix.length);
+    if (!/^\d+$/.test(suffix)) return undefined;
+    const position = Number(suffix);
+    return Number.isSafeInteger(position) && position >= 1 ? position : undefined;
+  };
 
-  return records.map((record, index) => ({
-    ...record,
-    sequence: record.sequence ?? index + 1,
-    batchName:
-      commitMode === 'batch' && record.status !== 'success' && isNumberedName(record.batchName)
-        ? batchPrefix
-        : record.batchName,
-  }));
+  return records.map((record, index) => {
+    const numbered = numberedPosition(record.batchName);
+    return {
+      ...record,
+      sequence: record.sequence ?? numbered ?? index + 1,
+      batchName:
+        commitMode === 'batch' && record.status !== 'success' && numbered !== undefined
+          ? batchPrefix
+          : record.batchName,
+    };
+  });
+}
+
+/**
+ * First position to hand out in this session. Continues after the highest
+ * position already claimed rather than the record count: a session interrupted
+ * while files were importing out of order can be saved with a gap, and counting
+ * records would hand an existing position (and numbered name) out again.
+ */
+function nextSequenceAfter(records: ImportRecord[]): number {
+  return (
+    records.reduce((highest, record) => Math.max(highest, record.sequence ?? 0), records.length) + 1
+  );
 }
 
 /** Position label for the summary tables; falls back to row order for older saved sessions. */
@@ -563,7 +586,7 @@ export async function startWatch(
   // session.imports already includes resumed records, so numbering continues
   // across resume boundaries. Claimed up front so files detected close together
   // never share a position.
-  let nextSequence = session.imports.length + 1;
+  let nextSequence = nextSequenceAfter(session.imports);
 
   for (const record of session.imports) {
     if (record.status === 'pending' && record.selectedCoffeeId && record.selectedCoffeeName) {

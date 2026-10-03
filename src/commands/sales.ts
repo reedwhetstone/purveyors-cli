@@ -262,7 +262,8 @@ Selector modes:
   Roast:    --roast-id <id>
   Resolved: --coffee-id <id> --batch-name <name>
   Use exactly one selector mode.
-  Sales retain inventory + batch, not roast ID. Duplicate batch names on one inventory item are rejected.
+  Sales retain inventory + batch, not roast ID. When several roasts share a batch name on one
+  inventory item, the sale is recorded against that batch as a whole in either selector mode.
 
 Required flags: selector mode, --oz, --price
   Use 'purvey roast list' to find your --roast-id.

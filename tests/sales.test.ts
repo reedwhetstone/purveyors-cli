@@ -76,30 +76,67 @@ describe('SDK-backed sales writes', () => {
       greenCoffeeInvId: 7,
       batchName: 'Batch A',
       roastId: 42,
+      batchRoastIds: [42],
       mode: 'exact',
     });
     expect(createParchmentClient).toHaveBeenCalledWith('member', 'pinned');
     expect(get).toHaveBeenCalledWith('42');
   });
 
-  it('rejects an exact roast when the sales contract cannot preserve its identity', async () => {
+  it('resolves an exact roast that shares its batch name to the whole batch', async () => {
     const get = vi
       .fn()
-      .mockResolvedValue(ok({ data: { roast_id: 42, coffee_id: 7, batch_name: 'Batch A' } }));
-    const list = vi.fn().mockResolvedValue(
-      ok({
-        data: [
-          { roast_id: 42, coffee_id: 7, batch_name: 'Batch A' },
-          { roast_id: 43, coffee_id: 7, batch_name: 'Batch A' },
-        ],
-      })
-    );
+      .mockResolvedValue(ok({ data: { roast_id: 42, coffee_id: 7, batch_name: 'wednesday' } }));
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(
+        ok({
+          data: [
+            { roast_id: 43, coffee_id: 7, batch_name: 'wednesday' },
+            { roast_id: 42, coffee_id: 7, batch_name: 'wednesday' },
+            { roast_id: 41, coffee_id: 7, batch_name: 'wednesday' },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(ok({ data: [] }));
     vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { get, list } } as never);
 
-    await expect(resolveSaleRoast({ roastId: 42 })).rejects.toMatchObject({
-      code: 'INVALID_ARGUMENT',
-      message: expect.stringContaining('cannot retain a roast ID'),
+    await expect(resolveSaleRoast({ roastId: 42 })).resolves.toEqual({
+      greenCoffeeInvId: 7,
+      batchName: 'wednesday',
+      roastId: 42,
+      batchRoastIds: [41, 42, 43],
+      mode: 'exact',
     });
+  });
+
+  it('records a sale against a shared watch batch selected by roast ID', async () => {
+    const get = vi
+      .fn()
+      .mockResolvedValue(ok({ data: { roast_id: 42, coffee_id: 7, batch_name: 'wednesday' } }));
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(
+        ok({
+          data: [
+            { roast_id: 41, coffee_id: 7, batch_name: 'wednesday' },
+            { roast_id: 42, coffee_id: 7, batch_name: 'wednesday' },
+            { roast_id: 43, coffee_id: 7, batch_name: 'wednesday' },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(ok({ data: [] }));
+    const create = vi.fn().mockResolvedValue(ok({ data: { id: 9, batch_name: 'wednesday' } }));
+    vi.mocked(createParchmentClient).mockResolvedValue({
+      roasts: { get, list },
+      sales: { create },
+    } as never);
+
+    await expect(recordSale({ roastId: 42, oz: 12, price: 22 })).resolves.toMatchObject({ id: 9 });
+    expect(create).toHaveBeenCalledWith(
+      { greenCoffeeInvId: 7, ozSold: 12, price: 22, batchName: 'wednesday' },
+      { idempotencyKey: expect.any(String) }
+    );
   });
 
   it('rejects an exact roast with no inventory link', async () => {
@@ -138,7 +175,7 @@ describe('SDK-backed sales writes', () => {
     });
   });
 
-  it('preserves zero-match and ambiguity errors after exact post-filtering', async () => {
+  it('keeps the zero-match error and resolves a shared batch after exact post-filtering', async () => {
     const list = vi.fn();
     vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { list } } as never);
     list.mockResolvedValueOnce(
@@ -151,13 +188,19 @@ describe('SDK-backed sales writes', () => {
     list.mockResolvedValueOnce(
       ok({
         data: [
-          { roast_id: 2, coffee_id: 7, batch_name: 'Batch A' },
           { roast_id: 3, coffee_id: 7, batch_name: 'Batch A' },
+          { roast_id: 2, coffee_id: 7, batch_name: 'Batch A' },
+          { roast_id: 4, coffee_id: 7, batch_name: 'Batch A extra' },
         ],
       })
     );
-    await expect(resolveSaleRoast({ coffeeId: 7, batchName: 'Batch A' })).rejects.toMatchObject({
-      code: 'INVALID_ARGUMENT',
+    list.mockResolvedValueOnce(ok({ data: [] }));
+    await expect(resolveSaleRoast({ coffeeId: 7, batchName: 'Batch A' })).resolves.toEqual({
+      greenCoffeeInvId: 7,
+      batchName: 'Batch A',
+      roastId: 2,
+      batchRoastIds: [2, 3],
+      mode: 'resolved',
     });
   });
 
@@ -197,7 +240,7 @@ describe('SDK-backed sales writes', () => {
     });
   });
 
-  it('detects ambiguity when a second exact match is on a later capped page', async () => {
+  it('collects a shared batch whose second roast is on a later capped page', async () => {
     const firstPage = [
       { roast_id: 1, coffee_id: 7, batch_name: 'Batch A' },
       ...Array.from({ length: 24 }, (_, index) => ({
@@ -209,14 +252,16 @@ describe('SDK-backed sales writes', () => {
     const list = vi
       .fn()
       .mockResolvedValueOnce(ok({ data: firstPage }))
-      .mockResolvedValueOnce(ok({ data: [{ roast_id: 26, coffee_id: 7, batch_name: 'Batch A' }] }));
+      .mockResolvedValueOnce(ok({ data: [{ roast_id: 26, coffee_id: 7, batch_name: 'Batch A' }] }))
+      .mockResolvedValueOnce(ok({ data: [] }));
     vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { list } } as never);
 
-    await expect(resolveSaleRoast({ coffeeId: 7, batchName: 'Batch A' })).rejects.toMatchObject({
-      code: 'INVALID_ARGUMENT',
+    await expect(resolveSaleRoast({ coffeeId: 7, batchName: 'Batch A' })).resolves.toMatchObject({
+      roastId: 1,
+      batchRoastIds: [1, 26],
     });
     expect(list).toHaveBeenNthCalledWith(2, expect.objectContaining({ offset: 25 }));
-    expect(list).toHaveBeenCalledTimes(2);
+    expect(list).toHaveBeenNthCalledWith(3, expect.objectContaining({ offset: 26 }));
   });
 
   it('does not skip a later exact match after deduplicating overlapping pages', async () => {
@@ -233,11 +278,12 @@ describe('SDK-backed sales writes', () => {
           data: [exact, { roast_id: 3, coffee_id: 7, batch_name: 'Batch A other' }],
         })
       )
-      .mockResolvedValueOnce(ok({ data: [{ roast_id: 4, coffee_id: 7, batch_name: 'Batch A' }] }));
+      .mockResolvedValueOnce(ok({ data: [{ roast_id: 4, coffee_id: 7, batch_name: 'Batch A' }] }))
+      .mockResolvedValueOnce(ok({ data: [] }));
     vi.mocked(createParchmentClient).mockResolvedValue({ roasts: { list } } as never);
 
-    await expect(resolveSaleRoast({ coffeeId: 7, batchName: 'Batch A' })).rejects.toMatchObject({
-      code: 'INVALID_ARGUMENT',
+    await expect(resolveSaleRoast({ coffeeId: 7, batchName: 'Batch A' })).resolves.toMatchObject({
+      batchRoastIds: [1, 4],
     });
     expect(list).toHaveBeenNthCalledWith(2, expect.objectContaining({ offset: 2 }));
     expect(list).toHaveBeenNthCalledWith(3, expect.objectContaining({ offset: 3 }));
