@@ -135,7 +135,7 @@ scope. The request token and PKCE verifier are transient bootstrap material only
 
 `roast import` and `roast watch` normalize file and directory path input before filesystem access. They trim whitespace, remove one matching layer of single or double quotes, and unescape common shell-escaped characters so pasted paths from terminals and file pickers behave predictably.
 
-`roast watch` is a long-running operator workflow. It reacts only to new `.alog` files, saves session state for `--resume`, and treats Ctrl+C or SIGTERM as graceful shutdown signals that wait for active imports, commit queued batch-mode roasts, and print a verification summary.
+`roast watch` is a long-running operator workflow. It reacts only to new `.alog` files, saves session state for `--resume`, and treats Ctrl+C or SIGTERM as graceful shutdown signals that wait for active imports, commit queued batch-mode roasts, and print a verification summary. Batch commit mode saves every roast from the session under one shared batch name so the session reads as a single batch; individual commit mode gives each roast its own numbered name.
 
 Both `roast import` and `roast watch` forward the original `.alog` source to Parchment. Parsing, validation, normalization, and persistence are canonical server-side responsibilities; the CLI must not maintain a second Artisan parser or reinterpret profile data locally.
 

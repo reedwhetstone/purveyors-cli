@@ -770,7 +770,9 @@ Notes:
 - `roast import` and `roast watch` normalize pasted paths by trimming whitespace, removing one layer of matching quotes, and accepting common shell-escaped characters.
 - `roast watch --auto-match` is mutually exclusive with `--coffee-id`.
 - `roast watch --auto-match` uses the `@purveyors/cli/cherry` helper to send roast metadata and the current stocked-inventory candidates to the canonical Parchment `POST /v1/roasts/classify` endpoint via `@purveyors/sdk`; it never calls an AI provider directly.
-- `roast watch --commit-mode` defaults to `batch`.
+- `roast watch --commit-mode` defaults to `batch`: new roasts are queued and saved together when you stop watching, all under the `--batch-prefix` name (the coffee name by default), so the session appears as one batch on the roast page. `--resume` keeps adding to the same batch.
+- `roast watch --commit-mode individual` saves each roast as soon as its file appears, under its own batch name: `<name> #1`, `<name> #2`, and so on.
+- Roasts are grouped into a batch by batch name and roast date. To move an existing roast into a batch, rename it with `purvey roast update <id> --batch-name "<name>"`.
 
 ### reference-profile
 

@@ -5,6 +5,7 @@ import { tmpdir } from 'os';
 import {
   buildManualImportRecoveryCommand,
   generateBatchName,
+  resolveWatchBatchName,
   isAlogFile,
   printVerificationTable,
   type WatchSession,
@@ -313,6 +314,21 @@ describe('debounce timer logic', () => {
   });
 });
 
+// ── resolveWatchBatchName ─────────────────────────────────────────────────────
+
+describe('resolveWatchBatchName', () => {
+  it('uses the prefix itself for every roast in batch commit mode', () => {
+    expect(resolveWatchBatchName('wednesday', 1, 'batch')).toBe('wednesday');
+    expect(resolveWatchBatchName('wednesday', 2, 'batch')).toBe('wednesday');
+    expect(resolveWatchBatchName('wednesday', 3, 'batch')).toBe('wednesday');
+  });
+
+  it('numbers each roast in individual commit mode', () => {
+    expect(resolveWatchBatchName('wednesday', 1, 'individual')).toBe('wednesday #1');
+    expect(resolveWatchBatchName('wednesday', 2, 'individual')).toBe('wednesday #2');
+  });
+});
+
 // ── printVerificationTable ────────────────────────────────────────────────────
 
 describe('printVerificationTable', () => {
@@ -440,6 +456,52 @@ describe('printVerificationTable', () => {
     const combined = written.join('');
     expect(combined).toContain('#456');
     expect(combined).toContain('eth.alog');
+
+    spy.mockRestore();
+  });
+
+  it('numbers each roast so a shared batch name still identifies every row', () => {
+    const session: WatchSession = {
+      directory: '/tmp/roasts',
+      coffeeId: 1,
+      coffeeName: 'Test',
+      batchPrefix: 'wednesday',
+      commitMode: 'batch',
+      startedAt: new Date().toISOString(),
+      imports: [
+        {
+          fileName: 'first.alog',
+          roastId: 11,
+          batchName: 'wednesday',
+          sequence: 1,
+          status: 'success',
+          importedAt: new Date().toISOString(),
+        },
+        {
+          // Saved by an older version, before records carried a sequence.
+          fileName: 'second.alog',
+          roastId: 12,
+          batchName: 'wednesday',
+          status: 'success',
+          importedAt: new Date().toISOString(),
+        },
+      ],
+    };
+
+    const written: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+
+    printVerificationTable(session);
+    const rows = written
+      .join('')
+      .split('\n')
+      .filter((line) => line.includes('.alog'));
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatch(/^│ 1\s+│ first\.alog\s+│ #11\s+│ wednesday\s+│ ✓/);
+    expect(rows[1]).toMatch(/^│ 2\s+│ second\.alog\s+│ #12\s+│ wednesday\s+│ ✓/);
 
     spy.mockRestore();
   });

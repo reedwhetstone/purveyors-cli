@@ -1417,7 +1417,7 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             flags: '--batch-prefix <name>',
             description:
-              'Prefix for batch names, which are numbered like "<prefix> #1"; defaults to the coffee name',
+              'Batch name for the watch session; defaults to the coffee name. Batch commit mode saves every roast under this name, and individual commit mode numbers them like "<name> #1"',
           },
           {
             flags: '--prompt-each',
@@ -1432,7 +1432,7 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             flags: '--commit-mode <batch|individual>',
             description:
-              'batch queues new roasts and saves them together when you stop watching; individual saves each roast as soon as its file appears',
+              'batch queues new roasts and saves them under one shared batch name when you stop watching, so the session shows up as a single batch; individual saves each roast as soon as its file appears, under its own numbered batch name',
             defaultValue: 'batch',
           },
           {
@@ -1458,6 +1458,8 @@ const commandGroups: CliCommandGroupContract[] = [
           '--auto-match is mutually exclusive with --coffee-id.',
           '--auto-match matches each new roast to a stocked inventory item from its metadata.',
           '--commit-mode defaults to batch so new roasts are queued until the session ends.',
+          'In batch commit mode every roast from the session shares the --batch-prefix name, so the roasts appear together as one batch for that roast date. --resume keeps adding to the same batch.',
+          'In individual commit mode each roast gets its own batch name: "<name> #1", "<name> #2", and so on.',
         ],
       },
     ],
