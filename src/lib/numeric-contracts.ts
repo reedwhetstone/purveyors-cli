@@ -7,4 +7,5 @@ export const CLI_NUMERIC_BOUNDS = {
   priceIndexHistoryLimit: { minimum: 1, maximum: 10000 },
   priceIndexHistoryWindowDays: { minimum: 1, maximum: 365 },
   procurementMatchesLimit: { minimum: 1, maximum: 100 },
+  referenceProfileRoastsLimit: { minimum: 1, maximum: 50 },
 } as const;

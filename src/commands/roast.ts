@@ -11,6 +11,7 @@ import {
   getRoast,
   getRoastChartData,
   createRoast,
+  createRoastFromReference,
   deleteRoast,
   updateRoast,
   ROAST_CHART_TARGET_POINTS,
@@ -35,6 +36,7 @@ import {
 import type { components } from '@purveyors/sdk';
 import type { OutputOptions } from '../types/index.js';
 import { getInventory } from '../lib/inventory.js';
+import { parseReferenceProfileId } from '../lib/reference-profiles.js';
 import {
   parseStrictFiniteNumber,
   parseStrictInt4Id,
@@ -901,6 +903,90 @@ Required: <file> path and --coffee-id (unless using --form)
             success(`Roast profile ${result.roast_id} imported from ${fileName}.`);
             outputData(result, globalOpts);
           }
+        }
+      )
+    );
+
+  // ── roast from-reference <profile-id> <revision-id> ───────────────────────
+  roast
+    .command('from-reference <profile-id> <revision-id>')
+    .description('Create a roast from the Artisan file saved with one of your reference profiles')
+    .requiredOption('--coffee-id <id>')
+    .option('--batch-name <name>')
+    .option('--roast-date <YYYY-MM-DD>')
+    .option('--oz-in <oz>')
+    .option('--oz-out <oz>')
+    .option('--roast-notes <notes>')
+    .option('--roast-targets <targets>')
+    .option('--idempotency-key <key>')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey roast from-reference 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --coffee-id 7 --pretty
+  purvey roast from-reference 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --coffee-id 7 --batch-name "Ethiopia Guji #4" --roast-date 2026-10-03 --json
+
+Notes:
+  Use this when the roast's Artisan file was uploaded with 'purvey reference-profile import'
+  and is no longer on this machine. With the .alog file at hand, use 'purvey roast import'.
+  Only an uploaded Artisan reference can become a roast. A generated plan is never recorded
+  as a roast, and a reference saved from a past roast is refused because that roast is
+  already in your history.
+  Find the ids with 'purvey reference-profile list' (id and currentRevisionId) and the
+  --coffee-id with 'purvey inventory list'.
+  Requires a member credential and Studio access on your account.
+`
+    )
+    .action(
+      withErrorHandling(
+        async (
+          profileId: string,
+          revisionId: string,
+          opts: Record<string, unknown>,
+          cmd: Command
+        ) => {
+          const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+          const coffeeId = parseRoastInt4Id(opts.coffeeId as string, '--coffee-id');
+
+          let ozIn: number | undefined;
+          if (opts.ozIn !== undefined) {
+            ozIn = parseStrictFiniteNumber(opts.ozIn as string);
+            if (!Number.isFinite(ozIn) || ozIn <= 0)
+              throw new PrvrsError('INVALID_ARGUMENT', `Invalid --oz-in: "${opts.ozIn}".`);
+          }
+
+          let ozOut: number | undefined;
+          if (opts.ozOut !== undefined) {
+            ozOut = parseStrictFiniteNumber(opts.ozOut as string);
+            if (!Number.isFinite(ozOut) || ozOut <= 0)
+              throw new PrvrsError('INVALID_ARGUMENT', `Invalid --oz-out: "${opts.ozOut}".`);
+          }
+
+          const roastDate = opts.roastDate as string | undefined;
+          if (roastDate !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(roastDate)) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              `Invalid --roast-date: "${roastDate}". Must be YYYY-MM-DD format.`
+            );
+          }
+
+          const data = await createRoastFromReference(
+            {
+              referenceProfileId: parseReferenceProfileId(profileId, 'profile id'),
+              referenceRevisionId: parseReferenceProfileId(revisionId, 'revision id'),
+              coffeeId,
+              batchName: opts.batchName as string | undefined,
+              roastDate,
+              ozIn,
+              ozOut,
+              roastNotes: opts.roastNotes as string | undefined,
+              roastTargets: opts.roastTargets as string | undefined,
+            },
+            opts.idempotencyKey ? String(opts.idempotencyKey) : undefined
+          );
+
+          success(`Roast profile ${data.data.roast.roast_id} created from the saved reference.`);
+          outputData(data, globalOpts);
         }
       )
     );

@@ -5,12 +5,15 @@ import { z } from 'zod';
 import type { ParchmentClient, components } from '@purveyors/sdk';
 import { PrvrsError } from './errors.js';
 import { createParchmentClient, unwrapParchment } from './parchment.js';
+import { CLI_NUMERIC_BOUNDS } from './numeric-contracts.js';
 import { normalizePathInput } from './path-input.js';
 import { POSTGRES_INT4_MAX } from './strict-number.js';
 
 export type ReferenceProfileImportRequest = components['schemas']['ReferenceProfileImportRequest'];
 export type ReferenceProfileGenerationRequest =
   components['schemas']['ReferenceProfileGenerationRequest'];
+export type ReferenceProfileFromRoastRequest =
+  components['schemas']['ReferenceProfileFromRoastRequest'];
 export type ProfileComparisonRequest = components['schemas']['ProfileComparisonRequest'];
 export type ProfileComparisonInput = ProfileComparisonRequest['left'];
 export type ProfileComparisonResponse = components['schemas']['ProfileComparisonResponse'];
@@ -28,6 +31,19 @@ export type ProfileComparisonUnit = (typeof profileComparisonUnits)[number];
 
 const referenceProfileUuidSchema = z.string().uuid();
 const idempotencyKeySchema = z.string().trim().min(1).max(255);
+const roastIdSchema = z.number().int().min(1).max(POSTGRES_INT4_MAX);
+const roastRevisionSchema = z.string().trim().min(1);
+const roastCandidatesLimitSchema = z
+  .number()
+  .int()
+  .min(CLI_NUMERIC_BOUNDS.referenceProfileRoastsLimit.minimum)
+  .max(CLI_NUMERIC_BOUNDS.referenceProfileRoastsLimit.maximum);
+const roastReferenceDetailsSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200).optional(),
+    notes: z.string().max(4000).optional(),
+  })
+  .strict();
 
 const temperatureAdjustmentSchema = z
   .object({
@@ -225,6 +241,104 @@ export async function exportGeneratedReferenceProfile(id: string, revisionId: st
   return unwrapParchment(
     await client.referenceProfiles.exportGenerated(profileId, generatedRevisionId),
     'reference-profile export'
+  );
+}
+
+/**
+ * A roast's revision token is its `last_updated` value. An explicit token pins the
+ * exact revision the caller looked at; without one, the roast's current revision
+ * is read from Parchment, which rejects the request if the roast changes before
+ * the plan is built.
+ */
+async function resolveRoastRevision(
+  client: ParchmentClient,
+  roastId: number,
+  roastRevision: string | undefined,
+  context: string
+): Promise<string> {
+  if (roastRevision !== undefined) return roastRevisionSchema.parse(roastRevision);
+  const roast = unwrapParchment(await client.roasts.get(String(roastId)), context);
+  return roast.data.last_updated;
+}
+
+/** List the executed roasts whose Artisan file is on record and can be a plan base. */
+export async function listReferenceProfileRoastCandidates(limit?: number) {
+  const query =
+    limit === undefined ? undefined : { limit: roastCandidatesLimitSchema.parse(limit) };
+  const client = await createParchmentClient('member');
+  return unwrapParchment(
+    await client.referenceProfiles.roastCandidates(query),
+    'reference-profile roasts'
+  );
+}
+
+/**
+ * Preview a plan built on an executed roast's stored Artisan file. Nothing is
+ * saved and the roast is unchanged; Parchment's preview is returned unchanged.
+ */
+export async function previewReferenceProfileFromRoast(
+  roastId: number,
+  body: ReferenceProfileGenerationRequest,
+  roastRevision?: string
+) {
+  const id = roastIdSchema.parse(roastId);
+  const request = parseReferenceProfileGenerationRequest(body);
+  const client = await createParchmentClient('member');
+  const revision = await resolveRoastRevision(
+    client,
+    id,
+    roastRevision,
+    'reference-profile preview-from-roast'
+  );
+  return unwrapParchment(
+    await client.referenceProfiles.previewFromRoast({
+      ...request,
+      roastId: id,
+      roastRevision: revision,
+    }),
+    'reference-profile preview-from-roast'
+  );
+}
+
+export interface SaveRoastAsReferenceInput {
+  roastId: number;
+  roastRevision?: string;
+  /** Keep the roast's Artisan file so a plan can be built from the reference. */
+  artisanSource?: boolean;
+  title?: string;
+  notes?: string;
+}
+
+/**
+ * Save an executed roast as a reference profile. The roast is only read. Without
+ * `artisanSource` the reference is Parchment's default, a comparison-only chart.
+ */
+export async function saveRoastAsReferenceProfile(
+  input: SaveRoastAsReferenceInput,
+  idempotencyKey?: string
+) {
+  const id = roastIdSchema.parse(input.roastId);
+  const details = roastReferenceDetailsSchema.parse({
+    ...(input.title !== undefined ? { title: input.title } : {}),
+    ...(input.notes !== undefined ? { notes: input.notes } : {}),
+  });
+  const key = resolveReferenceProfileIdempotencyKey(idempotencyKey);
+  const client = await createParchmentClient('member');
+  const revision = await resolveRoastRevision(
+    client,
+    id,
+    input.roastRevision,
+    'reference-profile from-roast'
+  );
+  const body: ReferenceProfileFromRoastRequest = {
+    roastId: id,
+    roastRevision: revision,
+    basis: input.artisanSource ? 'artisan_source' : 'chart_snapshot',
+    ...details,
+  };
+  return unwrapParchment(
+    await client.referenceProfiles.fromRoast(body, key),
+    'reference-profile from-roast'
   );
 }
 

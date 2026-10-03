@@ -24,9 +24,9 @@ Current command groups:
 - `market`: `signals`, `stats`, `metadata`, `overview`, `evidence` for Market Index decision-surface reads through `@purveyors/sdk`
 - `price-index`: Parchment Price Index aggregate snapshots, plus `comparisons`, `comparison`, and `history` for matched 30-day comparisons with verbatim significance and chart history, through `@purveyors/sdk`
 - `procurement`: saved sourcing brief reads and matches through `@purveyors/sdk`
-- `reference-profile`: Studio reference list, import, chart, compare, preview, save, and export through `@purveyors/sdk`
+- `reference-profile`: Studio reference list, import, chart, compare, preview, save, and export, plus `roasts`, `preview-from-roast`, and `from-roast` for planning from roast history, through `@purveyors/sdk`
 - `inventory`: `list`, `get`, `add`, `update`, `delete`
-- `roast`: `list`, `get`, `chart`, `create`, `update`, `delete`, `import`, `watch`
+- `roast`: `list`, `get`, `chart`, `create`, `update`, `delete`, `import`, `from-reference`, `watch`
 - `sales`: `list`, `record`, `update`, `delete` through canonical SDK sales and roast endpoints
 - `tasting`: `get`, `rate`
 - `config`: `list`, `get`, `set`, `reset`
@@ -50,10 +50,11 @@ actions that API keys cannot call, so parity is defined per capability:
 
 `tests/web-agent-parity.test.ts` enforces this against `CHAT_AGENT_CAPABILITIES` and
 `CHAT_AGENT_CONFIRMED_ACTION_TYPES`, which Parchment owns and publishes in `@purveyors/sdk`.
-When an SDK upgrade gives the assistant a capability, the test fails until a command covers it. The only documented exception is `create_roast_from_reference`: Parchment
-creates that roast from the private Artisan source stored with a reference profile, and no
-API-key route exposes that source. `roast import` reaches the same outcome when the original
-`.alog` file is available.
+When an SDK upgrade gives the assistant a capability, the test fails until a command covers it.
+There are no documented exceptions: every published capability and confirmed action has a
+command. `roast from-reference` performs `create_roast_from_reference`, and
+`reference-profile from-roast --artisan-source` followed by `reference-profile save` performs
+the roast-based `create_generated_reference`.
 
 ## Agent-first product stance
 
@@ -149,6 +150,17 @@ The CLI validates the bounded request shape but does not transform chart data or
 their current immutable revisions through Parchment, then returns the canonical comparison
 envelope unchanged. Generated references remain plans outside executed roast history; exports
 are unsigned, and the CLI does not claim verified Artisan 4.2 playback compatibility.
+
+Planning from roast history uses the same boundary. `reference-profile roasts` lists the roasts
+whose Artisan file Parchment has on record, `preview-from-roast` previews a plan on one of them,
+and `from-roast --artisan-source` saves that file as an owner-scoped reference that `save` and
+`export` then build on. Parchment decides which roasts are eligible and reads the stored file;
+the CLI sends a roast ID and revision and returns the response unchanged. When `--roast-revision`
+is omitted the CLI reads the roast's current revision through `roasts.get`, the only extra call.
+A roast with no stored file returns Parchment's `roast_artisan_source_unavailable` message, which
+the CLI relays with exit 2. `roast from-reference` is the reverse direction and the only one that
+creates a roast; Parchment refuses generated plans and references saved from a roast, so a plan
+is never recorded as a roast that was run.
 
 ### Output and reference surfaces
 
