@@ -203,7 +203,7 @@ describe('startWatch', () => {
         fileContent: 'alog content',
         fileName: 'new-roast.alog',
         coffeeId: 7,
-        batchName: 'Ethiopia Guji #1',
+        batchName: 'Ethiopia Guji',
         ozIn: 16,
         roastNotes: 'Sweet and floral',
         roastTargets: 'Aim for 18% development',
@@ -318,6 +318,249 @@ describe('startWatch', () => {
     await rm(watchDir, { recursive: true, force: true });
   });
 
+  it('saves every roast from a batch-mode session under one shared batch name', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-one-session-'));
+    const runtime = createRuntime();
+    runtime.roastImporter
+      .mockResolvedValueOnce(createImportResult(301))
+      .mockResolvedValueOnce(createImportResult(302))
+      .mockResolvedValueOnce(createImportResult(303));
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      { coffeeId: 7, coffeeName: 'Ethiopia Guji', batchPrefix: 'wednesday', commitMode: 'batch' },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    for (const fileName of ['first.alog', 'second.alog', 'third.alog']) {
+      await writeFile(join(watchDir, fileName), `${fileName} content`);
+      runtime.emitFileEvent(fileName);
+      await sleep(10);
+    }
+
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(
+      runtime.roastImporter.mock.calls.map(([args]) => [args.fileName, args.batchName])
+    ).toEqual([
+      ['first.alog', 'wednesday'],
+      ['second.alog', 'wednesday'],
+      ['third.alog', 'wednesday'],
+    ]);
+    // Each roast stays identifiable in the session state and the summary table.
+    expect(
+      session.imports.map((record) => [
+        record.sequence,
+        record.fileName,
+        record.roastId,
+        record.batchName,
+      ])
+    ).toEqual([
+      [1, 'first.alog', 301, 'wednesday'],
+      [2, 'second.alog', 302, 'wednesday'],
+      [3, 'third.alog', 303, 'wednesday'],
+    ]);
+    expect(runtime.saveWatchSessionImpl).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        batchPrefix: 'wednesday',
+        commitMode: 'batch',
+        imports: [
+          expect.objectContaining({ sequence: 1, batchName: 'wednesday', roastId: 301 }),
+          expect.objectContaining({ sequence: 2, batchName: 'wednesday', roastId: 302 }),
+          expect.objectContaining({ sequence: 3, batchName: 'wednesday', roastId: 303 }),
+        ],
+      })
+    );
+
+    const output = stderrOutput.join('');
+    expect(output).toContain('batch commit mode, batch: "wednesday"');
+    expect(output).toContain('… Queued: second.alog → wednesday (roast 2)');
+    expect(output).not.toContain('wednesday #');
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('keeps a distinct numbered batch name per roast in individual mode', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-individual-names-'));
+    const runtime = createRuntime();
+    runtime.roastImporter
+      .mockResolvedValueOnce(createImportResult(401))
+      .mockResolvedValueOnce(createImportResult(402))
+      .mockResolvedValueOnce(createImportResult(403));
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      {
+        coffeeId: 7,
+        coffeeName: 'Ethiopia Guji',
+        batchPrefix: 'wednesday',
+        commitMode: 'individual',
+      },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    for (const fileName of ['first.alog', 'second.alog', 'third.alog']) {
+      await writeFile(join(watchDir, fileName), `${fileName} content`);
+      runtime.emitFileEvent(fileName);
+      await sleep(10);
+    }
+
+    // Individual mode saves each roast as its file appears, before shutdown.
+    expect(runtime.roastImporter).toHaveBeenCalledTimes(3);
+
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.roastImporter.mock.calls.map(([args]) => args.batchName)).toEqual([
+      'wednesday #1',
+      'wednesday #2',
+      'wednesday #3',
+    ]);
+    expect(session.imports.map((record) => [record.sequence, record.batchName])).toEqual([
+      [1, 'wednesday #1'],
+      [2, 'wednesday #2'],
+      [3, 'wednesday #3'],
+    ]);
+    expect(stderrOutput.join('')).toContain(
+      'individual commit mode, batch names: "wednesday #1", "wednesday #2", …'
+    );
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('keeps adding to the same batch when a batch-mode session is resumed', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-resume-session-'));
+    const runtime = createRuntime();
+    runtime.roastImporter
+      .mockResolvedValueOnce(createImportResult(502))
+      .mockResolvedValueOnce(createImportResult(503));
+    await writeFile(join(watchDir, 'queued.alog'), 'queued content');
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      {
+        coffeeId: 7,
+        coffeeName: 'Ethiopia Guji',
+        batchPrefix: 'wednesday',
+        commitMode: 'batch',
+        resumeImports: [
+          {
+            fileName: 'done.alog',
+            roastId: 501,
+            batchName: 'wednesday',
+            sequence: 1,
+            status: 'success',
+            importedAt: '2026-09-29T00:00:00.000Z',
+            selectedCoffeeId: 7,
+            selectedCoffeeName: 'Ethiopia Guji',
+          },
+          {
+            fileName: 'queued.alog',
+            roastId: null,
+            batchName: 'wednesday',
+            sequence: 2,
+            status: 'pending',
+            importedAt: '2026-09-29T00:10:00.000Z',
+            selectedCoffeeId: 7,
+            selectedCoffeeName: 'Ethiopia Guji',
+          },
+        ],
+      },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    await writeFile(join(watchDir, 'next.alog'), 'next content');
+    runtime.emitFileEvent('next.alog');
+    await sleep(10);
+
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(
+      runtime.roastImporter.mock.calls.map(([args]) => [args.fileName, args.batchName])
+    ).toEqual([
+      ['queued.alog', 'wednesday'],
+      ['next.alog', 'wednesday'],
+    ]);
+    expect(
+      session.imports.map((record) => [record.sequence, record.fileName, record.batchName])
+    ).toEqual([
+      [1, 'done.alog', 'wednesday'],
+      [2, 'queued.alog', 'wednesday'],
+      [3, 'next.alog', 'wednesday'],
+    ]);
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('moves unsaved roasts into the shared batch when resuming a session saved with numbered names', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-resume-numbered-'));
+    const runtime = createRuntime();
+    runtime.roastImporter.mockResolvedValue(createImportResult(602));
+    await writeFile(join(watchDir, 'queued.alog'), 'queued content');
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      {
+        coffeeId: 7,
+        coffeeName: 'Ethiopia Guji',
+        batchPrefix: 'wednesday',
+        commitMode: 'batch',
+        resumeImports: [
+          {
+            fileName: 'done.alog',
+            roastId: 601,
+            batchName: 'wednesday #1',
+            status: 'success',
+            importedAt: '2026-09-29T00:00:00.000Z',
+            selectedCoffeeId: 7,
+            selectedCoffeeName: 'Ethiopia Guji',
+          },
+          {
+            fileName: 'queued.alog',
+            roastId: null,
+            batchName: 'wednesday #2',
+            status: 'pending',
+            importedAt: '2026-09-29T00:10:00.000Z',
+            selectedCoffeeId: 7,
+            selectedCoffeeName: 'Ethiopia Guji',
+          },
+        ],
+      },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.roastImporter).toHaveBeenCalledTimes(1);
+    expect(runtime.roastImporter).toHaveBeenCalledWith(
+      expect.objectContaining({ fileName: 'queued.alog', batchName: 'wednesday' })
+    );
+    // The roast that was already saved keeps the name it was saved under.
+    expect(
+      session.imports.map((record) => [record.sequence, record.fileName, record.batchName])
+    ).toEqual([
+      [1, 'done.alog', 'wednesday #1'],
+      [2, 'queued.alog', 'wednesday'],
+    ]);
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
   it('continues sequential batch numbering for new files after resume', async () => {
     const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-resume-seq-'));
     const runtime = createRuntime();
@@ -362,6 +605,108 @@ describe('startWatch', () => {
       })
     );
     expect(session.imports).toHaveLength(2);
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('continues after the highest saved position when a resumed session has a gap', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-resume-gap-'));
+    const runtime = createRuntime();
+    runtime.roastImporter.mockResolvedValue(createImportResult(608));
+
+    // Two files were detected together; the second finished and was saved, and
+    // the process ended before the first was persisted.
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-7',
+      watchDir,
+      {
+        coffeeId: 7,
+        coffeeName: 'Original Bean',
+        batchPrefix: 'Original Bean',
+        commitMode: 'individual',
+        resumeImports: [
+          {
+            fileName: 'second.alog',
+            roastId: 99,
+            batchName: 'Original Bean #2',
+            sequence: 2,
+            status: 'success',
+            importedAt: '2026-04-12T00:00:00.000Z',
+            selectedCoffeeId: 7,
+            selectedCoffeeName: 'Original Bean',
+          },
+        ],
+      },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    await writeFile(join(watchDir, 'next.alog'), 'next content');
+    runtime.emitFileEvent('next.alog');
+    await sleep(10);
+
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.roastImporter).toHaveBeenCalledTimes(1);
+    expect(runtime.roastImporter).toHaveBeenCalledWith(
+      expect.objectContaining({ fileName: 'next.alog', batchName: 'Original Bean #3' })
+    );
+    expect(
+      session.imports.map((record) => [record.sequence, record.fileName, record.batchName])
+    ).toEqual([
+      [2, 'second.alog', 'Original Bean #2'],
+      [3, 'next.alog', 'Original Bean #3'],
+    ]);
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('does not reuse a numbered name from a session saved without positions', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-resume-legacy-gap-'));
+    const runtime = createRuntime();
+    runtime.roastImporter.mockResolvedValue(createImportResult(609));
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-7',
+      watchDir,
+      {
+        coffeeId: 7,
+        coffeeName: 'Original Bean',
+        batchPrefix: 'Original Bean',
+        commitMode: 'individual',
+        resumeImports: [
+          {
+            fileName: 'second.alog',
+            roastId: 99,
+            batchName: 'Original Bean #2',
+            status: 'success',
+            importedAt: '2026-04-12T00:00:00.000Z',
+            selectedCoffeeId: 7,
+            selectedCoffeeName: 'Original Bean',
+          },
+        ],
+      },
+      runtime.runtime
+    );
+
+    await sleep(10);
+    await writeFile(join(watchDir, 'next.alog'), 'next content');
+    runtime.emitFileEvent('next.alog');
+    await sleep(10);
+
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.roastImporter).toHaveBeenCalledWith(
+      expect.objectContaining({ fileName: 'next.alog', batchName: 'Original Bean #3' })
+    );
+    expect(session.imports.map((record) => [record.sequence, record.batchName])).toEqual([
+      [2, 'Original Bean #2'],
+      [3, 'Original Bean #3'],
+    ]);
 
     await rm(watchDir, { recursive: true, force: true });
   });
@@ -816,7 +1161,7 @@ describe('startWatch', () => {
       fileContent: 'unmatched content',
       fileName: 'unmatched.alog',
       coffeeId: 71,
-      batchName: 'Newstart #1',
+      batchName: 'Newstart',
       ozIn: 15,
       roastNotes: 'Early drop',
       roastTargets: 'Light',

@@ -936,8 +936,13 @@ Notes:
   Runs continuously until Ctrl+C. New .alog files detected in the directory
   are queued or imported as roast profiles depending on commit mode.
   --auto-match and --coffee-id are mutually exclusive.
-  --commit-mode defaults to batch.
-  Session state is saved for --resume.
+  --commit-mode defaults to batch: roasts are queued, then saved together
+  under the --batch-prefix name when you stop, so the session appears as one
+  batch. --commit-mode individual saves each roast right away under its own
+  name: "<name> #1", "<name> #2", and so on.
+  Session state is saved for --resume, which keeps the same batch name.
+  Batches are grouped by batch name and roast date, so roasts with a
+  different roast date appear as a separate batch.
   Requires authentication (member role).
 `
     )
@@ -1035,7 +1040,7 @@ Notes:
             watchCoffeeName = 'auto-match';
 
             const batchPrefixRaw = await p.text({
-              message: 'Batch prefix',
+              message: 'Batch name',
               placeholder: 'Roast',
               defaultValue: 'Roast',
             });
@@ -1047,7 +1052,7 @@ Notes:
             watchCoffeeName = bean.name;
 
             const batchPrefixRaw = await p.text({
-              message: 'Batch prefix',
+              message: 'Batch name',
               placeholder: bean.name,
               defaultValue: bean.name,
             });
@@ -1070,12 +1075,12 @@ Notes:
               {
                 value: 'batch',
                 label: 'Batch commit on Ctrl+C',
-                hint: 'Default. Queue imports and commit them together when the session ends.',
+                hint: 'Default. Queue roasts and save them together as one batch when the session ends.',
               },
               {
                 value: 'individual',
                 label: 'Commit each roast immediately',
-                hint: 'Import each new file as soon as it appears.',
+                hint: 'Save each new file as soon as it appears, under its own numbered batch name.',
               },
             ],
           });

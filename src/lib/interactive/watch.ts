@@ -61,7 +61,10 @@ export interface WatchSession {
 export interface ImportRecord {
   fileName: string;
   roastId: number | null;
+  /** Batch name the roast is saved under. Batch commit mode shares one name across the session. */
   batchName: string;
+  /** 1-based position of this file in the watch session; identifies the roast within a shared batch. */
+  sequence?: number;
   status: 'pending' | 'success' | 'failed' | 'needs-review';
   error?: string;
   milestones?: ImportRoastResult['milestones'];
@@ -206,6 +209,74 @@ export function generateBatchName(prefix: string, sequence: number): string {
   return `${prefix} #${sequence}`;
 }
 
+/**
+ * Batch name a watched roast is saved under.
+ *
+ * Roasts sharing a batch name and roast date are one roast session, so batch
+ * commit mode saves every roast under the prefix itself. Individual commit mode
+ * keeps a distinct "{prefix} #{n}" name per roast.
+ */
+export function resolveWatchBatchName(
+  prefix: string,
+  sequence: number,
+  commitMode: 'batch' | 'individual'
+): string {
+  return commitMode === 'batch' ? prefix : generateBatchName(prefix, sequence);
+}
+
+/**
+ * Bring resumed records in line with the current session: every record gets its
+ * position, and in batch commit mode roasts that are not saved yet and still
+ * carry a numbered "{prefix} #{n}" name from an older saved session join the
+ * shared batch. Saved roasts keep the name they were saved under.
+ *
+ * A record saved without a position takes the number from its numbered name
+ * when it has one, so a name that is already in use is never handed out again.
+ */
+function normalizeResumedImports(
+  records: ImportRecord[],
+  batchPrefix: string,
+  commitMode: 'batch' | 'individual'
+): ImportRecord[] {
+  const numberedPrefix = `${batchPrefix} #`;
+  const numberedPosition = (name: string): number | undefined => {
+    if (!name.startsWith(numberedPrefix)) return undefined;
+    const suffix = name.slice(numberedPrefix.length);
+    if (!/^\d+$/.test(suffix)) return undefined;
+    const position = Number(suffix);
+    return Number.isSafeInteger(position) && position >= 1 ? position : undefined;
+  };
+
+  return records.map((record, index) => {
+    const numbered = numberedPosition(record.batchName);
+    return {
+      ...record,
+      sequence: record.sequence ?? numbered ?? index + 1,
+      batchName:
+        commitMode === 'batch' && record.status !== 'success' && numbered !== undefined
+          ? batchPrefix
+          : record.batchName,
+    };
+  });
+}
+
+/**
+ * First position to hand out in this session. Continues after the highest
+ * position already claimed rather than the record count: a session interrupted
+ * while files were importing out of order can be saved with a gap, and counting
+ * records would hand an existing position (and numbered name) out again.
+ */
+function nextSequenceAfter(records: ImportRecord[]): number {
+  return (
+    records.reduce((highest, record) => Math.max(highest, record.sequence ?? 0), records.length) + 1
+  );
+}
+
+/** Position label for the summary tables; falls back to row order for older saved sessions. */
+function sequenceLabel(record: ImportRecord, index: number): string {
+  return String(record.sequence ?? index + 1);
+}
+
 // ─── File extension filter ────────────────────────────────────────────────────
 
 /** Returns true if filename has a .alog extension (case-insensitive). */
@@ -229,13 +300,16 @@ export function printVerificationTable(session: WatchSession, autoMatch?: boolea
 
 function printVerificationTableStandard(imports: ImportRecord[]): void {
   // Column widths
+  const COL_SEQ = 3;
   const COL_FILE = 31;
   const COL_ID = 10;
   const COL_BATCH = 26;
   const COL_STATUS = 9;
 
-  function row(file: string, id: string, batch: string, status: string): string {
+  function row(seq: string, file: string, id: string, batch: string, status: string): string {
     return (
+      '│ ' +
+      seq.padEnd(COL_SEQ) +
       '│ ' +
       file.padEnd(COL_FILE) +
       '│ ' +
@@ -251,6 +325,8 @@ function printVerificationTableStandard(imports: ImportRecord[]): void {
   function hline(left: string, mid: string, right: string, fill: string): string {
     return (
       left +
+      fill.repeat(COL_SEQ + 2) +
+      mid +
       fill.repeat(COL_FILE + 2) +
       mid +
       fill.repeat(COL_ID + 2) +
@@ -265,13 +341,13 @@ function printVerificationTableStandard(imports: ImportRecord[]): void {
   const lines: string[] = [];
   lines.push('');
   lines.push(hline('┌', '┬', '┐', '─'));
-  lines.push(row('File', 'Roast ID', 'Batch', 'Status'));
+  lines.push(row('#', 'File', 'Roast ID', 'Batch', 'Status'));
   lines.push(hline('├', '┼', '┤', '─'));
 
   if (imports.length === 0) {
-    lines.push(row('(no files imported)', '', '', ''));
+    lines.push(row('', '(no files imported)', '', '', ''));
   } else {
-    for (const rec of imports) {
+    for (const [index, rec] of imports.entries()) {
       const file =
         rec.fileName.length > COL_FILE ? rec.fileName.slice(0, COL_FILE - 1) + '…' : rec.fileName;
       const id = rec.status === 'success' ? `#${rec.roastId}` : '—';
@@ -287,7 +363,7 @@ function printVerificationTableStandard(imports: ImportRecord[]): void {
             : rec.status === 'needs-review'
               ? '⚠ review'
               : `✗ ${rec.error?.slice(0, 5) ?? 'Error'}`;
-      lines.push(row(file, id, batch, status));
+      lines.push(row(sequenceLabel(rec, index), file, id, batch, status));
     }
   }
 
@@ -313,14 +389,24 @@ function printVerificationTableStandard(imports: ImportRecord[]): void {
 
 function printVerificationTableAutoMatch(imports: ImportRecord[]): void {
   // Column widths for auto-match table
+  const COL_SEQ = 3;
   const COL_FILE = 29;
   const COL_ID = 9;
   const COL_BEAN = 22;
   const COL_CONF = 10;
   const COL_STATUS = 7;
 
-  function row(file: string, id: string, bean: string, conf: string, status: string): string {
+  function row(
+    seq: string,
+    file: string,
+    id: string,
+    bean: string,
+    conf: string,
+    status: string
+  ): string {
     return (
+      '│ ' +
+      seq.padEnd(COL_SEQ) +
       '│ ' +
       file.padEnd(COL_FILE) +
       '│ ' +
@@ -338,6 +424,8 @@ function printVerificationTableAutoMatch(imports: ImportRecord[]): void {
   function hline(left: string, mid: string, right: string, fill: string): string {
     return (
       left +
+      fill.repeat(COL_SEQ + 2) +
+      mid +
       fill.repeat(COL_FILE + 2) +
       mid +
       fill.repeat(COL_ID + 2) +
@@ -354,13 +442,13 @@ function printVerificationTableAutoMatch(imports: ImportRecord[]): void {
   const lines: string[] = [];
   lines.push('');
   lines.push(hline('┌', '┬', '┐', '─'));
-  lines.push(row('File', 'Roast ID', 'Matched Bean', 'Confidence', 'Status'));
+  lines.push(row('#', 'File', 'Roast ID', 'Matched Bean', 'Confidence', 'Status'));
   lines.push(hline('├', '┼', '┤', '─'));
 
   if (imports.length === 0) {
-    lines.push(row('(no files imported)', '', '', '', ''));
+    lines.push(row('', '(no files imported)', '', '', '', ''));
   } else {
-    for (const rec of imports) {
+    for (const [index, rec] of imports.entries()) {
       const file =
         rec.fileName.length > COL_FILE ? rec.fileName.slice(0, COL_FILE - 1) + '…' : rec.fileName;
       const id = rec.status === 'success' && rec.roastId !== null ? `#${rec.roastId}` : '—';
@@ -377,7 +465,7 @@ function printVerificationTableAutoMatch(imports: ImportRecord[]): void {
             : rec.status === 'needs-review'
               ? '⚠'
               : `✗ ${rec.error?.slice(0, 4) ?? 'Err'}`;
-      lines.push(row(file, id, bean, conf, status));
+      lines.push(row(sequenceLabel(rec, index), file, id, bean, conf, status));
     }
   }
 
@@ -482,7 +570,9 @@ export async function startWatch(
     ...(opts.roastNotes !== undefined ? { roastNotes: opts.roastNotes } : {}),
     ...(opts.roastTargets !== undefined ? { roastTargets: opts.roastTargets } : {}),
     startedAt: opts.startedAt ?? new Date().toISOString(),
-    imports: opts.resumeImports ? [...opts.resumeImports] : [],
+    imports: opts.resumeImports
+      ? normalizeResumedImports(opts.resumeImports, opts.batchPrefix, commitMode)
+      : [],
   };
 
   // 4. Debounce map: filename → timeout handle
@@ -493,6 +583,10 @@ export async function startWatch(
   const activeTasks = new Set<Promise<void>>();
   const queuedImports = new Map<string, QueuedImport>();
   let shuttingDown = false;
+  // session.imports already includes resumed records, so numbering continues
+  // across resume boundaries. Claimed up front so files detected close together
+  // never share a position.
+  let nextSequence = nextSequenceAfter(session.imports);
 
   for (const record of session.imports) {
     if (record.status === 'pending' && record.selectedCoffeeId && record.selectedCoffeeName) {
@@ -573,10 +667,8 @@ export async function startWatch(
     if (processing.has(filename) || shuttingDown) return;
     processing.add(filename);
 
-    // session.imports already includes resumed records, so length alone yields
-    // the next sequential batch number across resume boundaries.
-    const sequence = session.imports.length + 1;
-    const batchName = generateBatchName(opts.batchPrefix, sequence);
+    const sequence = nextSequence++;
+    const batchName = resolveWatchBatchName(opts.batchPrefix, sequence, commitMode);
 
     // If promptEach: let user override the bean selection
     let effectiveCoffeeId = opts.coffeeId;
@@ -595,6 +687,7 @@ export async function startWatch(
           fileName: filename,
           roastId: null,
           batchName,
+          sequence,
           status: 'needs-review',
           error: reason,
           importedAt: new Date().toISOString(),
@@ -610,6 +703,7 @@ export async function startWatch(
           fileName: filename,
           roastId: null,
           batchName,
+          sequence,
           status: 'needs-review',
           error: 'Bean selection cancelled',
           importedAt: new Date().toISOString(),
@@ -635,6 +729,7 @@ export async function startWatch(
         fileName: filename,
         roastId: null,
         batchName,
+        sequence,
         status: 'failed',
         error: err instanceof Error ? err.message : 'Unreadable',
         importedAt: new Date().toISOString(),
@@ -663,6 +758,7 @@ export async function startWatch(
           fileName: filename,
           roastId: null,
           batchName,
+          sequence,
           status: 'needs-review',
           error: aiResult.reason,
           importedAt: new Date().toISOString(),
@@ -691,6 +787,7 @@ export async function startWatch(
       fileName: filename,
       roastId: null,
       batchName,
+      sequence,
       status: 'pending',
       importedAt: new Date().toISOString(),
       selectedCoffeeId: effectiveCoffeeId,
@@ -712,7 +809,7 @@ export async function startWatch(
         queuedImports.set(filename, queued);
         await saveSession(session);
         process.stderr.write(
-          `… Queued: ${filename} → ${batchName}` +
+          `… Queued: ${filename} → ${batchName} (roast ${sequence})` +
             (effectiveCoffeeName !== opts.coffeeName ? ` [${effectiveCoffeeName}]` : '') +
             '\n'
         );
@@ -769,8 +866,12 @@ export async function startWatch(
     : opts.promptEach
       ? 'prompt-each mode'
       : `coffee: ${opts.coffeeName}`;
+  const namingLabel =
+    commitMode === 'batch'
+      ? `batch: "${opts.batchPrefix}"`
+      : `batch names: "${generateBatchName(opts.batchPrefix, 1)}", "${generateBatchName(opts.batchPrefix, 2)}", …`;
   process.stderr.write(
-    `👁  Watching ${directory} for new .alog files (${modeLabel}, ${commitMode} commit mode, prefix: "${opts.batchPrefix}")...\n`
+    `👁  Watching ${directory} for new .alog files (${modeLabel}, ${commitMode} commit mode, ${namingLabel})...\n`
   );
   process.stderr.write(`    Press Ctrl+C to stop and view summary.\n\n`);
 
