@@ -129,7 +129,7 @@ describe('grading facets', () => {
     expect(createParchmentClient).toHaveBeenCalledWith('viewer');
 
     const contract = catalogSubcommand('facets');
-    expect(contract?.notes?.[0]).toContain('every non-grading facet');
+    expect(contract?.notes?.[0]).toContain('every facet except the grading and code facets');
   });
 });
 

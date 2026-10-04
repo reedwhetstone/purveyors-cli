@@ -334,6 +334,7 @@ Notes:
 - `purvey catalog compare <ids...>`
 - `purvey catalog price-history <id>`
 - `purvey catalog grades [codes...]`
+- `purvey catalog taxonomies [search]`
 
 `catalog search` filters:
 
@@ -370,6 +371,13 @@ Grading filters (results then carry a `grading` object):
 - `--moisture-max <pct>`; disclosed moisture at or below this percentage
 - `--score-protocol <sca_2004|cva_affective|q_arabica|coe|supplier_unspecified>`
 
+Variety, species, and drying code filters (each coffee carries a `taxonomy` object with its labels when its supplier text matched the vocabulary):
+
+- `--variety-code <codes>`; comma-separated variety codes such as `gesha,bourbon`, matching any. A family code also matches the codes under it (`bourbon` matches `pink_bourbon`)
+- `--species-code <codes>`; species codes such as `arabica` or `canephora` (Robusta)
+- `--drying-method-code <codes>`; drying method codes such as `raised_bed,patio` (`raised_bed` matches `african_bed`)
+- An unknown code is an error. Find codes with `purvey catalog taxonomies`. `--variety` and `--drying-method` still match by text
+
 `catalog compare <ids...>` options:
 
 - 2 to 6 catalog IDs, space- or comma-separated; viewers compare 2, members and API keys up to 6
@@ -384,6 +392,12 @@ Grading filters (results then carry a `grading` object):
 - `--kind <size|altitude|defects|cup|preparation>`, `--system <system>`, `--include-retired`
 - Explains codes from `/v1/catalog/grades`; unknown codes are listed under `unknownCodes`
 
+`catalog taxonomies [search]` options:
+
+- `[search]`; a name to find, matched against codes, labels, and supplier spellings (`geisha` finds `gesha`, `robusta` finds `canephora`)
+- `--taxonomy <variety|species|drying_method>`, `--family <code>`, `--include-retired`
+- Lists codes from `/v1/catalog/taxonomies` with their label, family (`parent_code`), and aliases
+
 `catalog similar <id>` options:
 
 - `--threshold <score>`; canonical similarity threshold `0.5` to `0.99`, default `0.7`
@@ -395,7 +409,8 @@ Grading filters (results then carry a `grading` object):
 
 - Fields: `supplier`, `country`, `processing_base_method`, `fermentation_type`, `drying_method`, `wholesale`
 - Grading fields: `grade_size`, `grade_altitude`, `grade_defects`, `grade_cup`, `grade_preparation`, `screen_size_min`, `elevation_band`
-- Without a field, prints the canonical `/v1/catalog/facets` envelope (`values`, `facets`, `meta`) unchanged; it omits grading facets, so name a grading field to get those counts. With a field, prints `{ field, facet, data, meta }` for that counted facet.
+- Code fields: `varieties`, `species_codes`, `drying_methods`. Counts roll up: a family such as `bourbon` counts every coffee carrying it or any code under it, once
+- Without a field, prints the canonical `/v1/catalog/facets` envelope (`values`, `facets`, `meta`) unchanged; it omits grading and code facets, so name one of those fields to get its counts. With a field, prints `{ field, facet, data, meta }` for that counted facet.
 - `--all`; use all visible catalog rows instead of the default stocked-only scope.
 
 `catalog rank` options:
