@@ -2108,9 +2108,9 @@ const commandGroups: CliCommandGroupContract[] = [
         sdkMethods: ['market.metadataIndex'],
         options: [
           {
-            flags: '--dimension <process|disclosure|score>',
+            flags: '--dimension <process|disclosure|score|variety|drying>',
             description:
-              'What to trend: process (process mix), disclosure (how much suppliers disclose), or score (Purveyor Score)',
+              'What to trend: process (process mix), disclosure (how much suppliers disclose), score (Purveyor Score), variety (variety mix), or drying (drying-method mix)',
             defaultValue: 'process',
           },
           { flags: '--origin <origin>', description: 'Only this origin (exact name)' },
@@ -2129,11 +2129,13 @@ const commandGroups: CliCommandGroupContract[] = [
         ],
         notes: [
           'Public view: dimension=process, no origin, market=retail, grain=month; anything else requires Parchment Intelligence access.',
-          'Cultivar and drying dimensions are not available yet.',
+          'variety and drying report the share of lots carrying each variety or drying method code (see `purvey catalog taxonomies`). A lot counts under every code it lists and under that code\'s family, so these shares overlap: they do not sum to 100% and counts must not be added (meta.bucketSemantics is "overlapping").',
+          'In variety and drying, the undisclosed bucket is lots stating none; unmapped is lots stating one the vocabulary does not cover yet.',
         ],
         examples: [
           'purvey market metadata --pretty',
           'purvey market metadata --dimension score --origin "Ethiopia" --grain month --json',
+          'purvey market metadata --dimension variety --market all --json',
         ],
       },
       {
