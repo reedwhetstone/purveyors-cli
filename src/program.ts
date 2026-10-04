@@ -139,9 +139,12 @@ Catalog (any signed-in account or API key with catalog:read):
   catalog compare   Compare 2 to 6 coffees side by side, priced at your quantity
   catalog price-history Daily smallest-tier price history for one coffee
   catalog grades    Explain grade codes like KE:AA, ET:G1, and PREP:EP
+  catalog taxonomies Look up variety, species, and drying codes like gesha and raised_bed
   catalog rank      Rank catalog coffees for a goal such as premium or value
   catalog rank-premium  Rank premium catalog candidates by Purveyor Score
   catalog supplier-rank Rank suppliers by average Purveyor Score
+  catalog supplier-list Summarize suppliers from the catalog coffees they list
+  catalog supplier-detail Show aggregate detail for one supplier
   catalog similar   Beta: find likely same-lot candidates and similar coffees by catalog ID
 
 Personal Data (member role required):

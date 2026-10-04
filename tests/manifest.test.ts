@@ -225,6 +225,16 @@ describe('CLI manifest contract', () => {
     }
   });
 
+  it('lists every catalog command in the root help', () => {
+    const help = renderedHelp(createProgram('0.12.0-test'))[0]?.[1] ?? '';
+
+    const missing = [...flattenManifestCommands().keys()]
+      .filter((key) => key.startsWith('catalog '))
+      .filter((key) => !new RegExp(`^  ${key}\\s`, 'm').test(help));
+
+    expect(missing).toEqual([]);
+  });
+
   it('gives every manifest option, including global options, a non-empty description', () => {
     const missing = manifestOptions()
       .filter(([, option]) => !option.description?.trim())

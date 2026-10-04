@@ -514,7 +514,7 @@ Notes:
 Examples:
   purvey catalog facets supplier --pretty
   purvey catalog facets country --all --json
-  purvey catalog facets --pretty      # every non-grading facet
+  purvey catalog facets --pretty      # every facet except the grading and code facets
   purvey catalog facets grade_altitude --pretty
   purvey catalog facets varieties --pretty
 

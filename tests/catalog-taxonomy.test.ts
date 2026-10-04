@@ -14,7 +14,12 @@ import { buildCatalogCommand } from '../src/commands/catalog.js';
 import { createParchmentClient } from '../src/lib/parchment.js';
 import { outputData } from '../src/lib/output.js';
 import { getCliManifest } from '../src/lib/manifest.js';
-import { listCatalogFacets, listCatalogTaxonomies, searchCatalog } from '../src/lib/catalog.js';
+import {
+  getCatalogFacets,
+  listCatalogFacets,
+  listCatalogTaxonomies,
+  searchCatalog,
+} from '../src/lib/catalog.js';
 
 const ok = (data: unknown) => ({ data, response: new Response(null, { status: 200 }) });
 
@@ -126,6 +131,32 @@ describe('taxonomy facets', () => {
 
     await listCatalogFacets({ field: 'country', stockedOnly: false });
     expect(facets).toHaveBeenLastCalledWith({ stocked: 'all' });
+  });
+
+  it('requests grading and taxonomy facets together when both are asked for', async () => {
+    const facets = vi.fn().mockResolvedValue(ok({ facets: {}, values: {}, meta: {} }));
+    vi.mocked(createParchmentClient).mockResolvedValue({ catalog: { facets } } as never);
+
+    await getCatalogFacets({ includeGrading: true, includeTaxonomy: true });
+    expect(facets).toHaveBeenLastCalledWith({ stocked: 'true', include: 'grading,taxonomy' });
+
+    await getCatalogFacets({ includeGrading: true });
+    expect(facets).toHaveBeenLastCalledWith({ stocked: 'true', include: 'grading' });
+
+    await getCatalogFacets({ includeTaxonomy: true });
+    expect(facets).toHaveBeenLastCalledWith({ stocked: 'true', include: 'taxonomy' });
+
+    await getCatalogFacets();
+    expect(facets).toHaveBeenLastCalledWith({ stocked: 'true' });
+  });
+
+  it('describes the no-field example as omitting grading and code facets', () => {
+    let help = '';
+    const command = buildCatalogCommand().commands.find((entry) => entry.name() === 'facets');
+    command?.configureOutput({ writeOut: (text) => (help += text) });
+    command?.outputHelp();
+    expect(help).toContain('# every facet except the grading and code facets');
+    expect(help).not.toContain('non-grading');
   });
 });
 

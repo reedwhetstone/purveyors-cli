@@ -65,6 +65,8 @@ export interface CatalogItem {
   proof?: CatalogProofSummary | null;
   /** ADR-016 grading (paid tiers): disclosed screen, labeled codes, lab analysis, cup score protocol. */
   grading?: components['schemas']['CatalogItem']['grading'];
+  /** ADR-018 canonical variety, species and drying codes with labels; omitted when no supplier value matched the vocabulary. */
+  taxonomy?: components['schemas']['CatalogItem']['taxonomy'];
 }
 
 export interface SimilarBean {
@@ -1181,20 +1183,28 @@ export async function getCatalogStats(): Promise<CatalogStats> {
 /**
  * Fetch counted catalog facets from the canonical `/v1/catalog/facets`
  * endpoint; grading facets are included only with `includeGrading` and
- * canonical code facets only with `includeTaxonomy`. The envelope (values,
- * facets, meta) is returned unchanged.
+ * canonical code facets only with `includeTaxonomy`. The two are independent
+ * and can be requested together. The envelope (values, facets, meta) is
+ * returned unchanged.
  */
 export async function getCatalogFacets(
   input: { stockedOnly?: boolean; includeGrading?: boolean; includeTaxonomy?: boolean } = {}
 ): Promise<CanonicalCatalogFacetsResponse> {
   const stockedOnly = input.stockedOnly ?? true;
+  const include =
+    input.includeGrading && input.includeTaxonomy
+      ? ('grading,taxonomy' as const)
+      : input.includeGrading
+        ? ('grading' as const)
+        : input.includeTaxonomy
+          ? ('taxonomy' as const)
+          : undefined;
   // Parchment decides access to grading and taxonomy facets.
   const client = await createParchmentClient('viewer');
   return unwrapParchment(
     await client.catalog.facets({
       stocked: stockedOnly ? 'true' : 'all',
-      ...(input.includeGrading ? { include: 'grading' as const } : {}),
-      ...(input.includeTaxonomy ? { include: 'taxonomy' as const } : {}),
+      ...(include ? { include } : {}),
     }),
     'Catalog facets'
   );
