@@ -25,6 +25,10 @@ import {
   getCatalogPriceHistory,
   gradeDimensions,
   listCatalogGrades,
+  listCatalogTaxonomies,
+  TAXONOMY_CODE_PATTERN,
+  taxonomyNames,
+  type TaxonomyName,
   scoreProtocols,
   type GradeDimension,
 } from '../lib/catalog.js';
@@ -149,6 +153,9 @@ export function buildCatalogCommand(): Command {
     .option('--lab-analyzed')
     .option('--moisture-max <pct>')
     .option('--score-protocol <protocol>')
+    .option('--variety-code <codes>')
+    .option('--species-code <codes>')
+    .option('--drying-method-code <codes>')
     .addHelpText(
       'after',
       `
@@ -172,6 +179,8 @@ Examples:
   purvey catalog search --grade KE:AA,KE:AB --screen-min 17 --stocked --pretty
   purvey catalog search --grade-kind altitude --elevation-min 1600 --pretty
   purvey catalog search --lab-analyzed --moisture-max 11 --pretty
+  purvey catalog search --variety-code bourbon,gesha --stocked --pretty
+  purvey catalog search --species-code canephora --drying-method-code raised_bed --pretty
 
 Sort fields:
   price       cheapest first
@@ -195,6 +204,12 @@ Notes:
   Grading filters (--elevation-*, --screen-*, --grade, --grade-kind, --peaberry,
   --lab-analyzed, --moisture-max, --score-protocol) add a grading object to each
   result. List codes with 'purvey catalog grades'.
+  --variety-code, --species-code, and --drying-method-code match standardized
+  codes (comma-separated, any of). A family code also matches the codes under
+  it: bourbon matches pink_bourbon, and raised_bed matches african_bed. An unknown code is an
+  error. Find codes with 'purvey catalog taxonomies'. A coffee whose supplier
+  text is not in the vocabulary has no code; --variety and --drying-method still
+  find it by text.
   Requires a sign-in ('purvey auth login') or an API key with catalog:read.
 `
     )
@@ -360,6 +375,24 @@ Notes:
           );
         }
 
+        const codeList = (flag: string, value: unknown): string[] | undefined => {
+          if (value === undefined) return undefined;
+          const codes = String(value)
+            .split(',')
+            .map((code) => code.trim().toLowerCase())
+            .filter(Boolean);
+          if (codes.length === 0 || codes.some((code) => !TAXONOMY_CODE_PATTERN.test(code))) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              `Invalid ${flag}: "${String(value)}". Use comma-separated codes like gesha,pink_bourbon (see 'purvey catalog taxonomies').`
+            );
+          }
+          return codes;
+        };
+        const varietyCodes = codeList('--variety-code', opts.varietyCode);
+        const speciesCodes = codeList('--species-code', opts.speciesCode);
+        const dryingMethodCodes = codeList('--drying-method-code', opts.dryingMethodCode);
+
         const includeProof = opts.includeProof ? true : undefined;
         const data = await searchCatalog({
           origin: opts.origin as string | undefined,
@@ -393,6 +426,9 @@ Notes:
           labAnalyzed: opts.labAnalyzed ? true : undefined,
           moistureMax,
           scoreProtocol: scoreProtocol as (typeof scoreProtocols)[number] | undefined,
+          varietyCodes,
+          speciesCodes,
+          dryingMethodCodes,
         });
 
         if (data.length === 0) {
@@ -478,17 +514,22 @@ Notes:
 Examples:
   purvey catalog facets supplier --pretty
   purvey catalog facets country --all --json
-  purvey catalog facets --pretty      # every non-grading facet
+  purvey catalog facets --pretty      # every facet except the grading and code facets
   purvey catalog facets grade_altitude --pretty
+  purvey catalog facets varieties --pretty
 
 Fields:
   supplier, country, processing_base_method, fermentation_type, drying_method, wholesale
   Grading: grade_size, grade_altitude, grade_defects,
   grade_cup, grade_preparation, screen_size_min, elevation_band
+  Codes: varieties, species_codes, drying_methods
 
 Notes:
-  Without a field, prints every non-grading facet with its counted values and
-  meta (values, facets, meta); name a grading field to get its counts.
+  Without a field, prints every facet except the grading and code facets, with
+  its counted values and meta (values, facets, meta); name one of those fields
+  to get its counts.
+  Code facets roll up: a family such as bourbon counts every coffee carrying it
+  or any code under it, once.
   With a field, prints { field, facet, data, meta }: that facet's counted values and meta.
   Counts include only coffees you can see; counts for multi-valued dimensions can
   overlap, so do not sum them.
@@ -998,6 +1039,55 @@ Notes:
           globalOpts
         );
       })
+    );
+
+  // ── catalog taxonomies [search] ───────────────────────────────────────────
+  catalog
+    .command('taxonomies [search]')
+    .description('Look up variety, species, and drying method codes, such as gesha or raised_bed')
+    .option('--taxonomy <name>')
+    .option('--family <code>')
+    .option('--include-retired')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey catalog taxonomies --pretty
+  purvey catalog taxonomies geisha --pretty
+  purvey catalog taxonomies --taxonomy variety --family bourbon --pretty
+  purvey catalog taxonomies "african beds" --json | jq '.data.drying_methods[].code'
+
+Notes:
+  The search text matches a code, a label, or a supplier spelling, so "geisha"
+  finds gesha and "robusta" finds canephora. --taxonomy is variety, species, or
+  drying_method. --family keeps a family code and the codes under it (parent_code).
+  Use the codes with 'purvey catalog search --variety-code', '--species-code',
+  and '--drying-method-code'. An empty result means the name is not in the
+  vocabulary yet, not that no coffee has it.
+`
+    )
+    .action(
+      withErrorHandling(
+        async (search: string | undefined, opts: Record<string, unknown>, cmd: Command) => {
+          const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+          const taxonomy = opts.taxonomy as string | undefined;
+          if (taxonomy !== undefined && !taxonomyNames.includes(taxonomy as TaxonomyName)) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              `Invalid --taxonomy: "${taxonomy}". Must be one of: ${taxonomyNames.join(', ')}.`
+            );
+          }
+          outputData(
+            await listCatalogTaxonomies({
+              search: search?.trim() ? search : undefined,
+              taxonomy: taxonomy as TaxonomyName | undefined,
+              family: opts.family as string | undefined,
+              includeRetired: opts.includeRetired ? true : undefined,
+            }),
+            globalOpts
+          );
+        }
+      )
     );
 
   return catalog;

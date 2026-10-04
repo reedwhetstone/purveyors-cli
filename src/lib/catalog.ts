@@ -65,6 +65,8 @@ export interface CatalogItem {
   proof?: CatalogProofSummary | null;
   /** ADR-016 grading (paid tiers): disclosed screen, labeled codes, lab analysis, cup score protocol. */
   grading?: components['schemas']['CatalogItem']['grading'];
+  /** ADR-018 canonical variety, species and drying codes with labels; omitted when no supplier value matched the vocabulary. */
+  taxonomy?: components['schemas']['CatalogItem']['taxonomy'];
 }
 
 export interface SimilarBean {
@@ -406,6 +408,15 @@ export const scoreProtocols = [
   'supplier_unspecified',
 ] as const;
 export const GRADE_CODE_PATTERN = /^[A-Z][A-Z0-9_]*:[A-Z0-9][A-Z0-9_]*$/;
+/** Variety, species, and drying codes are lowercase slugs such as pink_bourbon. */
+export const TAXONOMY_CODE_PATTERN = /^[a-z0-9][a-z0-9_]*$/;
+const taxonomyCodeList = z
+  .array(
+    z.string().regex(TAXONOMY_CODE_PATTERN, 'Codes look like gesha, pink_bourbon, or raised_bed')
+  )
+  .min(1)
+  .max(20)
+  .optional();
 
 export const searchCatalogSchema = z
   .object({
@@ -450,6 +461,11 @@ export const searchCatalogSchema = z
     labAnalyzed: z.boolean().optional(),
     moistureMax: z.number().min(0).max(20).optional(),
     scoreProtocol: z.enum(scoreProtocols).optional(),
+    // Canonical variety, species, and drying codes (paid tiers; Parchment
+    // validates them and matches a family code against its members)
+    varietyCodes: taxonomyCodeList,
+    speciesCodes: taxonomyCodeList,
+    dryingMethodCodes: taxonomyCodeList,
   })
   .strict();
 
@@ -527,6 +543,9 @@ export const catalogGradingFacetFields = [
   'elevation_band',
 ] as const;
 
+/** Canonical code facets Parchment returns only with include=taxonomy (paid tiers). */
+export const catalogTaxonomyFacetFields = ['varieties', 'species_codes', 'drying_methods'] as const;
+
 export const catalogFacetFields = [
   'supplier',
   'country',
@@ -535,6 +554,7 @@ export const catalogFacetFields = [
   'drying_method',
   'wholesale',
   ...catalogGradingFacetFields,
+  ...catalogTaxonomyFacetFields,
 ] as const;
 
 /** CLI facet field names mapped to the canonical counted-facet keys. */
@@ -552,6 +572,9 @@ export const catalogFacetKeys: Record<CatalogFacetField, CatalogFacetKey> = {
   grade_preparation: 'grade_preparation',
   screen_size_min: 'screen_size_min',
   elevation_band: 'elevation_band',
+  varieties: 'varieties',
+  species_codes: 'species_codes',
+  drying_methods: 'drying_methods',
 };
 
 export const catalogFacetsSchema = z.object({
@@ -1117,6 +1140,9 @@ export async function searchCatalog(opts: SearchCatalogInput): Promise<CatalogIt
     labAnalyzed: parsed.labAnalyzed ? 'true' : undefined,
     moistureMax: parsed.moistureMax,
     scoreProtocol: parsed.scoreProtocol,
+    varietyCode: parsed.varietyCodes,
+    speciesCode: parsed.speciesCodes,
+    dryingMethodCode: parsed.dryingMethodCodes,
   });
   const envelope = unwrapParchment(
     result,
@@ -1156,19 +1182,29 @@ export async function getCatalogStats(): Promise<CatalogStats> {
 
 /**
  * Fetch counted catalog facets from the canonical `/v1/catalog/facets`
- * endpoint; grading facets are included only with `includeGrading`. The
- * envelope (values, facets, meta) is returned unchanged.
+ * endpoint; grading facets are included only with `includeGrading` and
+ * canonical code facets only with `includeTaxonomy`. The two are independent
+ * and can be requested together. The envelope (values, facets, meta) is
+ * returned unchanged.
  */
 export async function getCatalogFacets(
-  input: { stockedOnly?: boolean; includeGrading?: boolean } = {}
+  input: { stockedOnly?: boolean; includeGrading?: boolean; includeTaxonomy?: boolean } = {}
 ): Promise<CanonicalCatalogFacetsResponse> {
   const stockedOnly = input.stockedOnly ?? true;
-  // Parchment decides access to grading facets.
+  const include =
+    input.includeGrading && input.includeTaxonomy
+      ? ('grading,taxonomy' as const)
+      : input.includeGrading
+        ? ('grading' as const)
+        : input.includeTaxonomy
+          ? ('taxonomy' as const)
+          : undefined;
+  // Parchment decides access to grading and taxonomy facets.
   const client = await createParchmentClient('viewer');
   return unwrapParchment(
     await client.catalog.facets({
       stocked: stockedOnly ? 'true' : 'all',
-      ...(input.includeGrading ? { include: 'grading' as const } : {}),
+      ...(include ? { include } : {}),
     }),
     'Catalog facets'
   );
@@ -1185,6 +1221,7 @@ export async function listCatalogFacets(input: CatalogFacetsInput): Promise<Cata
   const envelope = await getCatalogFacets({
     stockedOnly: parsed.stockedOnly,
     includeGrading: (catalogGradingFacetFields as readonly string[]).includes(parsed.field),
+    includeTaxonomy: (catalogTaxonomyFacetFields as readonly string[]).includes(parsed.field),
   });
   return {
     field: parsed.field,
@@ -1432,5 +1469,68 @@ export async function listCatalogGrades(
     ...envelope,
     data,
     ...(unknownCodes.length > 0 ? { unknownCodes } : {}),
+  };
+}
+
+// ─── Variety, species, and drying vocabulary ─────────────────────────────────
+
+export type CatalogTaxonomiesResponse = components['schemas']['CatalogTaxonomiesResponse'];
+export const taxonomyNames = ['variety', 'species', 'drying_method'] as const;
+export type TaxonomyName = (typeof taxonomyNames)[number];
+
+const TAXONOMY_RESPONSE_KEY = {
+  variety: 'varieties',
+  species: 'species',
+  drying_method: 'drying_methods',
+} as const satisfies Record<TaxonomyName, keyof CatalogTaxonomiesResponse['data']>;
+
+export const catalogTaxonomiesSchema = z
+  .object({
+    search: z.string().trim().min(1).optional(),
+    taxonomy: z.enum(taxonomyNames).optional(),
+    family: z.string().trim().min(1).optional(),
+    includeRetired: z.boolean().optional(),
+  })
+  .strict();
+export type CatalogTaxonomiesInput = z.input<typeof catalogTaxonomiesSchema>;
+
+/**
+ * Variety, species, and drying-method vocabulary, filtered locally. `search`
+ * matches a code, label, or supplier alias, so a typed name such as "geisha"
+ * resolves to its code; `family` keeps a family code and its direct members.
+ * The response envelope and entries are Parchment's.
+ */
+export async function listCatalogTaxonomies(
+  input: CatalogTaxonomiesInput = {}
+): Promise<CatalogTaxonomiesResponse> {
+  const parsed = catalogTaxonomiesSchema.parse(input);
+  const client = await createParchmentClient('viewer');
+  const envelope = unwrapParchment(
+    await client.catalog.taxonomies(parsed.includeRetired ? { includeRetired: 'true' } : {}),
+    'Taxonomy vocabulary'
+  );
+  const needle = parsed.search?.toLowerCase().replace(/\s+/g, ' ');
+  const family = parsed.family?.toLowerCase();
+  const keep = (entry: {
+    code: string;
+    label: string;
+    parent_code: string | null;
+    aliases: string[];
+  }) =>
+    (!family || entry.code === family || entry.parent_code === family) &&
+    (!needle ||
+      entry.code.includes(needle.replace(/ /g, '_')) ||
+      entry.label.toLowerCase().includes(needle) ||
+      entry.aliases.some((alias) => alias.includes(needle)));
+  const wanted = (name: TaxonomyName) => !parsed.taxonomy || parsed.taxonomy === name;
+  return {
+    ...envelope,
+    data: {
+      varieties: wanted('variety') ? envelope.data[TAXONOMY_RESPONSE_KEY.variety].filter(keep) : [],
+      species: wanted('species') ? envelope.data[TAXONOMY_RESPONSE_KEY.species].filter(keep) : [],
+      drying_methods: wanted('drying_method')
+        ? envelope.data[TAXONOMY_RESPONSE_KEY.drying_method].filter(keep)
+        : [],
+    },
   };
 }

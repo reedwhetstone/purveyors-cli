@@ -505,10 +505,23 @@ const commandGroups: CliCommandGroupContract[] = [
             flags: '--score-protocol <protocol>',
             description: `Only cup scores from this protocol: sca_2004, cva_affective, q_arabica, coe, or supplier_unspecified`,
           },
+          {
+            flags: '--variety-code <codes>',
+            description: `Comma-separated variety codes such as gesha,bourbon; a coffee matches if it carries any of them, and a family code also matches the codes under it (bourbon matches pink_bourbon). Find codes with \`purvey catalog taxonomies\``,
+          },
+          {
+            flags: '--species-code <codes>',
+            description: `Comma-separated species codes such as arabica or canephora (Robusta); matches coffees whose supplier states the species`,
+          },
+          {
+            flags: '--drying-method-code <codes>',
+            description: `Comma-separated drying method codes such as raised_bed,patio; raised_bed also matches african_bed`,
+          },
         ],
         notes: [
           'All filters are optional. Without flags, returns up to --limit results.',
           'Grading filters add a grading object to each coffee: disclosed screen size, labeled grade codes, lab analysis, and cup score with its protocol.',
+          'Each coffee carries a taxonomy object with its standardized variety, species, and drying labels when the supplier text matched the vocabulary. An unknown code is an error; --variety and --drying-method still match by text.',
           '--ids fetches specific catalog items by ID, ignoring --limit and --offset.',
           '--offset + --limit enables pagination through large result sets.',
           'Without --include-proof, the output shape is unchanged.',
@@ -524,6 +537,7 @@ const commandGroups: CliCommandGroupContract[] = [
           'purvey catalog search --origin "Ethiopia" --include-proof --json',
           'purvey catalog search --grade KE:AA,KE:AB --screen-min 17 --stocked --pretty',
           'purvey catalog search --grade-kind altitude --elevation-min 1600 --pretty',
+          'purvey catalog search --variety-code bourbon,gesha --stocked --pretty',
         ],
       },
       {
@@ -568,7 +582,7 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'field',
             description:
-              'The facet to list: supplier, country, processing_base_method, fermentation_type, drying_method, wholesale, grade_size, grade_altitude, grade_defects, grade_cup, grade_preparation, screen_size_min, or elevation_band. Without it, every facet is listed',
+              'The facet to list: supplier, country, processing_base_method, fermentation_type, drying_method, wholesale, grade_size, grade_altitude, grade_defects, grade_cup, grade_preparation, screen_size_min, elevation_band, varieties, species_codes, or drying_methods. Without it, every facet except the grading and code facets is listed',
             required: false,
           },
         ],
@@ -580,7 +594,8 @@ const commandGroups: CliCommandGroupContract[] = [
           },
         ],
         notes: [
-          'Without a field, prints every non-grading facet with its counted values and meta (values, facets, meta); name a grading field to get its counts.',
+          'Without a field, prints every facet except the grading and code facets, with its counted values and meta (values, facets, meta); name one of those fields to get its counts.',
+          'Code facets (varieties, species_codes, drying_methods) roll up: a family counts every coffee carrying it or any code under it, once.',
           "With a field, prints { field, facet, data, meta }: that facet's counted values and meta.",
           'Counts for multi-valued dimensions can overlap, so do not sum them.',
           'Defaults to currently stocked coffees; use --all for every coffee you can see.',
@@ -590,6 +605,7 @@ const commandGroups: CliCommandGroupContract[] = [
           'purvey catalog facets country --all --json',
           'purvey catalog facets --pretty',
           'purvey catalog facets grade_altitude --pretty',
+          'purvey catalog facets varieties --pretty',
         ],
       },
       {
@@ -994,6 +1010,43 @@ const commandGroups: CliCommandGroupContract[] = [
         examples: [
           'purvey catalog grades KE:AA ET:G1 --pretty',
           "purvey catalog grades --kind altitude --json | jq '.data[].code'",
+        ],
+      },
+      {
+        name: 'taxonomies',
+        summary: 'Look up variety, species, and drying method codes, such as gesha or raised_bed',
+        auth: 'viewer',
+        sdkMethods: ['catalog.taxonomies'],
+        arguments: [
+          {
+            name: 'search',
+            description:
+              'optional name to find; matches a code, a label, or a supplier spelling (geisha finds gesha)',
+            required: false,
+          },
+        ],
+        options: [
+          {
+            flags: '--taxonomy <name>',
+            description: 'Only this vocabulary: variety, species, or drying_method',
+          },
+          {
+            flags: '--family <code>',
+            description: 'Only this family code and the codes under it, such as bourbon',
+          },
+          {
+            flags: '--include-retired',
+            description: 'Include retired codes, which stay valid on older listings',
+          },
+        ],
+        notes: [
+          'Each entry has a code, a label, its family (parent_code), and the supplier spellings that map to it.',
+          'Use the codes with `purvey catalog search --variety-code`, `--species-code`, and `--drying-method-code`.',
+          'An empty result means the name is not in the vocabulary yet, not that no coffee has it.',
+        ],
+        examples: [
+          'purvey catalog taxonomies geisha --pretty',
+          'purvey catalog taxonomies --taxonomy variety --family bourbon --pretty',
         ],
       },
     ],
