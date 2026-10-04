@@ -246,6 +246,7 @@ const idTypes: CliIdContract[] = [
       'roast list --roast-id',
       'sales record --roast-id',
       'reference-profile compare roast:<roast-id>',
+      'reference-profile preview-from-roast/from-roast',
     ],
   },
   {
@@ -262,6 +263,7 @@ const idTypes: CliIdContract[] = [
       'reference-profile preview/save',
       'reference-profile export',
       'reference-profile compare profile:<uuid>',
+      'roast from-reference',
     ],
   },
   {
@@ -272,6 +274,7 @@ const idTypes: CliIdContract[] = [
       'reference-profile preview/save',
       'reference-profile export',
       'reference-profile compare revision:<uuid>',
+      'roast from-reference',
     ],
   },
 ];
@@ -1403,6 +1406,73 @@ const commandGroups: CliCommandGroupContract[] = [
         ],
       },
       {
+        name: 'from-reference',
+        summary: 'Create a roast from the Artisan file saved with a reference profile',
+        auth: 'member',
+        sdkMethods: ['roasts.importFromReference'],
+        confirmedActionEquivalents: ['create_roast_from_reference'],
+        arguments: [
+          {
+            name: 'reference_profile_id',
+            cliToken: 'profile-id',
+            description: 'UUID of an uploaded Artisan reference profile',
+            required: true,
+            idType: 'reference_profile_id',
+          },
+          {
+            name: 'reference_revision_id',
+            cliToken: 'revision-id',
+            description: "UUID of that profile's current revision",
+            required: true,
+            idType: 'reference_revision_id',
+          },
+        ],
+        options: [
+          {
+            flags: '--coffee-id <id>',
+            description: 'Required. Inventory ID of the coffee you roasted (not a catalog ID)',
+          },
+          {
+            flags: '--batch-name <name>',
+            description:
+              'Name for this roast batch; defaults to the coffee name plus the roast date',
+          },
+          {
+            flags: '--roast-date <YYYY-MM-DD>',
+            description: 'Date of the roast; defaults to the date in the saved Artisan file',
+          },
+          {
+            flags: '--oz-in <oz>',
+            description:
+              'Green coffee weight going in, in ounces; overrides the weight in the saved Artisan file',
+          },
+          {
+            flags: '--oz-out <oz>',
+            description:
+              'Roasted weight coming out, in ounces; overrides the weight in the saved Artisan file',
+          },
+          { flags: '--roast-notes <notes>', description: 'Notes to save with the new roast' },
+          {
+            flags: '--roast-targets <targets>',
+            description: 'What you were aiming for, saved with the new roast',
+          },
+          {
+            flags: '--idempotency-key <key>',
+            description:
+              'Key that makes retries safe: repeating the command with the same key does not create a second roast. A new key is generated when omitted',
+          },
+        ],
+        notes: [
+          'Creates the roast from the Artisan file uploaded with reference-profile import, so the .alog file does not need to be on this machine.',
+          'Only an uploaded Artisan reference can become a roast. A generated plan is never recorded as a roast, and a reference saved from a past roast is refused because that roast is already in your history.',
+          'Output is the created roast with its curve, an import summary, and the reference it came from.',
+          'Requires a member credential and Studio access on your account.',
+        ],
+        examples: [
+          'purvey roast from-reference 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --coffee-id 7 --pretty',
+        ],
+      },
+      {
         name: 'watch',
         summary: 'Watch a directory for new Artisan .alog files',
         auth: 'member',
@@ -2248,7 +2318,8 @@ const commandGroups: CliCommandGroupContract[] = [
   },
   {
     name: 'reference-profile',
-    summary: 'Import, compare, adjust, save, and export Studio reference roast plans',
+    summary:
+      'Import, compare, adjust, save, and export Studio reference roast plans, from an Artisan file or a past roast',
     auth: 'member',
     subcommands: [
       {
@@ -2381,6 +2452,27 @@ const commandGroups: CliCommandGroupContract[] = [
         ],
       },
       {
+        name: 'roasts',
+        summary: 'List your past roasts that a plan can be built from',
+        auth: 'member',
+        sdkMethods: ['referenceProfiles.roastCandidates'],
+        options: [
+          {
+            flags: '--limit <n>',
+            description: 'Number of roasts to list, newest first',
+            defaultValue: 15,
+            minimum: CLI_NUMERIC_BOUNDS.referenceProfileRoastsLimit.minimum,
+            maximum: CLI_NUMERIC_BOUNDS.referenceProfileRoastsLimit.maximum,
+          },
+        ],
+        notes: [
+          'Lists roasts with an Artisan file on record; each entry has the roastId and roastRevision that preview-from-roast and from-roast accept, and the reference the roast is or would be saved under.',
+          'data.ineligibleRoastCount counts your other roasts: entered by hand, logged live, imported before Artisan files were kept, or holding a file too large for a reference. Those cannot be a plan base.',
+          'Requires a member credential and Studio access on your account.',
+        ],
+        examples: ['purvey reference-profile roasts --pretty'],
+      },
+      {
         name: 'preview',
         summary: 'Preview bounded temperature adjustments without saving',
         auth: 'member',
@@ -2418,6 +2510,82 @@ const commandGroups: CliCommandGroupContract[] = [
         ],
       },
       {
+        name: 'preview-from-roast',
+        summary: 'Preview a plan built from one of your past roasts without saving',
+        auth: 'member',
+        sdkMethods: ['referenceProfiles.previewFromRoast', 'roasts.get'],
+        arguments: [
+          {
+            name: 'roast_id',
+            cliToken: 'roast-id',
+            description: 'ID of a past roast with an Artisan file on record',
+            required: true,
+            idType: 'roast_id',
+          },
+        ],
+        options: [
+          {
+            flags: '--request <file>',
+            description:
+              'Required. JSON file with a title and up to 12 temperature adjustments; preview and save accept the same file',
+          },
+          {
+            flags: '--roast-revision <token>',
+            description:
+              "The roast's revision from reference-profile roasts, to plan from exactly the roast you looked at. The roast's current revision is used when omitted",
+          },
+        ],
+        notes: [
+          'Nothing is saved and the roast is not changed. The result is a plan, never a roast you ran.',
+          'data.parentProfileId and data.parentRevisionId name the reference this roast is saved under; data.parentSaved says whether from-roast --artisan-source has saved it yet.',
+          'A roast with no Artisan file on record exits 2 with a message that says why and what to do next.',
+        ],
+        examples: [
+          'purvey reference-profile preview-from-roast 4529 --request changes.json --pretty',
+        ],
+      },
+      {
+        name: 'from-roast',
+        summary: 'Save one of your past roasts as a reference profile',
+        auth: 'member',
+        sdkMethods: ['referenceProfiles.fromRoast', 'roasts.get'],
+        confirmedActionEquivalents: ['create_generated_reference'],
+        arguments: [
+          {
+            name: 'roast_id',
+            cliToken: 'roast-id',
+            description: 'ID of the past roast to save as a reference',
+            required: true,
+            idType: 'roast_id',
+          },
+        ],
+        options: [
+          {
+            flags: '--artisan-source',
+            description:
+              "Keep the roast's Artisan file with the reference so a plan can be built from it. Without this flag the reference is a chart for comparison only",
+          },
+          {
+            flags: '--roast-revision <token>',
+            description:
+              "The roast's revision from reference-profile roasts, to save exactly the roast you looked at. The roast's current revision is used when omitted",
+          },
+          { flags: '--title <text>', description: 'Title for the reference profile' },
+          { flags: '--notes <text>', description: 'Notes about the reference profile' },
+          {
+            flags: '--idempotency-key <key>',
+            description:
+              'Key that makes retries safe: repeating the command with the same key does not create a second reference. A new key is generated when omitted',
+          },
+        ],
+        notes: [
+          'With --artisan-source, saving the same roast again returns the reference already saved from it. Pass data.id and data.currentRevisionId to save to store the plan.',
+          'The roast is never changed, and the reference is not a second roast.',
+          'A roast with no Artisan file on record exits 2 with a message that says why and what to do next.',
+        ],
+        examples: ['purvey reference-profile from-roast 4529 --artisan-source --pretty'],
+      },
+      {
         name: 'save',
         summary: 'Save changes as a new immutable generated reference plan',
         auth: 'member',
@@ -2452,6 +2620,7 @@ const commandGroups: CliCommandGroupContract[] = [
         ],
         notes: [
           'Reuse an explicit idempotency key to replay the same save.',
+          'To plan from a past roast, run from-roast --artisan-source first and pass the profile and revision ids it returns.',
           'Generated references are plans and never create executed roast history.',
         ],
         examples: [
@@ -2536,6 +2705,16 @@ const workflows: CliWorkflowContract[] = [
       'purvey reference-profile get 5ea1af6f-234c-43a9-9bf8-5678dd24f854 --pretty',
       'purvey reference-profile preview 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --pretty',
       'purvey reference-profile save 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json --idempotency-key 3f6c2a1b-8e4d-4b7a-9c05-7e1f2d3a4b5c',
+      'purvey reference-profile export 0b7e9f52-3c61-4d8a-9e24-6f1a8c3d5b90 c43a1d7e-95b2-4e06-8f7c-1d2b3a4e5f68 --output ~/artisan/next-batch.alog',
+    ],
+  },
+  {
+    title: 'Plan the next roast from a past roast',
+    commands: [
+      'purvey reference-profile roasts --pretty',
+      'purvey reference-profile preview-from-roast 4529 --request changes.json --pretty',
+      'purvey reference-profile from-roast 4529 --artisan-source --pretty',
+      'purvey reference-profile save 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --request changes.json',
       'purvey reference-profile export 0b7e9f52-3c61-4d8a-9e24-6f1a8c3d5b90 c43a1d7e-95b2-4e06-8f7c-1d2b3a4e5f68 --output ~/artisan/next-batch.alog',
     ],
   },
@@ -2790,7 +2969,7 @@ function renderIdMap(ids: CliIdContract[]): string[] {
   }
   lines.push(
     '',
-    'Common ID mistakes: tasting get takes catalog_id; tasting rate takes inventory_id; reference-profile commands use profile and revision UUIDs, not roast IDs.'
+    'Common ID mistakes: tasting get takes catalog_id; tasting rate takes inventory_id; reference-profile commands use profile and revision UUIDs; only compare, preview-from-roast, and from-roast take roast IDs.'
   );
   return lines;
 }

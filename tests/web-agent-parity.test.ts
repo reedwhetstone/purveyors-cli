@@ -24,10 +24,7 @@ const WEB_AGENT_CAPABILITIES = {
  * the CLI cannot close it without a Parchment change. Remove the entry when
  * that route ships and a command declares it.
  */
-const KNOWN_CLI_GAPS: Record<string, string> = {
-  create_roast_from_reference:
-    'Parchment creates the roast from the private Artisan source stored with the reference, and only the session-only confirmed-action route can read it. `roast import` covers the same outcome only when the original .alog file is available locally.',
-};
+const KNOWN_CLI_GAPS: Record<string, string> = {};
 
 // Compile-time guard: the published action list covers every SDK action type.
 type UnlistedConfirmedAction = Exclude<
@@ -132,6 +129,33 @@ describe('CLI covers every web-agent capability', () => {
     );
     // No command path replaces or clears an Artisan import.
     expect(sdkMethodsFor('roast import')).toEqual(['roasts.import']);
+    // Without --roast-revision, both roast-based commands read the roast's current revision.
+    expect(sdkMethodsFor('reference-profile preview-from-roast')).toEqual([
+      'referenceProfiles.previewFromRoast',
+      'roasts.get',
+    ]);
+    expect(sdkMethodsFor('reference-profile from-roast')).toEqual([
+      'referenceProfiles.fromRoast',
+      'roasts.get',
+    ]);
+  });
+
+  it('covers the roast-history planning chain with API-key commands', () => {
+    expect(commandsDeclaring('sdkMethods', 'referenceProfiles.roastCandidates')).toEqual([
+      'reference-profile roasts',
+    ]);
+    expect(commandsDeclaring('sdkMethods', 'referenceProfiles.previewFromRoast')).toEqual([
+      'reference-profile preview-from-roast',
+    ]);
+    // Saving a roast-based plan is two API-key writes: the roast's reference, then the plan.
+    expect(commandsDeclaring('confirmedActionEquivalents', 'create_generated_reference')).toEqual([
+      'reference-profile from-roast',
+      'reference-profile save',
+    ]);
+    expect(commandsDeclaring('confirmedActionEquivalents', 'create_roast_from_reference')).toEqual([
+      'roast from-reference',
+    ]);
+    expect(KNOWN_CLI_GAPS).toEqual({});
   });
 
   it('declares only known confirmed actions as equivalents', () => {

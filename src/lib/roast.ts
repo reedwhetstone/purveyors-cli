@@ -101,6 +101,23 @@ export const createRoastSchema = z.object({
 
 export type CreateRoastInput = z.input<typeof createRoastSchema>;
 
+/** Body Parchment accepts for creating a roast from an uploaded reference's stored file. */
+export const createRoastFromReferenceSchema = z.object({
+  referenceProfileId: z.string().uuid(),
+  referenceRevisionId: z.string().uuid(),
+  coffeeId: z.number().int().min(1).max(POSTGRES_INT4_MAX),
+  batchName: z.string().optional(),
+  roastDate: z.string().regex(DATE_REGEX).optional(),
+  ozIn: z.number().positive().optional(),
+  ozOut: z.number().positive().optional(),
+  roastNotes: z.string().optional(),
+  roastTargets: z.string().optional(),
+});
+
+export type CreateRoastFromReferenceInput = z.input<typeof createRoastFromReferenceSchema>;
+export type RoastImportFromReferenceResponse =
+  components['schemas']['RoastImportFromReferenceResponse'];
+
 export const deleteRoastSchema = z.object({
   id: z.number().int().min(1).max(POSTGRES_INT4_MAX),
 });
@@ -174,6 +191,27 @@ export async function createRoast(
     'Roast create'
   );
   return envelope.data;
+}
+
+/**
+ * Record a roast from the Artisan file stored with one of the caller's uploaded
+ * reference profiles. Parchment decides which references qualify (a planned
+ * profile is never recorded as a roast) and its response is returned unchanged.
+ */
+export async function createRoastFromReference(
+  input: CreateRoastFromReferenceInput,
+  idempotencyKey?: string
+): Promise<RoastImportFromReferenceResponse> {
+  const parsed = createRoastFromReferenceSchema.parse(input);
+  const key =
+    idempotencyKey === undefined
+      ? randomUUID()
+      : z.string().trim().min(1).max(255).parse(idempotencyKey);
+  const client = await createParchmentClient('member');
+  return unwrapParchment(
+    await client.roasts.importFromReference(parsed, { idempotencyKey: key }),
+    'roast from-reference'
+  );
 }
 
 export async function deleteRoast(id: number, tokenOverride?: string): Promise<void> {

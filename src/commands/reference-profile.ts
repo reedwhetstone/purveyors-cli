@@ -8,25 +8,40 @@ import {
   getReferenceProfile,
   getReferenceProfileChart,
   importReferenceProfile,
+  listReferenceProfileRoastCandidates,
   listReferenceProfiles,
   parseProfileComparisonSelector,
   parseReferenceProfileImportRequest,
   previewReferenceProfile,
+  previewReferenceProfileFromRoast,
   PROFILE_COMPARISON_TARGET_POINTS,
   profileComparisonUnits,
   type ProfileComparisonUnit,
   readReferenceProfileGenerationRequest,
   REFERENCE_PROFILE_SOURCE_MAX_BYTES,
   saveGeneratedReferenceProfile,
+  saveRoastAsReferenceProfile,
   writeGeneratedReferenceFile,
 } from '../lib/reference-profiles.js';
+import { CLI_NUMERIC_BOUNDS } from '../lib/numeric-contracts.js';
 import { normalizePathInput } from '../lib/path-input.js';
 import { outputData } from '../lib/output.js';
-import { parseStrictPositiveCount } from '../lib/strict-number.js';
+import { parseStrictInt4Id, parseStrictPositiveCount } from '../lib/strict-number.js';
 import type { OutputOptions } from '../types/index.js';
 
 function idempotencyKeyOption(command: Command): Command {
   return command.option('--idempotency-key <key>');
+}
+
+function parseRoastId(value: string): number {
+  const parsed = parseStrictInt4Id(value);
+  if (!Number.isFinite(parsed)) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      `Invalid roast id: "${value}". Must be an integer between 1 and 2147483647.`
+    );
+  }
+  return parsed;
 }
 
 /** `purvey reference-profile` — owner-scoped Studio plans through Parchment's SDK. */
@@ -158,6 +173,42 @@ Notes:
       )
     );
 
+  referenceProfile
+    .command('roasts')
+    .description('List your past roasts that a plan can be built from')
+    .option('--limit <n>')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey reference-profile roasts --pretty
+  purvey reference-profile roasts --limit 50 --json
+
+Notes:
+  Lists roasts with an Artisan file on record, newest first. data.ineligibleRoastCount counts
+  your other roasts, which have no usable Artisan file and cannot be a plan base.
+  Pass a listed roastId to preview-from-roast and from-roast.
+  Requires a member credential and Studio access on your account.`
+    )
+    .action(
+      withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        let limit: number | undefined;
+        if (opts.limit !== undefined) {
+          const bounds = CLI_NUMERIC_BOUNDS.referenceProfileRoastsLimit;
+          limit = parseStrictPositiveCount(String(opts.limit), bounds.maximum);
+          if (!Number.isFinite(limit)) {
+            throw new PrvrsError(
+              'INVALID_ARGUMENT',
+              `Invalid --limit: "${String(opts.limit)}". Must be an integer between ${bounds.minimum} and ${bounds.maximum}.`
+            );
+          }
+        }
+        const data = await listReferenceProfileRoastCandidates(limit);
+        outputData(data, globalOpts);
+      })
+    );
+
   const importCommand = referenceProfile
     .command('import <file>')
     .description('Upload an Artisan reference file as a private Studio profile')
@@ -243,6 +294,79 @@ Parchment recalculates from the immutable parent; preview never changes or store
     )
   );
 
+  referenceProfile
+    .command('preview-from-roast <roast-id>')
+    .description('Preview a plan built from one of your past roasts without saving')
+    .requiredOption('--request <file>')
+    .option('--roast-revision <token>')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey reference-profile preview-from-roast 4529 --request changes.json --pretty
+  purvey reference-profile preview-from-roast 4529 --roast-revision 2026-09-30T14:22:05.123456+00:00 --request changes.json --json
+
+The request file is the same one preview and save accept: title, optional notes, and
+changes.temperatureAdjustments. Nothing is saved and the roast is not changed.
+data.parentProfileId and data.parentRevisionId are the reference this roast is saved under;
+pass them to save after running from-roast --artisan-source.
+A roast with no Artisan file on record cannot be a plan base; the error says why and what to do next.`
+    )
+    .action(
+      withErrorHandling(async (roastId: string, opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        const id = parseRoastId(roastId);
+        const request = await readReferenceProfileGenerationRequest(String(opts.request));
+        const data = await previewReferenceProfileFromRoast(
+          id,
+          request,
+          opts.roastRevision !== undefined ? String(opts.roastRevision) : undefined
+        );
+        outputData(data, globalOpts);
+      })
+    );
+
+  const fromRoastCommand = referenceProfile
+    .command('from-roast <roast-id>')
+    .description('Save one of your past roasts as a reference profile')
+    .option('--artisan-source')
+    .option('--roast-revision <token>')
+    .option('--title <text>')
+    .option('--notes <text>');
+  idempotencyKeyOption(fromRoastCommand);
+  fromRoastCommand.addHelpText(
+    'after',
+    `
+Examples:
+  purvey reference-profile from-roast 4529 --artisan-source --pretty
+  purvey reference-profile from-roast 4529 --title "Guji baseline" --json
+
+Notes:
+  With --artisan-source the reference keeps the roast's Artisan file, so a plan can be saved
+  from it and exported. Saving the same roast again returns the existing reference.
+  Without it the reference is a chart for comparison only.
+  The roast itself is never changed, and the reference is not a second roast.
+  A roast with no Artisan file on record cannot be saved with --artisan-source; the error says why.`
+  );
+  fromRoastCommand.action(
+    withErrorHandling(async (roastId: string, opts: Record<string, unknown>, cmd: Command) => {
+      const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+      const data = await saveRoastAsReferenceProfile(
+        {
+          roastId: parseRoastId(roastId),
+          artisanSource: Boolean(opts.artisanSource),
+          ...(opts.roastRevision !== undefined
+            ? { roastRevision: String(opts.roastRevision) }
+            : {}),
+          ...(opts.title !== undefined ? { title: String(opts.title) } : {}),
+          ...(opts.notes !== undefined ? { notes: String(opts.notes) } : {}),
+        },
+        opts.idempotencyKey ? String(opts.idempotencyKey) : undefined
+      );
+      outputData(data, globalOpts);
+    })
+  );
+
   const saveCommand = referenceProfile
     .command('save <profile-id> <revision-id>')
     .description('Save the previewed changes as a new immutable generated reference')
@@ -256,6 +380,8 @@ Example:
 
 Notes:
   Omit --idempotency-key to generate a new key for this call. Reuse an explicit key to replay a retry.
+  To plan from a past roast, run from-roast --artisan-source first and pass the profile and
+  revision ids it returns.
   A generated reference is a plan, not executed roast history.`
   );
   saveCommand.action(
