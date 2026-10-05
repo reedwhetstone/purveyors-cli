@@ -23,6 +23,7 @@ import {
   saveRoastAsReferenceProfile,
   writeGeneratedReferenceFile,
 } from '../lib/reference-profiles.js';
+import { downloadReferenceProfileArtisanFile } from '../lib/artisan-file.js';
 import { CLI_NUMERIC_BOUNDS } from '../lib/numeric-contracts.js';
 import { normalizePathInput } from '../lib/path-input.js';
 import { outputData } from '../lib/output.js';
@@ -62,6 +63,8 @@ Examples:
   purvey reference-profile list --include-archived --json
 
 Notes:
+  artisanFileAvailable is true when 'purvey reference-profile artisan-file <profile-id>'
+  can return the reference's original Artisan file.
   Requires a member credential and Studio access on your account.`
     )
     .action(
@@ -454,6 +457,40 @@ prints a JSON receipt; it does not claim verified Artisan 4.2 playback compatibi
       }
     )
   );
+
+  referenceProfile
+    .command('artisan-file <profile-id>')
+    .description(
+      'Download the Artisan file a reference was uploaded or saved from, exactly as stored'
+    )
+    .option('--output <path>')
+    .option('--force')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey reference-profile artisan-file 5ea1af6f-234c-43a9-9bf8-5678dd24f854
+  purvey reference-profile artisan-file 5ea1af6f-234c-43a9-9bf8-5678dd24f854 --output ~/artisan/
+
+Writes the original file byte for byte, checks it against its SHA-256, and prints a JSON
+receipt: path, bytes, sha256. Without --output the file goes in the current folder under its
+original name. An existing file is never replaced unless you pass --force.
+
+A reference has an original file when artisanFileAvailable is true in
+'purvey reference-profile list'. A planned profile has none: download it with
+'purvey reference-profile export'.`
+    )
+    .action(
+      withErrorHandling(async (profileId: string, opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        const file = await downloadReferenceProfileArtisanFile(profileId, {
+          output: opts.output === undefined ? undefined : String(opts.output),
+          force: Boolean(opts.force),
+        });
+
+        outputData({ data: { profileId, ...file } }, globalOpts);
+      })
+    );
 
   return referenceProfile;
 }

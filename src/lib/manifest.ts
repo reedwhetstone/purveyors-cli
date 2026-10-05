@@ -242,7 +242,7 @@ const idTypes: CliIdContract[] = [
     name: 'roast_id',
     source: 'one of your roast profiles',
     usedBy: [
-      'roast get/chart/delete',
+      'roast get/chart/artisan-file/delete',
       'roast list --roast-id',
       'sales record --roast-id',
       'sales list --roast-id',
@@ -274,6 +274,7 @@ const idTypes: CliIdContract[] = [
       'reference-profile chart',
       'reference-profile preview/save',
       'reference-profile export',
+      'reference-profile artisan-file',
       'reference-profile compare profile:<uuid>',
       'roast from-reference',
     ],
@@ -293,6 +294,21 @@ const idTypes: CliIdContract[] = [
 
 const SIMILAR_ACCESS =
   'Needs a sign-in (`purvey auth login`) or any API key with catalog:read. The free Green API plan includes it within its monthly quota.';
+
+/** Shared by `roast artisan-file` and `reference-profile artisan-file`. */
+const ARTISAN_FILE_OPTIONS: CliOptionContract[] = [
+  {
+    flags: '--output <path>',
+    description:
+      'File to write, or an existing folder to save the file in under its original name. Defaults to the current folder',
+  },
+  { flags: '--force', description: 'Overwrite the output file if it already exists' },
+];
+
+const ARTISAN_FILE_NOTES = [
+  'Writes the file byte for byte, checks it against its SHA-256, and prints a JSON receipt: data.path, data.bytes, data.sha256. A file that fails the check is removed.',
+  'Requires Studio access on your account; API keys need the roast:read scope.',
+];
 
 const commandGroups: CliCommandGroupContract[] = [
   {
@@ -1240,7 +1256,8 @@ const commandGroups: CliCommandGroupContract[] = [
   },
   {
     name: 'roast',
-    summary: 'Record roasts, import Artisan .alog files, and watch a folder for new roasts',
+    summary:
+      'Record roasts, import and download Artisan .alog files, and watch a folder for new roasts',
     auth: 'member',
     subcommands: [
       {
@@ -1297,6 +1314,7 @@ const commandGroups: CliCommandGroupContract[] = [
           '--date-start and --date-end accept YYYY-MM-DD format.',
           '--offset + --limit enables pagination through large result sets.',
           'Every roast includes batch_id, the ID of the batch it belongs to.',
+          'artisan_file_available is true when roast artisan-file can return the Artisan file the roast was imported from.',
         ],
         examples: [
           'purvey roast list --date-start 2026-03-01 --date-end 2026-03-31',
@@ -1326,6 +1344,9 @@ const commandGroups: CliCommandGroupContract[] = [
             flags: '--include-events',
             description: 'Add roast event markers such as first crack and drop',
           },
+        ],
+        notes: [
+          'artisan_file_available is true when roast artisan-file can return the Artisan file the roast was imported from.',
         ],
       },
       {
@@ -1359,6 +1380,30 @@ const commandGroups: CliCommandGroupContract[] = [
         examples: [
           'purvey roast chart 123 --pretty',
           "purvey roast chart 123 --target-points 120 | jq '.data.metadata.revision'",
+        ],
+      },
+      {
+        name: 'artisan-file',
+        summary: 'Download the Artisan file a roast was imported from, exactly as you uploaded it',
+        auth: 'member',
+        sdkMethods: ['roasts.downloadArtisanFile'],
+        arguments: [
+          {
+            name: 'roast_id',
+            cliToken: 'id',
+            description: 'Roast ID',
+            required: true,
+            idType: 'roast_id',
+          },
+        ],
+        options: ARTISAN_FILE_OPTIONS,
+        notes: [
+          ...ARTISAN_FILE_NOTES,
+          'A roast has a file when artisan_file_available is true in roast get or roast list. Roasts entered by hand, logged live, or imported before files were kept have none; the error message says which.',
+        ],
+        examples: [
+          'purvey roast artisan-file 123',
+          'purvey roast artisan-file 123 --output ~/artisan/',
         ],
       },
       {
@@ -2608,7 +2653,7 @@ const commandGroups: CliCommandGroupContract[] = [
   {
     name: 'reference-profile',
     summary:
-      'Import, compare, adjust, save, and export Studio reference roast plans, from an Artisan file or a past roast',
+      'Import, compare, adjust, save, and export Studio reference roast plans, from an Artisan file or a past roast, and download the original Artisan file',
     auth: 'member',
     subcommands: [
       {
@@ -2622,7 +2667,10 @@ const commandGroups: CliCommandGroupContract[] = [
             description: 'Also list reference profiles you have archived',
           },
         ],
-        notes: ['Requires a member credential and Studio access on your account.'],
+        notes: [
+          'Requires a member credential and Studio access on your account.',
+          'artisanFileAvailable is true when reference-profile artisan-file can return the original Artisan file.',
+        ],
         examples: ['purvey reference-profile list --pretty'],
       },
       {
@@ -2952,6 +3000,30 @@ const commandGroups: CliCommandGroupContract[] = [
           'purvey reference-profile export 0b7e9f52-3c61-4d8a-9e24-6f1a8c3d5b90 c43a1d7e-95b2-4e06-8f7c-1d2b3a4e5f68 --output ~/artisan/next-batch.alog',
         ],
       },
+      {
+        name: 'artisan-file',
+        summary:
+          'Download the Artisan file a reference was uploaded or saved from, exactly as stored',
+        auth: 'member',
+        sdkMethods: ['referenceProfiles.downloadArtisanFile'],
+        arguments: [
+          {
+            name: 'reference_profile_id',
+            cliToken: 'profile-id',
+            description: 'Reference profile UUID',
+            required: true,
+            idType: 'reference_profile_id',
+          },
+        ],
+        options: ARTISAN_FILE_OPTIONS,
+        notes: [
+          ...ARTISAN_FILE_NOTES,
+          'A reference has an original file when artisanFileAvailable is true in reference-profile list. A planned profile has none; download it with reference-profile export.',
+        ],
+        examples: [
+          'purvey reference-profile artisan-file 5ea1af6f-234c-43a9-9bf8-5678dd24f854 --output ~/artisan/',
+        ],
+      },
     ],
   },
 ];
@@ -2985,6 +3057,13 @@ const workflows: CliWorkflowContract[] = [
     commands: [
       'purvey inventory list --stocked --pretty',
       'purvey roast import ~/artisan/ethiopia.alog --coffee-id 7 --pretty',
+    ],
+  },
+  {
+    title: "Get a roast's Artisan file back",
+    commands: [
+      "purvey roast get 4529 | jq '.artisan_file_available'",
+      'purvey roast artisan-file 4529 --output ~/artisan/',
     ],
   },
   {

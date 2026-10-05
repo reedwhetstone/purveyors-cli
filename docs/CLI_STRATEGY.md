@@ -24,9 +24,9 @@ Current command groups:
 - `market`: `signals`, `stats`, `metadata`, `overview`, `evidence` for Market Index decision-surface reads through `@purveyors/sdk`
 - `price-index`: Parchment Price Index aggregate snapshots, plus `comparisons`, `comparison`, and `history` for matched 30-day comparisons with verbatim significance and chart history, through `@purveyors/sdk`
 - `procurement`: saved sourcing brief reads and matches through `@purveyors/sdk`
-- `reference-profile`: Studio reference list, import, chart, compare, preview, save, and export, plus `roasts`, `preview-from-roast`, and `from-roast` for planning from roast history, through `@purveyors/sdk`
+- `reference-profile`: Studio reference list, import, chart, compare, preview, save, and export, plus `roasts`, `preview-from-roast`, and `from-roast` for planning from roast history, and `artisan-file` for downloading a reference's original file, through `@purveyors/sdk`
 - `inventory`: `list`, `get`, `add`, `update`, `delete`
-- `roast`: `list`, `get`, `chart`, `create`, `update`, `delete`, `import`, `from-reference`, `watch`
+- `roast`: `list`, `get`, `chart`, `artisan-file`, `create`, `update`, `delete`, `import`, `from-reference`, `watch`
 - `roast-batch`: `list`, `get`, `create`, `update`, `delete` by batch ID, through the canonical SDK roast batch endpoints
 - `sales`: `list`, `record`, `update`, `delete` through canonical SDK sales, roast, and roast batch endpoints
 - `tasting`: `get`, `rate`
@@ -120,7 +120,7 @@ The shipped auth model is role- and scope-based:
 - No pre-existing credentials required: `auth`, `config`, `context`, `manifest`, `skill`
 - Authenticated `viewer` role required: `catalog`
 - Mixed public and entitled access: `market` and `price-index history` public teaser slices are unauthenticated; filtered market slices, `market evidence`, price-index comparisons, and history windows over 90 days require Parchment Intelligence access enforced server-side; `market overview` requires any signed-in session or API key
-- Authenticated `member` role plus Studio entitlement required: `reference-profile`, enforced by Parchment
+- Authenticated `member` role plus Studio entitlement required: `reference-profile`, `roast from-reference`, and `roast artisan-file`, enforced by Parchment
 - Authenticated `member` role required through the stored scoped key: `price-index` snapshots, `price-index comparisons`, `price-index comparison`, `procurement`, `inventory`, `roast`, `roast-batch`, `sales`, `tasting`
 
 Parchment device authorization exposes the existing purveyors.io Google login in two supported flows:
@@ -203,6 +203,28 @@ A roast with no stored file returns Parchment's `roast_artisan_source_unavailabl
 the CLI relays with exit 2. `roast from-reference` is the reverse direction and the only one that
 creates a roast; Parchment refuses generated plans and references saved from a roast, so a plan
 is never recorded as a roast that was run.
+
+### Stored Artisan file download
+
+`roast artisan-file` and `reference-profile artisan-file` return the Artisan file Parchment
+keeps for a roast or a saved reference, through the SDK's `roasts.downloadArtisanFile` and
+`referenceProfiles.downloadArtisanFile`. The file is the owner's original upload, so the CLI
+writes the response bytes unchanged and never decodes, parses, or re-serializes them. This is a
+separate command from `reference-profile export`, which writes a plan Parchment generated; the
+two are never substituted for each other.
+
+Parchment decides whether a file exists and publishes that as `artisan_file_available` on roasts
+and `artisanFileAvailable` on references, which `roast list`, `roast get`, and
+`reference-profile list` pass through. There is no list filter for it, because the API has none
+and the CLI does not filter client-side (ADR-004). When no file exists, Parchment's
+`roast_artisan_source_unavailable` or `reference_artisan_file_unavailable` message is relayed
+unchanged with exit 2.
+
+The CLI owns only the local write. It resolves the destination before the request, so an
+existing file without `--force` or a missing folder costs no API call. After writing, it reads
+the file back and compares its SHA-256 with the `Repr-Digest` the API sent; a mismatch removes
+the file and exits 1. With `--force`, the bytes are written and checked beside the destination
+and moved into place only after they pass, so a failed download never replaces an existing file.
 
 ### Output and reference surfaces
 
