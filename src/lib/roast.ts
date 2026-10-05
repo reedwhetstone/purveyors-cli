@@ -8,6 +8,10 @@ import { POSTGRES_INT4_MAX } from './strict-number.js';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type RoastListProfile = components['schemas']['RoastListResource'];
+/** One page of the roast list as Parchment returns it: the roasts plus response metadata. */
+export type RoastListResponse = components['schemas']['RoastListResponse'];
+/** Totals for every roast the list filters match, whatever page was requested. */
+export type RoastListTotals = components['schemas']['RoastListTotals'];
 export type RoastDetailProfile = components['schemas']['RoastDetailResource'];
 /** Backward-compatible detail-shaped alias for existing CLI consumers. */
 export type RoastProfile = RoastDetailProfile;
@@ -22,6 +26,9 @@ export type RoastBatchDeleteResult =
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Longest roast list search text Parchment accepts, counted after trimming. */
+export const ROAST_SEARCH_MAX_LENGTH = 100;
 
 /** A batch is identified by its id; batch names may repeat. */
 const roastBatchIdSchema = z.string().uuid();
@@ -88,6 +95,14 @@ export const listRoastsSchema = z.object({
     .string()
     .optional()
     .describe('Filter by bean name (partial match, case-insensitive)'),
+  q: z
+    .string()
+    .refine(
+      (value) => value.trim().length <= ROAST_SEARCH_MAX_LENGTH,
+      `Search text must be at most ${ROAST_SEARCH_MAX_LENGTH} characters`
+    )
+    .optional()
+    .describe('Search coffee name, batch name, and roast ID with one term'),
   date_start: z
     .string()
     .regex(DATE_REGEX, 'Must be YYYY-MM-DD format')
@@ -106,6 +121,10 @@ export const listRoastsSchema = z.object({
     .max(POSTGRES_INT4_MAX)
     .optional()
     .describe('Filter by coffee_catalog ID (cross-reference from catalog search)'),
+  is_wholesale: z
+    .boolean()
+    .optional()
+    .describe('true for roasts of wholesale coffees, false for every other roast'),
   limit: z.number().int().min(1).default(20).describe('Maximum results to return'),
   offset: z.number().int().min(0).optional().describe('Skip N results (for pagination)'),
 });
@@ -195,13 +214,24 @@ export type UpdateRoastInput = z.input<typeof updateRoastSchema>;
 
 // ─── Pure lib functions ───────────────────────────────────────────────────────
 
+/**
+ * Fetch one page of roasts with Parchment's response unchanged. `meta.totals`
+ * counts every roast the filters match, so it is the same on every page.
+ */
+export async function listRoastsPage(
+  opts: ListRoastsInput,
+  tokenOverride?: string
+): Promise<RoastListResponse> {
+  const parsed = listRoastsSchema.parse(opts);
+  const client = await createParchmentClient('member', tokenOverride);
+  return unwrapParchment(await client.roasts.list(parsed), 'Roast list');
+}
+
 export async function listRoasts(
   opts: ListRoastsInput,
   tokenOverride?: string
 ): Promise<RoastListProfile[]> {
-  const parsed = listRoastsSchema.parse(opts);
-  const client = await createParchmentClient('member', tokenOverride);
-  const envelope = unwrapParchment(await client.roasts.list(parsed), 'Roast list');
+  const envelope = await listRoastsPage(opts, tokenOverride);
   return envelope.data;
 }
 
