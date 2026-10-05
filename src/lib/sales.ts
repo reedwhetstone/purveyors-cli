@@ -6,8 +6,11 @@ import { POSTGRES_INT4_MAX } from './strict-number.js';
 
 export interface Sale {
   id: number;
+  /** The roast the sale drew from, when the seller named one. */
   roast_id?: number | null;
   green_coffee_inv_id?: number;
+  /** The roast batch the sale drew from. Null when the sale names no single batch. */
+  batch_id?: string | null;
   batch_name?: string | null;
   coffee_name?: string | null;
   oz_sold: number | null;
@@ -23,16 +26,22 @@ export interface Sale {
 
 export interface ResolvedSaleTarget {
   greenCoffeeInvId?: number;
+  /** The one batch the sale is recorded against. Batch names may repeat; this id does not. */
+  batchId?: string;
   batchName?: string;
-  /** The selected roast in exact mode; the first matching roast in resolved mode. */
+  /** The selected roast in exact mode; the first roast of the item in the batch otherwise. */
   roastId: number;
   /**
-   * Every roast that shares this inventory item and batch name, in ascending order.
-   * A sale retains inventory + batch rather than a roast ID, so more than one
-   * entry means the sale is recorded against the batch as a whole.
+   * Every roast of this inventory item in the batch, in ascending order, read
+   * from the batch by id. Only exact mode records one of them on the sale; the
+   * other modes record the sale against the batch as a whole.
    */
   batchRoastIds?: number[];
-  mode: 'exact' | 'resolved';
+  /**
+   * How the batch was chosen: `exact` from a roast id, `batch` from a batch id,
+   * `resolved` from an inventory item and a batch name that matched one batch.
+   */
+  mode: 'exact' | 'batch' | 'resolved';
 }
 
 export const SALE_SELECT =
@@ -45,22 +54,34 @@ export const listSalesSchema = z.object({
   dateStart: z.string().optional(),
   dateEnd: z.string().optional(),
   buyer: z.string().optional(),
+  batchId: z.string().uuid().optional(),
+  roastId: z.number().int().min(1).max(POSTGRES_INT4_MAX).optional(),
 });
 export type ListSalesInput = z.input<typeof listSalesSchema>;
 
 const saleTargetFields = {
   roastId: z.number().int().min(1).max(POSTGRES_INT4_MAX).optional(),
   coffeeId: z.number().int().min(1).max(POSTGRES_INT4_MAX).optional(),
+  batchId: z.string().uuid().optional(),
   batchName: z.string().trim().min(1).optional(),
 };
 
 function validateSaleTargetSelector(
-  value: { roastId?: number; coffeeId?: number; batchName?: string },
+  value: { roastId?: number; coffeeId?: number; batchId?: string; batchName?: string },
   ctx: z.RefinementCtx
 ) {
   const hasRoastId = value.roastId !== undefined;
   const hasCoffeeId = value.coffeeId !== undefined;
+  const hasBatchId = value.batchId !== undefined;
   const hasBatchName = value.batchName !== undefined;
+  if (hasBatchId && hasBatchName) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['batchName'],
+      message: 'Use either batchId or batchName, not both.',
+    });
+    return;
+  }
   if (hasRoastId && (hasCoffeeId || hasBatchName)) {
     ctx.addIssue({
       code: 'custom',
@@ -69,19 +90,21 @@ function validateSaleTargetSelector(
     });
     return;
   }
-  if (!hasRoastId && !hasCoffeeId && !hasBatchName) {
+  if (hasRoastId || hasBatchId) return;
+  if (!hasCoffeeId && !hasBatchName) {
     ctx.addIssue({
       code: 'custom',
       path: ['roastId'],
-      message: 'Provide roastId or coffeeId + batchName.',
+      message: 'Provide roastId, batchId, or coffeeId + batchName.',
     });
     return;
   }
-  if (!hasRoastId && hasCoffeeId !== hasBatchName) {
+  if (hasCoffeeId !== hasBatchName) {
     ctx.addIssue({
       code: 'custom',
       path: hasCoffeeId ? ['batchName'] : ['coffeeId'],
-      message: 'coffeeId and batchName must be provided together when roastId is absent.',
+      message:
+        'coffeeId and batchName must be provided together when roastId and batchId are absent.',
     });
   }
 }
@@ -121,27 +144,25 @@ export type DeleteSaleInput = z.input<typeof deleteSaleSchema>;
 
 type SalesParchmentClient = Awaited<ReturnType<typeof createParchmentClient>>;
 
-async function listExactSaleRoastMatches(
+interface SaleRoastRow {
+  roast_id: number;
+  coffee_id: number | null;
+  batch_id: string;
+  batch_name: string | null;
+}
+
+/** Read every roast matching a selector query, following pagination to the end. */
+async function listSaleRoastRows(
   client: SalesParchmentClient,
-  coffeeId: number,
-  batchName: string | undefined
-) {
-  const exactMatches: Array<{
-    roast_id: number;
-    coffee_id: number | null;
-    batch_name: string | null;
-  }> = [];
+  query: { coffee_id: number; batch_id?: string; batch_name?: string }
+): Promise<SaleRoastRow[]> {
+  const collected: SaleRoastRow[] = [];
   const pageSize = 100;
   let offset = 0;
   const seenRoastIds = new Set<number>();
   do {
     const envelope = unwrapParchment(
-      await client.roasts.list({
-        coffee_id: coffeeId,
-        batch_name: batchName,
-        limit: pageSize,
-        offset,
-      }),
+      await client.roasts.list({ ...query, limit: pageSize, offset }),
       'Sale roast selector'
     );
     const rows = envelope.data;
@@ -154,18 +175,69 @@ async function listExactSaleRoastMatches(
       );
     }
     for (const row of unseenRows) seenRoastIds.add(row.roast_id);
-    exactMatches.push(
-      ...unseenRows.filter(
-        (row) => row.coffee_id === coffeeId && (row.batch_name ?? undefined) === batchName
-      )
-    );
+    collected.push(...unseenRows);
     offset += unseenRows.length;
   } while (true);
-  return exactMatches;
+  return collected;
+}
+
+/** The roasts of one inventory item in one batch, selected by batch id rather than by name. */
+async function listBatchRoastIds(
+  client: SalesParchmentClient,
+  batchId: string,
+  coffeeId: number
+): Promise<number[]> {
+  const rows = await listSaleRoastRows(client, { coffee_id: coffeeId, batch_id: batchId });
+  return sortedRoastIds(
+    rows
+      .filter((row) => row.coffee_id === coffeeId && row.batch_id === batchId)
+      .map((row) => row.roast_id)
+  );
 }
 
 function sortedRoastIds(roastIds: number[]): number[] {
   return [...new Set(roastIds)].sort((a, b) => a - b);
+}
+
+/** A batch a name-based selector could mean, with what tells the candidates apart. */
+export interface SaleBatchCandidate {
+  batchId: string;
+  batchDate: string;
+  roastIds: number[];
+}
+
+/**
+ * Batch names repeat, so a name with an inventory item can match several
+ * batches. Refuse with every candidate's id and date instead of picking one.
+ */
+async function ambiguousBatchNameError(
+  client: SalesParchmentClient,
+  coffeeId: number,
+  batchName: string,
+  roastIdsByBatch: Map<string, number[]>
+): Promise<PrvrsError> {
+  const candidates: SaleBatchCandidate[] = await Promise.all(
+    [...roastIdsByBatch].map(async ([batchId, roastIds]) => {
+      const envelope = unwrapParchment(
+        await client.roastBatches.get(batchId),
+        'Sale batch selector'
+      );
+      return { batchId, batchDate: envelope.data.batch_date, roastIds: sortedRoastIds(roastIds) };
+    })
+  );
+  candidates.sort(
+    (a, b) => b.batchDate.localeCompare(a.batchDate) || a.batchId.localeCompare(b.batchId)
+  );
+
+  const lines = candidates.map(
+    (candidate) =>
+      `  --batch-id ${candidate.batchId}   ${candidate.batchDate}, roast${candidate.roastIds.length !== 1 ? 's' : ''} ${candidate.roastIds.join(', ')}`
+  );
+  return new PrvrsError(
+    'INVALID_ARGUMENT',
+    `Batch name "${batchName}" matches ${candidates.length} batches with roasts of --coffee-id ${coffeeId}. Choose one by batch ID and run the command again with --batch-id in place of --batch-name:\n${lines.join('\n')}`,
+    { code: 'batch_name_ambiguous', candidates }
+  );
 }
 
 export async function listSales(
@@ -180,6 +252,8 @@ export async function listSales(
       date_start: parsed.dateStart,
       date_end: parsed.dateEnd,
       buyer: parsed.buyer,
+      batch_id: parsed.batchId,
+      roast_id: parsed.roastId,
       limit: parsed.limit,
       offset: parsed.offset,
     }),
@@ -191,7 +265,7 @@ export async function listSales(
 export async function resolveSaleRoast(
   input: SaleTargetSelectorInput,
   tokenOverride?: string
-): Promise<ResolvedSaleTarget> {
+): Promise<ResolvedSaleTarget & { batchId: string }> {
   const parsed = saleTargetSelectorSchema.parse(input);
   const client = await createParchmentClient('member', tokenOverride);
 
@@ -207,31 +281,95 @@ export async function resolveSaleRoast(
         `Roast profile ${parsed.roastId} is not linked to a green coffee inventory item.`
       );
     }
-    const batchName = roast.batch_name ?? undefined;
-    // Roasts that share an inventory item and batch name are one batch, and the
-    // sale is recorded against that batch; the siblings are reported, not rejected.
-    const exactMatches = await listExactSaleRoastMatches(client, roast.coffee_id, batchName);
+    if (parsed.batchId !== undefined && parsed.batchId !== roast.batch_id) {
+      throw new PrvrsError(
+        'INVALID_ARGUMENT',
+        `Roast profile ${parsed.roastId} is in batch ${roast.batch_id}, not ${parsed.batchId}. A roast decides its own batch: drop --batch-id, or pass a roast from that batch.`
+      );
+    }
+    // The sale names this roast. Its siblings in the batch are reported, not rejected.
+    const siblings = await listBatchRoastIds(client, roast.batch_id, roast.coffee_id);
     return {
       greenCoffeeInvId: roast.coffee_id,
-      batchName,
+      batchId: roast.batch_id,
+      batchName: roast.batch_name ?? undefined,
       roastId: roast.roast_id,
-      batchRoastIds: sortedRoastIds([roast.roast_id, ...exactMatches.map((row) => row.roast_id)]),
+      batchRoastIds: sortedRoastIds([roast.roast_id, ...siblings]),
       mode: 'exact',
     };
   }
 
-  const exactMatches = await listExactSaleRoastMatches(client, parsed.coffeeId!, parsed.batchName);
+  if (parsed.batchId !== undefined) {
+    const batch = unwrapParchment(
+      await client.roastBatches.get(parsed.batchId),
+      'Sale batch selector'
+    ).data;
+    const label = `Batch ${batch.id} (${batch.batch_date})`;
+    if (batch.coffee_ids.length === 0) {
+      throw new PrvrsError(
+        'INVALID_ARGUMENT',
+        `${label} holds no roasts, so there is nothing to sell from it.`
+      );
+    }
+    if (parsed.coffeeId === undefined && batch.coffee_ids.length > 1) {
+      throw new PrvrsError(
+        'INVALID_ARGUMENT',
+        `${label} holds roasts of more than one inventory item: ${batch.coffee_ids.join(', ')}. Pass --coffee-id to say which one was sold.`
+      );
+    }
+    const coffeeId = parsed.coffeeId ?? batch.coffee_ids[0];
+    const batchRoastIds = batch.coffee_ids.includes(coffeeId)
+      ? await listBatchRoastIds(client, batch.id, coffeeId)
+      : [];
+    if (batchRoastIds.length === 0) {
+      throw new PrvrsError(
+        'INVALID_ARGUMENT',
+        `${label} holds no roast of --coffee-id ${coffeeId}. It holds roasts of: ${batch.coffee_ids.join(', ')}.`
+      );
+    }
+    return {
+      greenCoffeeInvId: coffeeId,
+      batchId: batch.id,
+      batchName: batch.name,
+      roastId: batchRoastIds[0],
+      batchRoastIds,
+      mode: 'batch',
+    };
+  }
 
-  if (exactMatches.length === 0) {
+  const coffeeId = parsed.coffeeId!;
+  const batchName = parsed.batchName!;
+  const nameMatches = (
+    await listSaleRoastRows(client, { coffee_id: coffeeId, batch_name: batchName })
+  )
+    // The name filter is a partial, case-insensitive match; a batch name is matched exactly.
+    .filter((row) => row.coffee_id === coffeeId && row.batch_name === batchName);
+
+  if (nameMatches.length === 0) {
     throw new PrvrsError(
       'NOT_FOUND',
-      `No roast profile found for --coffee-id ${parsed.coffeeId} with batch name "${parsed.batchName}". Use 'purvey roast list --coffee-id ${parsed.coffeeId}' to inspect candidates, or pass --roast-id directly.`
+      `No roast profile found for --coffee-id ${coffeeId} with batch name "${batchName}". Use 'purvey roast list --coffee-id ${coffeeId}' to inspect candidates, or pass --batch-id or --roast-id directly.`
     );
   }
-  const batchRoastIds = sortedRoastIds(exactMatches.map((row) => row.roast_id));
+
+  const roastIdsByBatch = new Map<string, number[]>();
+  for (const row of nameMatches) {
+    roastIdsByBatch.set(row.batch_id, [...(roastIdsByBatch.get(row.batch_id) ?? []), row.roast_id]);
+  }
+  if (roastIdsByBatch.size > 1) {
+    throw await ambiguousBatchNameError(client, coffeeId, batchName, roastIdsByBatch);
+  }
+
+  const [[batchId, namedRoastIds]] = [...roastIdsByBatch];
+  // The name only chose the batch. The reported roasts come from the batch itself.
+  const batchRoastIds = sortedRoastIds([
+    ...namedRoastIds,
+    ...(await listBatchRoastIds(client, batchId, coffeeId)),
+  ]);
   return {
-    greenCoffeeInvId: parsed.coffeeId!,
-    batchName: parsed.batchName,
+    greenCoffeeInvId: coffeeId,
+    batchId,
+    batchName,
     roastId: batchRoastIds[0],
     batchRoastIds,
     mode: 'resolved',
@@ -247,7 +385,10 @@ export async function recordSale(input: RecordSaleInput, tokenOverride?: string)
     ozSold: parsed.oz,
     price: parsed.price,
     ...(parsed.buyer !== undefined ? { buyer: parsed.buyer } : {}),
-    ...(target.batchName !== undefined ? { batchName: target.batchName } : {}),
+    // The sale takes the batch's name from the batch, so no name is sent beside the id.
+    batchId: target.batchId,
+    // A roast is recorded only when the seller named one. It is never inferred from the batch.
+    ...(parsed.roastId !== undefined ? { roastId: target.roastId } : {}),
     ...(parsed.sellDate !== undefined ? { sellDate: parsed.sellDate } : {}),
   };
   const envelope = unwrapParchment(

@@ -45,7 +45,7 @@ function runCli(args: string[], options: { formMode?: boolean; timeout?: number 
 }
 
 describe('sales record command', () => {
-  it('documents both selector modes in help output', () => {
+  it('documents every selector mode in help output', () => {
     const result = runCli(['sales', 'record', '--help']);
     const stdout = stripAnsi(result.stdout);
 
@@ -53,8 +53,49 @@ describe('sales record command', () => {
     expect(stdout).toContain('--roast-id <id>');
     expect(stdout).toContain('--coffee-id <id>');
     expect(stdout).toContain('--batch-name <name>');
+    expect(stdout).toContain('--batch-id <uuid>');
     expect(stdout).toContain('Selector modes:');
-    expect(stdout).toContain('Resolved: --coffee-id <id> --batch-name <name>');
+    expect(stdout).toContain('Batch:    --batch-id <uuid> [--coffee-id <id>]');
+    expect(stdout).toContain('Roast:    --roast-id <id> [--batch-id <uuid>]');
+    expect(stdout).toContain('By name:  --coffee-id <id> --batch-name <name>');
+  }, 15000);
+
+  it('rejects a batch ID combined with a batch name before auth', () => {
+    const result = runCli([
+      'sales',
+      'record',
+      '--batch-id',
+      '7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e',
+      '--batch-name',
+      'wednesday',
+      '--oz',
+      '12',
+      '--price',
+      '18',
+      '--json',
+    ]);
+    const stderr = parseJson(result.stderr);
+
+    expect(result.status).toBe(2);
+    expect(stderr.message).toContain('Use either --batch-id or --batch-name, not both');
+  }, 15000);
+
+  it('rejects a batch ID that is not a UUID before auth', () => {
+    const result = runCli([
+      'sales',
+      'record',
+      '--batch-id',
+      'wednesday',
+      '--oz',
+      '12',
+      '--price',
+      '18',
+      '--json',
+    ]);
+    const stderr = parseJson(result.stderr);
+
+    expect(result.status).toBe(2);
+    expect(stderr.message).toContain('Invalid --batch-id: expected a batch ID (UUID)');
   }, 15000);
 
   it('rejects missing all selectors before auth', () => {
@@ -108,7 +149,7 @@ describe('sales record command', () => {
     const stderr = parseJson(result.stderr);
 
     expect(result.status).toBe(2);
-    expect(stderr.message).toContain('Missing --batch-name');
+    expect(stderr.message).toContain('Missing --batch-id or --batch-name');
   }, 15000);
 
   it('rejects incomplete resolved mode when coffee-id is missing', () => {

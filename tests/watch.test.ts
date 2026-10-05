@@ -4,6 +4,8 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import {
   buildManualImportRecoveryCommand,
+  buildSessionBatchCreateCommand,
+  MANUAL_IMPORT_BATCH_PLACEHOLDER,
   generateBatchName,
   resolveWatchBatchName,
   isAlogFile,
@@ -50,6 +52,39 @@ describe('buildManualImportRecoveryCommand', () => {
 
   it('omits unset optional metadata', () => {
     expect(buildManualImportRecoveryCommand()).toBe('purvey roast import <file> --coffee-id <id>');
+  });
+
+  it('names the session batch ahead of the watch metadata', () => {
+    expect(
+      buildManualImportRecoveryCommand({
+        batchId: '7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e',
+        ozIn: 16,
+      })
+    ).toBe(
+      'purvey roast import <file> --coffee-id <id> --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --oz-in 16'
+    );
+  });
+
+  it('leaves a batch ID to fill in while the session batch is still to be opened', () => {
+    expect(buildManualImportRecoveryCommand({ batchId: MANUAL_IMPORT_BATCH_PLACEHOLDER })).toBe(
+      'purvey roast import <file> --coffee-id <id> --batch-id <batch-id>'
+    );
+  });
+});
+
+// ── buildSessionBatchCreateCommand ──────────────────────────────────────────
+
+describe('buildSessionBatchCreateCommand', () => {
+  it('opens a batch with the session name and date', () => {
+    expect(buildSessionBatchCreateCommand('wednesday', '2026-09-30')).toBe(
+      'purvey roast-batch create --name "wednesday" --date 2026-09-30'
+    );
+  });
+
+  it('quotes a name that holds spaces or quotes', () => {
+    expect(buildSessionBatchCreateCommand('Guji "light" run', '2026-09-30')).toBe(
+      'purvey roast-batch create --name "Guji \\"light\\" run" --date 2026-09-30'
+    );
   });
 });
 

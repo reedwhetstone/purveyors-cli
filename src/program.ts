@@ -12,6 +12,7 @@ import { buildMarketCommand } from './commands/market.js';
 import { buildPriceIndexCommand } from './commands/price-index.js';
 import { buildProcurementCommand } from './commands/procurement.js';
 import { buildReferenceProfileCommand } from './commands/reference-profile.js';
+import { buildRoastBatchCommand } from './commands/roast-batch.js';
 import { buildRoastCommand } from './commands/roast.js';
 import { buildSalesCommand } from './commands/sales.js';
 import { buildSkillCommand } from './commands/skill.js';
@@ -162,6 +163,11 @@ Personal Data (member role required):
   roast import      Import an Artisan .alog roast file
   roast from-reference  Create a roast from a saved reference profile's Artisan file
   roast watch       Watch a directory for new .alog files
+  roast-batch list    List your roast batches with their batch IDs
+  roast-batch get     Get one roast batch and the IDs of its roasts
+  roast-batch create  Open a new, empty roast batch
+  roast-batch update  Rename or re-date a roast batch
+  roast-batch delete  Delete one roast batch and its roasts
   sales list        List your sales records
   sales record      Record a new sale
   sales update      Update a sale record
@@ -252,6 +258,7 @@ Module import:    @purveyors/cli/manifest
   program.addCommand(buildProcurementCommand());
   program.addCommand(buildReferenceProfileCommand());
   program.addCommand(buildRoastCommand());
+  program.addCommand(buildRoastBatchCommand());
   program.addCommand(buildSalesCommand());
   program.addCommand(buildSkillCommand(version));
   program.addCommand(buildTastingCommand());

@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import * as p from '@clack/prompts';
 import { access, readFile } from 'fs/promises';
 import { basename } from 'path';
+import { randomUUID } from 'node:crypto';
 import { outputData, info, success } from '../lib/output.js';
 import { withErrorHandling, PrvrsError, AuthError } from '../lib/errors.js';
 import { requireAuth } from '../lib/auth-guard.js';
@@ -14,6 +15,7 @@ import {
   createRoastFromReference,
   deleteRoast,
   updateRoast,
+  parseRoastBatchId,
   ROAST_CHART_TARGET_POINTS,
 } from '../lib/roast.js';
 import type {
@@ -25,7 +27,7 @@ import type {
 import { pickBean, guardCancel } from '../lib/interactive/forms.js';
 import { normalizePathInput } from '../lib/path-input.js';
 import { startWatch, loadWatchSession } from '../lib/interactive/watch.js';
-import type { WatchRoastImporter } from '../lib/interactive/watch.js';
+import type { WatchBatchStore, WatchRoastImporter } from '../lib/interactive/watch.js';
 import type { CredentialContext } from '../lib/auth-client.js';
 import { getConfigValue } from '../lib/config.js';
 import {
@@ -182,10 +184,31 @@ export function mapSdkImportResult(
     milestone_events: summary.milestoneEvents,
     control_events: summary.controlEvents,
     roast_id: roast.roast_id,
+    batch_id: roast.batch_id,
     batch_name: roast.batch_name ?? fallbackBatchName,
     coffee_name: roast.coffee_name ?? '',
     coffee_id: roast.coffee_id ?? fallbackCoffeeId,
   };
+}
+
+/**
+ * Read the batch a roast should be placed in from `--batch-id` and `--batch-name`.
+ * `--batch-id` joins that batch whatever the roast's date and the roast takes its
+ * name, so a name beside it has nothing to do and is refused instead of dropped.
+ */
+function parseRoastBatchTarget(opts: Record<string, unknown>): {
+  batchId?: string;
+  batchName?: string;
+} {
+  const batchName = opts.batchName as string | undefined;
+  if (opts.batchId === undefined) return { batchName };
+  if (batchName !== undefined) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      "Use either --batch-id or --batch-name, not both. --batch-id adds the roast to an existing batch, which already has a name; rename a batch with 'purvey roast-batch update <batch-id> --name <name>'."
+    );
+  }
+  return { batchId: parseRoastBatchId(String(opts.batchId), '--batch-id') };
 }
 
 /**
@@ -210,7 +233,8 @@ export function createWatchRoastImporter(credentialContext: CredentialContext): 
         fileContent: args.fileContent,
         fileName: args.fileName,
         coffeeId: args.coffeeId,
-        batchName: args.batchName,
+        // A roast placed by id takes that batch's name, so the name is sent only without one.
+        ...(args.batchId !== undefined ? { batchId: args.batchId } : { batchName: args.batchName }),
         ozIn: args.ozIn,
         roastNotes: args.roastNotes,
         roastTargets: args.roastTargets,
@@ -219,6 +243,56 @@ export function createWatchRoastImporter(credentialContext: CredentialContext): 
       'roast import'
     );
     return mapSdkImportResult(payload, args.coffeeId, args.batchName);
+  };
+}
+
+/**
+ * Build the batch access used by `purvey roast watch` in batch commit mode. Like
+ * the importer, every call resolves the current member API key and pins it, so
+ * the session's batch is opened, read, and removed as the session user.
+ */
+export function createWatchBatchStore(credentialContext: CredentialContext): WatchBatchStore {
+  const sessionClient = async () => {
+    const {
+      data: { session },
+    } = await credentialContext.getSession();
+    if (!session?.apiKey) {
+      throw new AuthError('Session expired mid-watch. Run `purvey auth login` and retry.');
+    }
+    return createParchmentClient('member', session.apiKey);
+  };
+  const toRecord = (batch: components['schemas']['RoastBatchResource']) => ({
+    id: batch.id,
+    name: batch.name,
+    batchDate: batch.batch_date,
+    roastIds: batch.roast_ids,
+  });
+
+  return {
+    async create({ name, batchDate }) {
+      const client = await sessionClient();
+      const envelope = unwrapParchment(
+        await client.roastBatches.create({ name, batchDate }, randomUUID()),
+        'roast batch create'
+      );
+      return toRecord(envelope.data.batch);
+    },
+    async get(batchId) {
+      const client = await sessionClient();
+      const result = await client.roastBatches.get(batchId);
+      if (result.response.status === 404) return null;
+      return toRecord(unwrapParchment(result, 'roast batch').data);
+    },
+    async delete(batchId) {
+      const client = await sessionClient();
+      unwrapParchment(await client.roastBatches.delete(batchId), 'roast batch delete');
+    },
+    async batchIdForRoast(roastId) {
+      const client = await sessionClient();
+      const result = await client.roasts.get(String(roastId));
+      if (result.response.status === 404) return null;
+      return unwrapParchment(result, 'roast').data.batch_id;
+    },
   };
 }
 
@@ -261,6 +335,7 @@ export function buildRoastCommand(): Command {
     .description('List your roast profiles, sorted by date (newest first)')
     .option('--coffee-id <id>')
     .option('--roast-id <id>')
+    .option('--batch-id <uuid>')
     .option('--batch-name <text>')
     .option('--coffee-name <text>')
     .option('--date-start <YYYY-MM-DD>')
@@ -276,6 +351,7 @@ Examples:
   purvey roast list --pretty
   purvey roast list --coffee-id 7 --pretty
   purvey roast list --roast-id 123 --pretty
+  purvey roast list --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --pretty
   purvey roast list --batch-name "Ethiopia Guji" --pretty
   purvey roast list --coffee-name "Ethiopia" --pretty
   purvey roast list --date-start 2026-03-01 --date-end 2026-03-31
@@ -289,12 +365,13 @@ Notes:
   --coffee-id filters by inventory ID, not catalog ID.
   --roast-id filters by the exact roast profile ID while preserving list output shape.
   --catalog-id filters by catalog ID (from catalog search).
-  --batch-name accepts partial matches (case-insensitive).
+  --batch-id returns the roasts in one batch. Batch names can repeat; a batch ID never does.
+  --batch-name accepts partial matches (case-insensitive), across every batch with a matching name.
   --coffee-name accepts partial matches on the bean name (case-insensitive).
   --date-start and --date-end accept YYYY-MM-DD format; use together for a range.
   --stocked only returns roasts for beans currently marked as stocked in inventory.
   --offset + --limit enables pagination through large result sets.
-  Returns roast_id, batch_name, roast_date, oz_in, oz_out, and bean details.
+  Returns roast_id, batch_id, batch_name, roast_date, oz_in, oz_out, and bean details.
   Requires authentication (member role).
 `
     )
@@ -334,6 +411,10 @@ Notes:
               ? parseRoastInt4Id(opts.coffeeId as string, '--coffee-id')
               : undefined,
           roast_id: roastId,
+          batch_id:
+            opts.batchId !== undefined
+              ? parseRoastBatchId(String(opts.batchId), '--batch-id')
+              : undefined,
           batch_name: opts.batchName as string | undefined,
           coffee_name: opts.coffeeName as string | undefined,
           date_start: dateStart,
@@ -428,6 +509,7 @@ Notes:
     .command('create')
     .description('Create a new roast profile')
     .option('--coffee-id <id>')
+    .option('--batch-id <uuid>')
     .option('--batch-name <name>')
     .option('--oz-in <oz>')
     .option('--oz-out <oz>')
@@ -442,6 +524,7 @@ Notes:
 Examples:
   purvey roast create --coffee-id 7 --pretty
   purvey roast create --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz-in 16
+  purvey roast create --coffee-id 7 --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --oz-in 16
   purvey roast create --coffee-id 42 --oz-in 12 --oz-out 9.8 --roast-date 2026-03-15
   purvey roast create --coffee-id 7 --notes "Extended drying phase, aimed for medium roast"
   purvey roast create --coffee-id 7 --targets "FC at 390F, 18% development" --roaster-type "Aillio Bullet"
@@ -450,6 +533,12 @@ Examples:
 Required flags: --coffee-id (inventory ID)
   Use 'purvey inventory list' to find your --coffee-id.
   Prefer 'purvey roast import' if you have an Artisan .alog file.
+
+Batch:
+  --batch-id adds the roast to that batch, whatever the roast date. The roast takes the batch's name.
+  --batch-name adds the roast to your batch with that name on the roast date, or starts one.
+  Pass one or the other. With neither, the roast goes into a batch named after the coffee and roast date.
+  The output includes batch_id.
   Requires authentication (member role).
 `
     )
@@ -544,6 +633,7 @@ Required flags: --coffee-id (inventory ID)
         }
 
         const coffeeId = parseRoastInt4Id(opts.coffeeId as string, '--coffee-id');
+        const batchTarget = parseRoastBatchTarget(opts);
 
         let ozIn: number | undefined;
         if (opts.ozIn !== undefined) {
@@ -561,7 +651,7 @@ Required flags: --coffee-id (inventory ID)
 
         const data = await createRoast({
           coffeeId,
-          batchName: opts.batchName as string | undefined,
+          ...batchTarget,
           ozIn,
           ozOut,
           roastDate: (opts.roastDate as string | undefined) ?? todayIso(),
@@ -570,7 +660,7 @@ Required flags: --coffee-id (inventory ID)
           roasterType: opts.roasterType as string | undefined,
         });
 
-        success(`Roast profile ${data.roast_id} created.`);
+        success(`Roast profile ${data.roast_id} created in batch ${data.batch_id}.`);
         outputData(data, globalOpts);
       })
     );
@@ -581,6 +671,7 @@ Required flags: --coffee-id (inventory ID)
     .description('Update an existing roast profile (must be yours)')
     .option('--notes <text>')
     .option('--oz-out <oz>')
+    .option('--batch-id <uuid>')
     .option('--batch-name <name>')
     .option('--targets <text>')
     .addHelpText(
@@ -589,6 +680,7 @@ Required flags: --coffee-id (inventory ID)
 Examples:
   purvey roast update 123 --notes "Extended drying phase"
   purvey roast update 123 --oz-out 12.5
+  purvey roast update 123 --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e
   purvey roast update 123 --batch-name "Ethiopia Guji Light #3"
   purvey roast update 123 --targets "Aim for FC at 390F, 18% dev"
   purvey roast update 123 --notes "Great roast" --oz-out 10.2
@@ -597,6 +689,9 @@ Notes:
   At least one flag required. Pass only the fields you want to change.
   --oz-out triggers automatic weight_loss_percent recalculation if oz_in exists.
   --targets replaces the roast targets (your plan or goals for the roast).
+  --batch-id moves the roast into that batch. --batch-name moves it into your batch with that
+  name on the roast date, or starts one. Neither renames a batch: use
+  'purvey roast-batch update <batch-id> --name <name>' for that.
   Requires authentication (member role).
 `
     )
@@ -612,22 +707,25 @@ Notes:
             throw new PrvrsError('INVALID_ARGUMENT', `Invalid --oz-out: "${opts.ozOut}".`);
         }
 
+        const batchTarget = parseRoastBatchTarget(opts);
+
         if (
           opts.notes === undefined &&
           ozOut === undefined &&
-          opts.batchName === undefined &&
+          batchTarget.batchId === undefined &&
+          batchTarget.batchName === undefined &&
           opts.targets === undefined
         ) {
           throw new PrvrsError(
             'INVALID_ARGUMENT',
-            'No update fields provided. Pass at least one of: --notes, --oz-out, --batch-name, --targets.'
+            'No update fields provided. Pass at least one of: --notes, --oz-out, --batch-id, --batch-name, --targets.'
           );
         }
 
         const data = await updateRoast(roastId, {
           notes: opts.notes as string | undefined,
           ozOut,
-          batchName: opts.batchName as string | undefined,
+          ...batchTarget,
           targets: opts.targets as string | undefined,
         });
 
@@ -650,6 +748,8 @@ Examples:
 
 Notes:
   Permanently deletes the roast profile and associated temperature/event data.
+  Deleting the last roast in a batch leaves the batch in place, empty. Remove it with
+  'purvey roast-batch delete <batch-id>'; 'purvey roast-batch list --include-empty' shows it.
   Cannot be undone. Requires authentication (member role).
 `
     )
@@ -677,6 +777,7 @@ Notes:
     .description('Import an Artisan .alog file and create a new roast profile')
     .argument('[file]', 'Path to .alog file (or use --form for interactive mode)')
     .option('--coffee-id <id>')
+    .option('--batch-id <uuid>')
     .option('--batch-name <name>')
     .option('--oz-in <oz>')
     .option('--roast-notes <notes>')
@@ -690,6 +791,7 @@ Examples:
   purvey roast import roast.alog --coffee-id 42 --oz-in 16
   purvey roast import roast.alog --coffee-id 7 --batch-name "Ethiopia Guji #3" --roast-notes "Faster development"
   purvey roast import roast.alog --coffee-id 7 --roast-targets "Aim for 18% development"
+  purvey roast import second.alog --coffee-id 7 --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e
   purvey roast import --form     # interactive wizard (browse files + select bean)
 
 Required: <file> path and --coffee-id (unless using --form)
@@ -697,6 +799,12 @@ Required: <file> path and --coffee-id (unless using --form)
   Imports temperature curve, roast events, and milestone timing.
   oz-in is auto-extracted from the .alog file if present; --oz-in overrides it.
   Use 'purvey inventory list' to find your --coffee-id.
+
+Batch:
+  --batch-id adds the roast to that batch, whatever the roast date. The roast takes the batch's name.
+  --batch-name adds the roast to your batch with that name on the roast date, or starts one.
+  Pass one or the other. With neither, the roast goes into a batch named after the coffee and roast date.
+  The output includes batch_id: pass it as --batch-id to import the next file into the same batch.
   Requires authentication (member role).
 `
     )
@@ -856,6 +964,7 @@ Required: <file> path and --coffee-id (unless using --form)
           }
 
           const coffeeId = parseRoastInt4Id(opts.coffeeId as string, '--coffee-id');
+          const batchTarget = parseRoastBatchTarget(opts);
 
           // 4. Parse --oz-in if provided
           let ozIn: number | undefined;
@@ -886,7 +995,7 @@ Required: <file> path and --coffee-id (unless using --form)
               fileContent,
               fileName,
               coffeeId,
-              batchName: opts.batchName as string | undefined,
+              ...batchTarget,
               ozIn,
               roastNotes: opts.roastNotes as string | undefined,
               roastTargets,
@@ -894,13 +1003,15 @@ Required: <file> path and --coffee-id (unless using --form)
             }),
             'roast import'
           );
-          const result = mapSdkImportResult(payload, coffeeId, (opts.batchName as string) ?? '');
+          const result = mapSdkImportResult(payload, coffeeId, batchTarget.batchName ?? '');
 
           // 6. Output
           if (globalOpts.pretty) {
             printImportPretty(result, coffeeId);
           } else {
-            success(`Roast profile ${result.roast_id} imported from ${fileName}.`);
+            success(
+              `Roast profile ${result.roast_id} imported from ${fileName} into batch ${result.batch_id}.`
+            );
             outputData(result, globalOpts);
           }
         }
@@ -912,6 +1023,7 @@ Required: <file> path and --coffee-id (unless using --form)
     .command('from-reference <profile-id> <revision-id>')
     .description('Create a roast from the Artisan file saved with one of your reference profiles')
     .requiredOption('--coffee-id <id>')
+    .option('--batch-id <uuid>')
     .option('--batch-name <name>')
     .option('--roast-date <YYYY-MM-DD>')
     .option('--oz-in <oz>')
@@ -934,6 +1046,8 @@ Notes:
   already in your history.
   Find the ids with 'purvey reference-profile list' (id and currentRevisionId) and the
   --coffee-id with 'purvey inventory list'.
+  --batch-id adds the roast to that batch, whatever the roast date; --batch-name adds it to your
+  batch with that name on the roast date, or starts one. Pass one or the other.
   Requires a member credential and Studio access on your account.
 `
     )
@@ -947,6 +1061,7 @@ Notes:
         ) => {
           const globalOpts = cmd.optsWithGlobals() as OutputOptions;
           const coffeeId = parseRoastInt4Id(opts.coffeeId as string, '--coffee-id');
+          const batchTarget = parseRoastBatchTarget(opts);
 
           let ozIn: number | undefined;
           if (opts.ozIn !== undefined) {
@@ -975,7 +1090,7 @@ Notes:
               referenceProfileId: parseReferenceProfileId(profileId, 'profile id'),
               referenceRevisionId: parseReferenceProfileId(revisionId, 'revision id'),
               coffeeId,
-              batchName: opts.batchName as string | undefined,
+              ...batchTarget,
               roastDate,
               ozIn,
               ozOut,
@@ -1023,12 +1138,15 @@ Notes:
   are queued or imported as roast profiles depending on commit mode.
   --auto-match and --coffee-id are mutually exclusive.
   --commit-mode defaults to batch: roasts are queued, then saved together
-  under the --batch-prefix name when you stop, so the session appears as one
-  batch. --commit-mode individual saves each roast right away under its own
-  name: "<name> #1", "<name> #2", and so on.
-  Session state is saved for --resume, which keeps the same batch name.
-  Batches are grouped by batch name and roast date, so roasts with a
-  different roast date appear as a separate batch.
+  into one new batch named by --batch-prefix when you stop. The session is one
+  batch even when the name was used before or the session runs past midnight.
+  The summary prints the batch ID.
+  --commit-mode individual saves each roast right away as its own batch,
+  named "<name> #1", "<name> #2", and so on.
+  Session state is saved for --resume, which keeps adding to the same batch.
+  A session saved by an earlier CLI version continues in the batch that holds
+  its first saved roast.
+  If no roast is saved, the batch opened for the session is removed.
   Requires authentication (member role).
 `
     )
@@ -1053,6 +1171,7 @@ Notes:
 
         const { credentialContext, userId } = await requireAuth('member');
         const roastImporter = createWatchRoastImporter(credentialContext);
+        const batchStore = createWatchBatchStore(credentialContext);
 
         // ── Resume mode ──────────────────────────────────────────────────────
         if (opts.resume) {
@@ -1077,11 +1196,13 @@ Notes:
               commitMode: saved.commitMode ?? 'batch',
               startedAt: saved.startedAt,
               resumeImports: saved.imports,
+              resumeBatchId: saved.batchId,
+              resumeBatchOpenedBySession: saved.batchOpenedBySession,
               ozIn: saved.ozIn,
               roastNotes: saved.roastNotes,
               roastTargets: saved.roastTargets,
             },
-            { roastImporter }
+            { roastImporter, batchStore }
           );
           return;
         }
@@ -1166,7 +1287,7 @@ Notes:
               {
                 value: 'individual',
                 label: 'Commit each roast immediately',
-                hint: 'Save each new file as soon as it appears, under its own numbered batch name.',
+                hint: 'Save each new file as soon as it appears, as its own numbered batch.',
               },
             ],
           });
@@ -1214,7 +1335,7 @@ Notes:
               roastNotes:
                 String(roastNotesRaw).trim() !== '' ? String(roastNotesRaw).trim() : undefined,
             },
-            { roastImporter }
+            { roastImporter, batchStore }
           );
           return;
         }
@@ -1279,7 +1400,7 @@ Notes:
             roastNotes,
             roastTargets,
           },
-          { roastImporter }
+          { roastImporter, batchStore }
         );
       })
     );
@@ -1304,6 +1425,7 @@ function printImportPretty(result: ImportRoastResult, coffeeId: number): void {
   console.log(`  Roast ID:     ${result.roast_id}`);
   console.log(`  Bean:         ${result.coffee_name} (#${coffeeId})`);
   console.log(`  Batch:        ${result.batch_name}`);
+  console.log(`  Batch ID:     ${result.batch_id}`);
 
   const tempCount = result.message.match(/(\d+) data points/)?.[1] ?? '?';
   console.log(

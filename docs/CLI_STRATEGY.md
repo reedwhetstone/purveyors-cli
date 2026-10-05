@@ -27,7 +27,8 @@ Current command groups:
 - `reference-profile`: Studio reference list, import, chart, compare, preview, save, and export, plus `roasts`, `preview-from-roast`, and `from-roast` for planning from roast history, through `@purveyors/sdk`
 - `inventory`: `list`, `get`, `add`, `update`, `delete`
 - `roast`: `list`, `get`, `chart`, `create`, `update`, `delete`, `import`, `from-reference`, `watch`
-- `sales`: `list`, `record`, `update`, `delete` through canonical SDK sales and roast endpoints
+- `roast-batch`: `list`, `get`, `create`, `update`, `delete` by batch ID, through the canonical SDK roast batch endpoints
+- `sales`: `list`, `record`, `update`, `delete` through canonical SDK sales, roast, and roast batch endpoints
 - `tasting`: `get`, `rate`
 - `config`: `list`, `get`, `set`, `reset`
 - `context`: dense human-readable reference, plus manifest-compatible JSON with `--json` or `--pretty`
@@ -55,6 +56,12 @@ There are no documented exceptions: every published capability and confirmed act
 command. `roast from-reference` performs `create_roast_from_reference`, and
 `reference-profile from-roast --artisan-source` followed by `reference-profile save` performs
 the roast-based `create_generated_reference`.
+
+The CLI is ahead of the assistant on roast batches. Parchment publishes the five
+`roastBatches` SDK methods but excludes them from the assistant's capability list, and the
+`roast-batch` commands, `roast watch`, and `sales record` already consume them. When the
+assistant gains a batch lookup tool and `roastBatches.list` and `roastBatches.get` join the
+list, the parity test is already satisfied.
 
 ## Agent-first product stance
 
@@ -114,7 +121,7 @@ The shipped auth model is role- and scope-based:
 - Authenticated `viewer` role required: `catalog`
 - Mixed public and entitled access: `market` and `price-index history` public teaser slices are unauthenticated; filtered market slices, `market evidence`, price-index comparisons, and history windows over 90 days require Parchment Intelligence access enforced server-side; `market overview` requires any signed-in session or API key
 - Authenticated `member` role plus Studio entitlement required: `reference-profile`, enforced by Parchment
-- Authenticated `member` role required through the stored scoped key: `price-index` snapshots, `price-index comparisons`, `price-index comparison`, `procurement`, `inventory`, `roast`, `sales`, `tasting`
+- Authenticated `member` role required through the stored scoped key: `price-index` snapshots, `price-index comparisons`, `price-index comparison`, `procurement`, `inventory`, `roast`, `roast-batch`, `sales`, `tasting`
 
 Parchment device authorization exposes the existing purveyors.io Google login in two supported flows:
 
@@ -136,7 +143,42 @@ scope. The request token and PKCE verifier are transient bootstrap material only
 
 `roast import` and `roast watch` normalize file and directory path input before filesystem access. They trim whitespace, remove one matching layer of single or double quotes, and unescape common shell-escaped characters so pasted paths from terminals and file pickers behave predictably.
 
-`roast watch` is a long-running operator workflow. It reacts only to new `.alog` files, saves session state for `--resume`, and treats Ctrl+C or SIGTERM as graceful shutdown signals that wait for active imports, commit queued batch-mode roasts, and print a verification summary. Batch commit mode saves every roast from the session under one shared batch name so the session reads as a single batch; individual commit mode gives each roast its own numbered name.
+`roast watch` is a long-running operator workflow. It reacts only to new `.alog` files, saves session state for `--resume`, and treats Ctrl+C or SIGTERM as graceful shutdown signals that wait for active imports, commit queued batch-mode roasts, and print a verification summary. Batch commit mode saves every roast from the session into one batch record; individual commit mode gives each roast its own numbered batch.
+
+### Roast batch identity
+
+A roast batch is a record in Parchment with its own ID, a display name, and a date
+([PADR-0029](https://github.com/reedwhetstone/parchment-api/blob/main/docs/adr/PADR-0029-roast-batch-identity.md)).
+Names repeat, so the CLI refers to a batch by ID wherever it means one batch:
+
+- `roast watch` in batch commit mode opens one batch per session through `roastBatches.create`,
+  keeps the ID in the saved session state, and sends it as `batchId` with every import. The
+  session is one batch when its name was used before and when it runs past midnight, and
+  `--resume` reuses the stored ID. The batch is opened when the first roast is saved, so a
+  session that sees no files creates nothing.
+- A session file written before batch IDs holds only the name. Those roasts were grouped by name
+  and roast date, so on `--resume` the CLI reads the batch of the first saved roast and continues
+  there. It reports, and does not move, any roasts of the session that are in another batch.
+- If the session opened a batch and saved no roast into it, the CLI reads the batch back and
+  deletes it only when it is empty. Deleting a batch deletes its roasts, so the read is the
+  safeguard; a batch the session joined is never removed.
+- Files the session could not match to a coffee are imported by hand. The command the CLI prints
+  for them carries the session's batch ID, read back first when it came from a saved session and
+  no roast of this run confirmed it. A session with no batch, because no roast was saved, prints
+  the `roast-batch create` command to run first. The CLI does not open a batch for those files
+  itself: one that is never used would stay behind empty.
+- Individual commit mode writes each roast with a numbered name and no batch ID, which is
+  Parchment's supported way to write without opening a batch first. Each roast is its own batch.
+- `--batch-id` on `roast create`, `roast import`, `roast from-reference`, and `roast update`
+  places a roast in an existing batch whatever its date. `--batch-name` keeps Parchment's
+  name-and-date placement. The CLI refuses both together instead of dropping the name.
+- `sales record` sends `batchId`, and `roastId` only when the seller named a roast with
+  `--roast-id`. A roast is never inferred from a batch. The name-based selector resolves to a
+  batch ID first and refuses, listing each candidate batch ID with its date, when the name
+  matches more than one batch that holds the coffee.
+
+The deprecated name-based batch routes (`roasts.createBatch`, `roasts.deleteBatch`) have no CLI
+caller.
 
 Both `roast import` and `roast watch` forward the original `.alog` source to Parchment. Parsing, validation, normalization, and persistence are canonical server-side responsibilities; the CLI must not maintain a second Artisan parser or reinterpret profile data locally.
 
@@ -204,6 +246,7 @@ The shipped CLI distinguishes ID types carefully:
 - `catalog_id`: `coffee_catalog` rows
 - `inventory id`: `green_coffee_inv.id`
 - `roast_id`: `roast_data.roast_id`
+- `batch_id`: `roast_batches.id` (a UUID)
 - `sale id`: `coffee_sales.id`
 
 Important command boundaries:
@@ -212,7 +255,7 @@ Important command boundaries:
 - `tasting rate [bean-id]` expects an inventory ID
 - `roast --coffee-id` expects an inventory ID
 - `sales list --coffee-id` expects an inventory ID; `sales record --roast-id` expects a roast ID
-- a sale retains inventory + batch name, not a roast ID, so roasts that share a batch name on one inventory item are sold as one batch
+- a sale refers to an inventory item and a batch by ID, and to one roast only when the seller named it; batch names repeat, so a name is a selector that must resolve to exactly one batch
 
 Maintained docs should call out these distinctions explicitly because they are a common source of operator and agent mistakes.
 
