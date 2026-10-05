@@ -1908,6 +1908,310 @@ describe('startWatch session batch', () => {
     await rm(watchDir, { recursive: true, force: true });
   });
 
+  const unmatched = (fileName: string, sequence: number) => ({
+    fileName,
+    roastId: null,
+    batchName: 'wednesday',
+    sequence,
+    status: 'needs-review' as const,
+    error: 'Low AI confidence (20%)',
+    importedAt: '2026-09-30T18:25:00.000Z',
+  });
+
+  it('says how to open a batch when every file still needs a coffee', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-all-manual-'));
+    const runtime = createRuntime();
+    classifyRoastMock.mockResolvedValue({ match: null });
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      {
+        ...WEDNESDAY,
+        coffeeId: 0,
+        coffeeName: 'auto-match',
+        autoMatch: true,
+        // Started late in the evening and stopped after midnight.
+        startedAt: new Date(2026, 8, 30, 23, 40).toISOString(),
+        ozIn: 16,
+      },
+      runtime.runtime
+    );
+    await dropFiles(runtime, watchDir, ['first.alog', 'second.alog']);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(session.imports.map((record) => record.status)).toEqual([
+      'needs-review',
+      'needs-review',
+    ]);
+    // Nothing was saved, so the session opens nothing and leaves no empty batch.
+    expect(runtime.roastImporter).not.toHaveBeenCalled();
+    expect(runtime.batches.store.create).not.toHaveBeenCalled();
+    expect(session.batchId).toBeUndefined();
+
+    const output = stderrOutput.join('');
+    expect(output).toContain('This session has no batch to add them to.');
+    expect(output).toContain('purvey roast-batch create --name "wednesday" --date 2026-09-30');
+    expect(output).toContain(
+      'purvey roast import <file> --coffee-id <id> --batch-id <batch-id> --oz-in 16'
+    );
+    // A command with no batch would start a separate batch for every file.
+    expect(output).not.toContain('purvey roast import <file> --coffee-id <id> --oz-in 16');
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('says how to open a batch after removing the one no roast was saved into', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-removed-recovery-'));
+    const runtime = createRuntime();
+    runtime.roastImporter.mockRejectedValue(new Error('Roast writes are not enabled'));
+    await writeFile(join(watchDir, 'queued.alog'), 'queued content');
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      {
+        ...WEDNESDAY,
+        startedAt: new Date(2026, 8, 30, 12).toISOString(),
+        resumeImports: [
+          {
+            fileName: 'queued.alog',
+            roastId: null,
+            batchName: 'wednesday',
+            sequence: 1,
+            status: 'pending',
+            importedAt: '2026-09-30T18:20:00.000Z',
+            selectedCoffeeId: 7,
+            selectedCoffeeName: 'Ethiopia Guji',
+          },
+          unmatched('unmatched.alog', 2),
+        ],
+      },
+      runtime.runtime
+    );
+    await watching(runtime);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.batches.store.create).toHaveBeenCalledTimes(1);
+    expect(runtime.batches.store.delete).toHaveBeenCalledWith(SESSION_BATCH_ID);
+    expect(session.batchId).toBeUndefined();
+
+    const output = stderrOutput.join('');
+    expect(output).toContain('purvey roast-batch create --name "wednesday" --date 2026-09-30');
+    expect(output).toContain('purvey roast import <file> --coffee-id <id> --batch-id <batch-id>');
+    // The removed batch is never offered as the place to import into.
+    expect(output).not.toContain(`--batch-id ${SESSION_BATCH_ID}`);
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('points manual recovery at the saved batch of a resumed session that saves nothing new', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-resume-recovery-'));
+    const runtime = createRuntime();
+    runtime.batches.seed({
+      id: SESSION_BATCH_ID,
+      name: 'wednesday',
+      batchDate: '2026-09-30',
+      roastIds: [501],
+    });
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      {
+        ...WEDNESDAY,
+        resumeBatchId: SESSION_BATCH_ID,
+        resumeBatchOpenedBySession: true,
+        resumeImports: [
+          {
+            fileName: 'done.alog',
+            roastId: 501,
+            batchName: 'wednesday',
+            batchId: SESSION_BATCH_ID,
+            sequence: 1,
+            status: 'success',
+            importedAt: '2026-09-30T18:10:00.000Z',
+          },
+          unmatched('unmatched.alog', 2),
+        ],
+      },
+      runtime.runtime
+    );
+    await watching(runtime);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.batches.store.get).toHaveBeenCalledWith(SESSION_BATCH_ID);
+    expect(runtime.batches.store.create).not.toHaveBeenCalled();
+    expect(session.batchId).toBe(SESSION_BATCH_ID);
+    expect(stderrOutput.join('')).toContain(
+      `purvey roast import <file> --coffee-id <id> --batch-id ${SESSION_BATCH_ID}`
+    );
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('does not point manual recovery at a saved batch that no longer exists', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-gone-recovery-'));
+    const deleted = '66666666-6666-4666-8666-666666666666';
+    const runtime = createRuntime();
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      {
+        ...WEDNESDAY,
+        startedAt: new Date(2026, 8, 30, 12).toISOString(),
+        resumeBatchId: deleted,
+        resumeBatchOpenedBySession: true,
+        resumeImports: [
+          {
+            fileName: 'done.alog',
+            roastId: 501,
+            batchName: 'wednesday',
+            batchId: deleted,
+            sequence: 1,
+            status: 'success',
+            importedAt: '2026-09-30T18:10:00.000Z',
+          },
+          unmatched('unmatched.alog', 2),
+        ],
+      },
+      runtime.runtime
+    );
+    await watching(runtime);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.batches.store.create).not.toHaveBeenCalled();
+    expect(runtime.batches.store.delete).not.toHaveBeenCalled();
+    expect(session.batchId).toBeUndefined();
+    expect(runtime.saveWatchSessionImpl).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ batchId: expect.anything() })
+    );
+
+    const output = stderrOutput.join('');
+    expect(output).toContain(`Batch ${deleted} no longer exists.`);
+    // The notice comes before the list of files, not in the middle of the instructions.
+    expect(output.indexOf(`Batch ${deleted} no longer exists.`)).toBeLessThan(
+      output.indexOf('manual bean assignment')
+    );
+    expect(output).toContain('purvey roast-batch create --name "wednesday" --date 2026-09-30');
+    expect(output).not.toContain(
+      `purvey roast import <file> --coffee-id <id> --batch-id ${deleted}`
+    );
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('points manual recovery at the batch of a session saved with only a batch name', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-legacy-recovery-'));
+    const firstNight = '44444444-4444-4444-8444-444444444444';
+    const runtime = createRuntime();
+    runtime.batches.seed({
+      id: firstNight,
+      name: 'wednesday',
+      batchDate: '2026-09-30',
+      roastIds: [501],
+    });
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      {
+        ...WEDNESDAY,
+        resumeImports: [
+          {
+            fileName: 'done.alog',
+            roastId: 501,
+            batchName: 'wednesday',
+            sequence: 1,
+            status: 'success',
+            importedAt: '2026-09-30T18:10:00.000Z',
+          },
+          unmatched('unmatched.alog', 2),
+        ],
+      },
+      runtime.runtime
+    );
+    await watching(runtime);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.batches.store.create).not.toHaveBeenCalled();
+    expect(session.batchId).toBe(firstNight);
+    expect(session.batchOpenedBySession).toBe(false);
+    expect(stderrOutput.join('')).toContain(
+      `purvey roast import <file> --coffee-id <id> --batch-id ${firstNight}`
+    );
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('keeps the saved batch ID in the recovery command when the batch cannot be read', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-offline-recovery-'));
+    const runtime = createRuntime();
+    runtime.batches.store.get.mockRejectedValue(new Error('offline'));
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      {
+        ...WEDNESDAY,
+        resumeBatchId: SESSION_BATCH_ID,
+        resumeBatchOpenedBySession: false,
+        resumeImports: [unmatched('unmatched.alog', 1)],
+      },
+      runtime.runtime
+    );
+    await watching(runtime);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(session.batchId).toBe(SESSION_BATCH_ID);
+    expect(stderrOutput.join('')).toContain(
+      `purvey roast import <file> --coffee-id <id> --batch-id ${SESSION_BATCH_ID}`
+    );
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('prints the recovery command without a batch in individual mode', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-individual-recovery-'));
+    const runtime = createRuntime();
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      {
+        ...WEDNESDAY,
+        commitMode: 'individual',
+        resumeImports: [{ ...unmatched('unmatched.alog', 1), batchName: 'wednesday #1' }],
+      },
+      runtime.runtime
+    );
+    await watching(runtime);
+    runtime.emitSignal('SIGINT');
+    await sessionPromise;
+
+    // Each roast is its own batch here, so there is no session batch to join or open.
+    expect(runtime.batches.store.get).not.toHaveBeenCalled();
+    const output = stderrOutput.join('');
+    expect(output).toContain('Use `purvey roast import <file> --coffee-id <id>` to import them');
+    expect(output).not.toContain('roast-batch create');
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
   it("does not open a session batch in individual mode and records each roast's own batch", async () => {
     const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-individual-'));
     const runtime = createRuntime();

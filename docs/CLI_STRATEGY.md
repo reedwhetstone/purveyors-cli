@@ -162,6 +162,11 @@ Names repeat, so the CLI refers to a batch by ID wherever it means one batch:
 - If the session opened a batch and saved no roast into it, the CLI reads the batch back and
   deletes it only when it is empty. Deleting a batch deletes its roasts, so the read is the
   safeguard; a batch the session joined is never removed.
+- Files the session could not match to a coffee are imported by hand. The command the CLI prints
+  for them carries the session's batch ID, read back first when it came from a saved session and
+  no roast of this run confirmed it. A session with no batch, because no roast was saved, prints
+  the `roast-batch create` command to run first. The CLI does not open a batch for those files
+  itself: one that is never used would stay behind empty.
 - Individual commit mode writes each roast with a numbered name and no batch ID, which is
   Parchment's supported way to write without opening a batch first. Each roast is its own batch.
 - `--batch-id` on `roast create`, `roast import`, `roast from-reference`, and `roast update`

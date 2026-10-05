@@ -192,7 +192,10 @@ interface QueuedImport {
 }
 
 interface ManualImportRecoveryOptions {
-  /** Batch the session saved its roasts in, so a manual import joins the same batch. */
+  /**
+   * Batch the session saved its roasts in, so a manual import joins the same
+   * batch. Pass `MANUAL_IMPORT_BATCH_PLACEHOLDER` when that batch has yet to be opened.
+   */
   batchId?: string;
   ozIn?: number;
   roastNotes?: string;
@@ -201,6 +204,17 @@ interface ManualImportRecoveryOptions {
 
 function quoteCliArg(value: string): string {
   return JSON.stringify(value);
+}
+
+/** Stands in for the batch ID in a recovery command until the batch is opened. */
+export const MANUAL_IMPORT_BATCH_PLACEHOLDER = '<batch-id>';
+
+/**
+ * Command that opens the batch a batch-mode session would have opened itself,
+ * for a session that ends with files to import by hand and no batch to put them in.
+ */
+export function buildSessionBatchCreateCommand(batchPrefix: string, batchDate: string): string {
+  return `purvey roast-batch create --name ${quoteCliArg(batchPrefix)} --date ${batchDate}`;
 }
 
 export function buildManualImportRecoveryCommand(
@@ -665,6 +679,7 @@ export async function startWatch(
   // The batch is opened when the first roast is about to be saved, not when the
   // watch starts, so a session that sees no files leaves nothing behind.
   let sessionBatch: Promise<string> | null = null;
+  const sessionBatchDate = localDateIso(new Date(session.startedAt));
 
   /**
    * A session saved before batches had ids knows only the shared name. Its saved
@@ -705,7 +720,11 @@ export async function startWatch(
     return undefined;
   }
 
-  async function resolveSessionBatch(store: WatchBatchStore): Promise<string> {
+  /**
+   * The batch this session already has, read back so a batch deleted since the
+   * session was saved is not used. Opens nothing.
+   */
+  async function findSessionBatch(store: WatchBatchStore): Promise<string | undefined> {
     if (session.batchId !== undefined) {
       const existing = await store.get(session.batchId);
       if (existing) return existing.id;
@@ -714,19 +733,26 @@ export async function startWatch(
       );
       session.batchId = undefined;
       session.batchOpenedBySession = undefined;
-    } else {
-      const joined = await findBatchOfSavedRoasts(store);
-      if (joined !== undefined) {
-        session.batchId = joined;
-        session.batchOpenedBySession = false;
-        await saveSession(session);
-        return joined;
-      }
+      await saveSession(session);
+      return undefined;
     }
+
+    const joined = await findBatchOfSavedRoasts(store);
+    if (joined !== undefined) {
+      session.batchId = joined;
+      session.batchOpenedBySession = false;
+      await saveSession(session);
+    }
+    return joined;
+  }
+
+  async function resolveSessionBatch(store: WatchBatchStore): Promise<string> {
+    const existing = await findSessionBatch(store);
+    if (existing !== undefined) return existing;
 
     const opened = await store.create({
       name: opts.batchPrefix,
-      batchDate: localDateIso(new Date(session.startedAt)),
+      batchDate: sessionBatchDate,
     });
     session.batchId = opened.id;
     session.batchOpenedBySession = true;
@@ -768,6 +794,22 @@ export async function startWatch(
         `⚠ Could not remove the empty batch opened for this session: ${err instanceof Error ? err.message : String(err)}\n` +
           `   Remove it with: purvey roast-batch delete ${batchId}\n\n`
       );
+    }
+  }
+
+  /**
+   * Batch a file imported by hand should join, or undefined when the session
+   * has none. A batch no roast of this run was saved into is known only from the
+   * saved session, so it is read back first. Opens nothing: a session that
+   * saved no roast leaves no batch behind.
+   */
+  async function findManualRecoveryBatch(store: WatchBatchStore): Promise<string | undefined> {
+    if (sessionBatch !== null) return session.batchId;
+    try {
+      return await findSessionBatch(store);
+    } catch {
+      // The batch could not be checked; the saved ID is the best answer available.
+      return session.batchId;
     }
   }
 
@@ -1142,20 +1184,35 @@ export async function startWatch(
 
           // Keep the command fallback for flag mode and cancelled form recovery.
           if (needsReview.length > 0) {
+            const recoveryBatchId = batchStore
+              ? await findManualRecoveryBatch(batchStore)
+              : undefined;
             process.stderr.write(
               `⚠  ${needsReview.length} file${needsReview.length !== 1 ? 's need' : ' needs'} manual bean assignment:\n`
             );
             for (const rec of needsReview) {
               process.stderr.write(`   - ${rec.fileName}\n`);
             }
-            process.stderr.write(
-              `   Use \`${buildManualImportRecoveryCommand({
-                batchId: session.batchId,
+            const recoveryCommand = (batchId?: string): string =>
+              buildManualImportRecoveryCommand({
+                batchId,
                 ozIn: opts.ozIn,
                 roastNotes: opts.roastNotes,
                 roastTargets: opts.roastTargets,
-              })}\` to import them manually.\n\n`
-            );
+              });
+            if (batchStore && recoveryBatchId === undefined) {
+              // Without a batch ID each manual import would start its own batch.
+              process.stderr.write(
+                `   This session has no batch to add them to. Open one, then import each file into it:\n` +
+                  `     ${buildSessionBatchCreateCommand(opts.batchPrefix, sessionBatchDate)}\n` +
+                  `     ${recoveryCommand(MANUAL_IMPORT_BATCH_PLACEHOLDER)}\n` +
+                  `   The first command prints the batch ID to use in the second.\n\n`
+              );
+            } else {
+              process.stderr.write(
+                `   Use \`${recoveryCommand(recoveryBatchId)}\` to import them manually.\n\n`
+              );
+            }
           }
 
           resolve();
