@@ -725,7 +725,8 @@ contains the text, in any letter case, or when the text is its roast ID, with or
 leading `#` (`4529` or `#4529`). A number finds the roast with exactly that ID, and any roast
 with the number in its coffee or batch name. The text is matched as written: `%` and `_` are
 ordinary characters, and `*` stands for any one character. It takes up to 100 characters;
-longer text, or text with a control character, exits 2.
+longer text, or text with a control character, exits 2. A refusal from Purveyors calls the
+search text `q`, as in `q must not contain control characters`.
 
 Every filter narrows the list together. `--coffee-name`, `--batch-name`, and `--roast-id` each
 match their one field as before, so `--search guji --batch-name wednesday` returns only roasts

@@ -1327,7 +1327,7 @@ const commandGroups: CliCommandGroupContract[] = [
           '--coffee-id expects inventory_id, not catalog_id.',
           '--catalog-id filters by catalog ID.',
           '--date-start and --date-end accept YYYY-MM-DD format.',
-          '--search takes up to 100 characters and is matched as written: % and _ are ordinary characters, and * stands for any one character. A number finds the roast with exactly that ID, and any roast with the number in its coffee or batch name.',
+          '--search takes up to 100 characters and is matched as written: % and _ are ordinary characters, and * stands for any one character. A number finds the roast with exactly that ID, and any roast with the number in its coffee or batch name. Search text that is refused exits 2; the message calls the search text q.',
           'Every filter narrows the list together: --search with --coffee-name, --batch-name, or --roast-id returns only roasts that match all of them.',
           '--wholesale false includes roasts of coffees with no catalog listing, so true and false together cover every roast.',
           '--include-totals adds meta.totals { roasts, batches, average_loss_percent } for every roast the filters match, the same on every page. average_loss_percent is null when no matching roast has a recorded weight loss. An empty result prints data: [] with totals of zero. It does not support --csv.',

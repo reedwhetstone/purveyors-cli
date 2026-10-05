@@ -388,6 +388,7 @@ Notes:
   ${ROAST_SEARCH_MAX_LENGTH} characters and is matched as written: % and _ are ordinary characters, and
   * stands for any one character. A number finds the roast with exactly that ID, and
   any roast with the number in its coffee or batch name.
+  Search text that is refused exits 2; the message calls the search text q.
   Every filter narrows the list together. --search with --coffee-name, --batch-name, or
   --roast-id returns only roasts that match all of them.
   --wholesale true returns roasts of wholesale coffees; false returns every other roast,
