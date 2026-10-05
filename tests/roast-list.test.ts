@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { listRoastsSchema } from '../src/lib/roast.js';
+import { listRoastsSchema, ROAST_SEARCH_MAX_LENGTH } from '../src/lib/roast.js';
 
 describe('listRoastsSchema', () => {
   // ── Existing fields ────────────────────────────────────────────────────────
@@ -161,6 +161,55 @@ describe('listRoastsSchema', () => {
     if (result.success) expect(result.data.coffee_name).toBeUndefined();
   });
 
+  // ── q (search) ─────────────────────────────────────────────────────────────
+
+  it('accepts a search term as q', () => {
+    const result = listRoastsSchema.safeParse({ q: 'guji' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.q).toBe('guji');
+  });
+
+  it('q defaults to undefined', () => {
+    const result = listRoastsSchema.safeParse({});
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.q).toBeUndefined();
+  });
+
+  it('accepts q of exactly 100 characters and leaves it as written', () => {
+    expect(ROAST_SEARCH_MAX_LENGTH).toBe(100);
+    const padded = `  ${'x'.repeat(100)}  `;
+    const result = listRoastsSchema.safeParse({ q: padded });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.q).toBe(padded);
+  });
+
+  it('rejects q over 100 characters', () => {
+    const result = listRoastsSchema.safeParse({ q: 'x'.repeat(101) });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].message).toBe('Search text must be at most 100 characters');
+    }
+  });
+
+  // ── is_wholesale ───────────────────────────────────────────────────────────
+
+  it('accepts is_wholesale true and false', () => {
+    const wholesale = listRoastsSchema.safeParse({ is_wholesale: true });
+    const retail = listRoastsSchema.safeParse({ is_wholesale: false });
+    expect(wholesale.success && wholesale.data.is_wholesale).toBe(true);
+    expect(retail.success && retail.data.is_wholesale).toBe(false);
+  });
+
+  it('is_wholesale defaults to undefined (both)', () => {
+    const result = listRoastsSchema.safeParse({});
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.is_wholesale).toBeUndefined();
+  });
+
+  it('rejects a non-boolean is_wholesale', () => {
+    expect(listRoastsSchema.safeParse({ is_wholesale: 'true' }).success).toBe(false);
+  });
+
   // ── Combined filters ──────────────────────────────────────────────────────
 
   it('accepts all filters together', () => {
@@ -169,10 +218,12 @@ describe('listRoastsSchema', () => {
       roast_id: 123,
       batch_name: 'Ethiopia',
       coffee_name: 'Ethiopia Yirgacheffe',
+      q: 'guji',
       date_start: '2026-03-01',
       date_end: '2026-03-31',
       stocked_only: true,
       catalog_id: 128,
+      is_wholesale: false,
       limit: 10,
     });
     expect(result.success).toBe(true);
@@ -185,6 +236,8 @@ describe('listRoastsSchema', () => {
       expect(result.data.date_end).toBe('2026-03-31');
       expect(result.data.stocked_only).toBe(true);
       expect(result.data.catalog_id).toBe(128);
+      expect(result.data.q).toBe('guji');
+      expect(result.data.is_wholesale).toBe(false);
       expect(result.data.limit).toBe(10);
     }
   });

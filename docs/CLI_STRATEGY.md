@@ -226,6 +226,27 @@ the file back and compares its SHA-256 with the `Repr-Digest` the API sent; a mi
 the file and exits 1. With `--force`, the bytes are written and checked beside the destination
 and moved into place only after they pass, so a failed download never replaces an existing file.
 
+### Roast list search, wholesale filter, and totals
+
+`roast list --search <text>` and `--wholesale <true|false>` are direct passthroughs to the roast
+list's `q` and `is_wholesale` parameters, added to Parchment for the web roast page and for the
+web assistant's roast search. Parchment owns the matching: which fields a term is compared with,
+how a roast ID is recognized, how `%`, `_`, and `*` are read, and that a roast with no linked
+catalog coffee counts as retail. The CLI does not filter or reinterpret rows (ADR-004). The older
+`--coffee-name`, `--batch-name`, and `--roast-id` filters are unchanged and narrow together with
+`--search`, as every roast list parameter does.
+
+The CLI checks one search rule itself, the 100-character limit, because it is the same test
+Parchment applies (length after trimming) and saves a request. `--wholesale` accepts `true` or
+`false`, parsed the way the `price-index` commands parse it. Every other refusal, such as a
+control character in the search text, is Parchment's `invalid_query` message relayed with exit 2.
+
+Parchment returns `meta.totals` (`roasts`, `batches`, `average_loss_percent`) for the whole
+filtered set on every page. `roast list` has always printed a bare list, and scripts read it as
+one, so the totals are opt-in: `--include-totals` prints Parchment's `{ data, meta }` response
+unchanged, including for an empty result, and the default output keeps its shape. The library
+function `listRoasts` still returns the list; `listRoastsPage` returns the full response.
+
 ### Output and reference surfaces
 
 The CLI is designed for both humans and automation:

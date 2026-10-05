@@ -1285,6 +1285,11 @@ const commandGroups: CliCommandGroupContract[] = [
             description: 'Only roasts of coffees whose name contains this text (case-insensitive)',
           },
           {
+            flags: '--search <text>',
+            description:
+              'Only roasts whose coffee name or batch name contains this text (case-insensitive), or whose roast ID is this number, with or without a leading #',
+          },
+          {
             flags: '--date-start <YYYY-MM-DD>',
             description: 'Only roasts on or after this date',
           },
@@ -1296,6 +1301,16 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             flags: '--catalog-id <id>',
             description: 'Only roasts of coffees bought from this catalog coffee (a catalog ID)',
+          },
+          {
+            flags: '--wholesale <true|false>',
+            description:
+              'true for roasts of wholesale coffees only, false for every other roast; without it, both',
+          },
+          {
+            flags: '--include-totals',
+            description:
+              'Print { data, meta } instead of a list: data is the page of roasts, and meta.totals counts every roast the filters match',
           },
           {
             flags: '--limit <n>',
@@ -1312,11 +1327,18 @@ const commandGroups: CliCommandGroupContract[] = [
           '--coffee-id expects inventory_id, not catalog_id.',
           '--catalog-id filters by catalog ID.',
           '--date-start and --date-end accept YYYY-MM-DD format.',
-          '--offset + --limit enables pagination through large result sets.',
+          '--search takes up to 100 characters and is matched as written: % and _ are ordinary characters, and * stands for any one character. A number finds the roast with exactly that ID, and any roast with the number in its coffee or batch name. Search text that is refused exits 2; the message calls the search text q.',
+          'Every filter narrows the list together: --search with --coffee-name, --batch-name, or --roast-id returns only roasts that match all of them.',
+          '--wholesale false includes roasts of coffees with no catalog listing, so true and false together cover every roast.',
+          '--include-totals adds meta.totals { roasts, batches, average_loss_percent } for every roast the filters match, the same on every page. average_loss_percent is null when no matching roast has a recorded weight loss. An empty result prints data: [] with totals of zero. It does not support --csv.',
+          'Paging: raise --offset by --limit. With --include-totals, a page is the last one when --offset plus the number of roasts returned reaches meta.totals.roasts.',
+          'Without --include-totals the output is a list of roasts, and an empty result prints nothing on stdout.',
           'Every roast includes batch_id, the ID of the batch it belongs to.',
           'artisan_file_available is true when roast artisan-file can return the Artisan file the roast was imported from.',
         ],
         examples: [
+          'purvey roast list --search "guji" --include-totals',
+          'purvey roast list --wholesale false --limit 20 --offset 20',
           'purvey roast list --date-start 2026-03-01 --date-end 2026-03-31',
           'purvey roast list --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e',
         ],
@@ -3060,6 +3082,14 @@ const workflows: CliWorkflowContract[] = [
     ],
   },
   {
+    title: 'Find a roast',
+    commands: [
+      'purvey roast list --search "guji" --include-totals --pretty',
+      'purvey roast list --search "guji" --include-totals --limit 20 --offset 20',
+      'purvey roast get 4529 --pretty',
+    ],
+  },
+  {
     title: "Get a roast's Artisan file back",
     commands: [
       "purvey roast get 4529 | jq '.artisan_file_available'",
@@ -3169,6 +3199,7 @@ const errorPatterns: CliErrorPatternContract[] = [
     guidance: [
       `Only these commands page with --offset (default --limit): ${paginatedCommands(commandGroups).join(', ')}.`,
       'For example `--limit 20 --offset 40` returns items 41-60.',
+      '`roast list --include-totals` adds meta.totals.roasts; the last page is the one where --offset plus the rows returned reaches it.',
     ],
   },
 ];

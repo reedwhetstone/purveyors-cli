@@ -8,7 +8,7 @@ import { withErrorHandling, PrvrsError, AuthError } from '../lib/errors.js';
 import { requireAuth } from '../lib/auth-guard.js';
 import { confirm, todayIso } from '../lib/prompts.js';
 import {
-  listRoasts,
+  listRoastsPage,
   getRoast,
   getRoastChartData,
   createRoast,
@@ -17,6 +17,7 @@ import {
   updateRoast,
   parseRoastBatchId,
   ROAST_CHART_TARGET_POINTS,
+  ROAST_SEARCH_MAX_LENGTH,
 } from '../lib/roast.js';
 import type {
   RoastProfile,
@@ -74,6 +75,17 @@ function parseRoastListCount(value: string, flag: '--limit' | '--offset'): numbe
     );
   }
   return parsed;
+}
+
+/** `--wholesale` takes true or false, matched the way the price-index commands match it. */
+function parseRoastWholesale(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  throw new PrvrsError(
+    'INVALID_ARGUMENT',
+    `Invalid --wholesale: "${value}". Must be "true" or "false".`
+  );
 }
 
 function parseRoastChartTargetPoints(value: string): number {
@@ -339,10 +351,13 @@ export function buildRoastCommand(): Command {
     .option('--batch-id <uuid>')
     .option('--batch-name <text>')
     .option('--coffee-name <text>')
+    .option('--search <text>')
     .option('--date-start <YYYY-MM-DD>')
     .option('--date-end <YYYY-MM-DD>')
     .option('--stocked')
     .option('--catalog-id <id>')
+    .option('--wholesale <true|false>')
+    .option('--include-totals')
     .option('--limit <n>', '', '20')
     .option('--offset <n>', '', '0')
     .addHelpText(
@@ -350,6 +365,10 @@ export function buildRoastCommand(): Command {
       `
 Examples:
   purvey roast list --pretty
+  purvey roast list --search "guji" --pretty
+  purvey roast list --search "#4529"
+  purvey roast list --search "guji" --date-start 2026-03-01 --include-totals --pretty
+  purvey roast list --wholesale false --include-totals | jq '.meta.totals'
   purvey roast list --coffee-id 7 --pretty
   purvey roast list --roast-id 123 --pretty
   purvey roast list --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --pretty
@@ -361,8 +380,27 @@ Examples:
   purvey roast list --limit 5 | jq '.[].roast_id'
   purvey roast list --csv > roasts.csv
   purvey roast list --limit 20 --offset 20   # page 2
+  purvey roast list --include-totals --limit 20 --offset 20 | jq '{rows: (.data | length), of: .meta.totals.roasts}'
 
 Notes:
+  --search finds roasts by one term: text in the coffee name or the batch name
+  (case-insensitive), or a roast ID, with or without a leading #. It takes up to
+  ${ROAST_SEARCH_MAX_LENGTH} characters and is matched as written: % and _ are ordinary characters, and
+  * stands for any one character. A number finds the roast with exactly that ID, and
+  any roast with the number in its coffee or batch name.
+  Search text that is refused exits 2; the message calls the search text q.
+  Every filter narrows the list together. --search with --coffee-name, --batch-name, or
+  --roast-id returns only roasts that match all of them.
+  --wholesale true returns roasts of wholesale coffees; false returns every other roast,
+  including roasts of coffees with no catalog listing. Leave it out for both.
+  --include-totals prints { data, meta } instead of a list. data holds the page of roasts.
+  meta.totals has roasts, batches, and average_loss_percent for every roast the filters
+  match, so it is the same on every page. average_loss_percent is null when no matching
+  roast has a recorded weight loss. An empty result prints data: [] with totals of zero.
+  It does not support --csv.
+  Paging: raise --offset by --limit. With --include-totals, a page is the last one when
+  --offset plus the number of roasts returned reaches meta.totals.roasts.
+  Without --include-totals, an empty result prints nothing on stdout.
   --coffee-id filters by inventory ID, not catalog ID.
   --roast-id filters by the exact roast profile ID while preserving list output shape.
   --catalog-id filters by catalog ID (from catalog search).
@@ -371,7 +409,6 @@ Notes:
   --coffee-name accepts partial matches on the bean name (case-insensitive).
   --date-start and --date-end accept YYYY-MM-DD format; use together for a range.
   --stocked only returns roasts for beans currently marked as stocked in inventory.
-  --offset + --limit enables pagination through large result sets.
   Returns roast_id, batch_id, batch_name, roast_date, oz_in, oz_out, and bean details.
   artisan_file_available is true when 'purvey roast artisan-file <id>' can return the roast's Artisan file.
   Requires authentication (member role).
@@ -380,6 +417,26 @@ Notes:
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
         const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        const includeTotals = opts.includeTotals === true;
+        if (includeTotals && globalOpts.csv) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            '--include-totals does not support --csv. Use --json or --pretty, or leave out --include-totals.'
+          );
+        }
+
+        // The one search rule checked here is the length limit; Parchment decides the rest.
+        const search = opts.search as string | undefined;
+        if (search !== undefined && search.trim().length > ROAST_SEARCH_MAX_LENGTH) {
+          throw new PrvrsError(
+            'INVALID_ARGUMENT',
+            `Invalid --search: must be at most ${ROAST_SEARCH_MAX_LENGTH} characters.`
+          );
+        }
+
+        const wholesale =
+          opts.wholesale !== undefined ? parseRoastWholesale(opts.wholesale as string) : undefined;
+
         // Parse --date-start and --date-end format
         const dateStart = opts.dateStart as string | undefined;
         const dateEnd = opts.dateEnd as string | undefined;
@@ -407,7 +464,7 @@ Notes:
           catalogId = parseRoastInt4Id(opts.catalogId as string, '--catalog-id');
         }
 
-        const data = await listRoasts({
+        const page = await listRoastsPage({
           coffee_id:
             opts.coffeeId !== undefined
               ? parseRoastInt4Id(opts.coffeeId as string, '--coffee-id')
@@ -419,14 +476,22 @@ Notes:
               : undefined,
           batch_name: opts.batchName as string | undefined,
           coffee_name: opts.coffeeName as string | undefined,
+          q: search,
           date_start: dateStart,
           date_end: dateEnd,
           stocked_only: opts.stocked === true ? true : undefined,
           catalog_id: catalogId,
+          is_wholesale: wholesale,
           limit: parseRoastListCount(opts.limit as string, '--limit'),
           offset: parseRoastListCount(opts.offset as string, '--offset'),
         });
 
+        if (includeTotals) {
+          outputData(page, globalOpts);
+          return;
+        }
+
+        const data = page.data;
         if (data.length === 0) {
           info('No roast profiles found.');
           return;
