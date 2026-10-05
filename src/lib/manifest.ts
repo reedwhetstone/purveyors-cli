@@ -157,7 +157,7 @@ const roles: CliRoleContract[] = [
   {
     role: 'member',
     description:
-      'a Purveyors membership; required for inventory, roast, sales, tasting, procurement, and reference-profile commands',
+      'a Purveyors membership; required for inventory, roast, roast-batch, sales, tasting, procurement, and reference-profile commands',
   },
 ];
 
@@ -245,8 +245,20 @@ const idTypes: CliIdContract[] = [
       'roast get/chart/delete',
       'roast list --roast-id',
       'sales record --roast-id',
+      'sales list --roast-id',
       'reference-profile compare roast:<roast-id>',
       'reference-profile preview-from-roast/from-roast',
+    ],
+  },
+  {
+    name: 'batch_id',
+    source: 'one of your roast batches (a UUID); batch names can repeat, batch IDs cannot',
+    usedBy: [
+      'roast-batch get/update/delete',
+      'roast list --batch-id',
+      'roast create/import/update/from-reference --batch-id',
+      'sales record --batch-id',
+      'sales list --batch-id',
     ],
   },
   {
@@ -1243,8 +1255,13 @@ const commandGroups: CliCommandGroupContract[] = [
           },
           { flags: '--roast-id <id>', description: 'Only the roast with this roast ID' },
           {
+            flags: '--batch-id <uuid>',
+            description: 'Only the roasts in this batch (a batch ID from roast-batch list)',
+          },
+          {
             flags: '--batch-name <text>',
-            description: 'Only roasts whose batch name contains this text (case-insensitive)',
+            description:
+              'Only roasts whose batch name contains this text (case-insensitive); names can repeat, so this can span several batches',
           },
           {
             flags: '--coffee-name <text>',
@@ -1279,8 +1296,12 @@ const commandGroups: CliCommandGroupContract[] = [
           '--catalog-id filters by catalog ID.',
           '--date-start and --date-end accept YYYY-MM-DD format.',
           '--offset + --limit enables pagination through large result sets.',
+          'Every roast includes batch_id, the ID of the batch it belongs to.',
         ],
-        examples: ['purvey roast list --date-start 2026-03-01 --date-end 2026-03-31'],
+        examples: [
+          'purvey roast list --date-start 2026-03-01 --date-end 2026-03-31',
+          'purvey roast list --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e',
+        ],
       },
       {
         name: 'get',
@@ -1353,8 +1374,14 @@ const commandGroups: CliCommandGroupContract[] = [
             requiredInFlagMode: true,
           },
           {
+            flags: '--batch-id <uuid>',
+            description:
+              "Add the roast to this existing batch, whatever the roast date; the roast takes the batch's name. Use instead of --batch-name",
+          },
+          {
             flags: '--batch-name <name>',
-            description: "Name for this roast batch; defaults to the coffee name plus today's date",
+            description:
+              "Add the roast to your batch with this name on the roast date, or start one; defaults to the coffee name plus today's date",
           },
           { flags: '--oz-in <oz>', description: 'Green coffee weight going in, in ounces' },
           { flags: '--oz-out <oz>', description: 'Roasted coffee weight coming out, in ounces' },
@@ -1377,6 +1404,7 @@ const commandGroups: CliCommandGroupContract[] = [
               'Prompt for an inventory coffee, batch name, weight in, notes, and targets; the roast date is set to today and targets are saved in the notes',
           },
         ],
+        notes: ['Pass --batch-id or --batch-name, not both. The created roast includes batch_id.'],
       },
       {
         name: 'update',
@@ -1400,8 +1428,19 @@ const commandGroups: CliCommandGroupContract[] = [
             description:
               'New roasted weight, in ounces; weight loss is recalculated when the green weight is known',
           },
-          { flags: '--batch-name <name>', description: 'New batch name' },
+          {
+            flags: '--batch-id <uuid>',
+            description: 'Move the roast into this batch; use instead of --batch-name',
+          },
+          {
+            flags: '--batch-name <name>',
+            description:
+              'Move the roast into your batch with this name on the roast date, or start one',
+          },
           { flags: '--targets <text>', description: 'Replace the roast targets' },
+        ],
+        notes: [
+          '--batch-id and --batch-name move this roast between batches. To rename a batch, use roast-batch update --name.',
         ],
       },
       {
@@ -1424,6 +1463,9 @@ const commandGroups: CliCommandGroupContract[] = [
             description: 'Delete without asking for confirmation; needed in scripts and agents',
           },
         ],
+        notes: [
+          'Deleting the last roast in a batch leaves the batch in place, empty. Remove it with roast-batch delete.',
+        ],
       },
       {
         name: 'import',
@@ -1438,9 +1480,14 @@ const commandGroups: CliCommandGroupContract[] = [
             requiredInFlagMode: true,
           },
           {
+            flags: '--batch-id <uuid>',
+            description:
+              "Add the roast to this existing batch, whatever the roast date; the roast takes the batch's name. Use instead of --batch-name",
+          },
+          {
             flags: '--batch-name <name>',
             description:
-              'Name for this roast batch; defaults to the coffee name plus the roast date',
+              'Add the roast to your batch with this name on the roast date, or start one; defaults to the coffee name plus the roast date',
           },
           {
             flags: '--oz-in <oz>',
@@ -1456,6 +1503,10 @@ const commandGroups: CliCommandGroupContract[] = [
             flags: '--form',
             description: 'Pick the file and inventory item interactively',
           },
+        ],
+        notes: [
+          'Pass --batch-id or --batch-name, not both.',
+          'The result includes batch_id; pass it as --batch-id to import the next file into the same batch.',
         ],
       },
       {
@@ -1486,9 +1537,14 @@ const commandGroups: CliCommandGroupContract[] = [
             description: 'Required. Inventory ID of the coffee you roasted (not a catalog ID)',
           },
           {
+            flags: '--batch-id <uuid>',
+            description:
+              "Add the roast to this existing batch, whatever the roast date; the roast takes the batch's name. Use instead of --batch-name",
+          },
+          {
             flags: '--batch-name <name>',
             description:
-              'Name for this roast batch; defaults to the coffee name plus the roast date',
+              'Add the roast to your batch with this name on the roast date, or start one; defaults to the coffee name plus the roast date',
           },
           {
             flags: '--roast-date <YYYY-MM-DD>',
@@ -1519,6 +1575,7 @@ const commandGroups: CliCommandGroupContract[] = [
           'Creates the roast from the Artisan file uploaded with reference-profile import, so the .alog file does not need to be on this machine.',
           'Only an uploaded Artisan reference can become a roast. A generated plan is never recorded as a roast, and a reference saved from a past roast is refused because that roast is already in your history.',
           'Output is the created roast with its curve, an import summary, and the reference it came from.',
+          'Pass --batch-id or --batch-name, not both.',
           'Requires a member credential and Studio access on your account.',
         ],
         examples: [
@@ -1529,7 +1586,15 @@ const commandGroups: CliCommandGroupContract[] = [
         name: 'watch',
         summary: 'Watch a directory for new Artisan .alog files',
         auth: 'member',
-        sdkMethods: ['roasts.import', 'inventory.list', 'roasts.classify'],
+        sdkMethods: [
+          'roasts.import',
+          'inventory.list',
+          'roasts.classify',
+          'roastBatches.create',
+          'roastBatches.get',
+          'roastBatches.delete',
+          'roasts.get',
+        ],
         arguments: [{ name: 'directory', description: 'Directory to watch', required: false }],
         options: [
           {
@@ -1540,7 +1605,7 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             flags: '--batch-prefix <name>',
             description:
-              'Batch name for the watch session; defaults to the coffee name. Batch commit mode saves every roast under this name, and individual commit mode numbers them like "<name> #1"',
+              'Batch name for the watch session; defaults to the coffee name. Batch commit mode saves every roast into one new batch with this name, and individual commit mode numbers them like "<name> #1"',
           },
           {
             flags: '--prompt-each',
@@ -1555,7 +1620,7 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             flags: '--commit-mode <batch|individual>',
             description:
-              'batch queues new roasts and saves them under one shared batch name when you stop watching, so the session shows up as a single batch; individual saves each roast as soon as its file appears, under its own numbered batch name',
+              'batch queues new roasts and saves them into one new batch when you stop watching, so the session is a single batch; individual saves each roast as soon as its file appears, as its own numbered batch',
             defaultValue: 'batch',
           },
           {
@@ -1570,7 +1635,7 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             flags: '--resume',
             description:
-              'Continue the last watch session with its saved directory, settings, and import progress',
+              'Continue the last watch session with its saved directory, settings, import progress, and batch',
           },
           {
             flags: '--form',
@@ -1581,9 +1646,165 @@ const commandGroups: CliCommandGroupContract[] = [
           '--auto-match is mutually exclusive with --coffee-id.',
           '--auto-match matches each new roast to a stocked inventory item from its metadata.',
           '--commit-mode defaults to batch so new roasts are queued until the session ends.',
-          'In batch commit mode every roast from the session shares the --batch-prefix name, so the roasts appear together as one batch for that roast date. --resume keeps the same batch name; roasts with a different roast date appear as a separate batch.',
-          'In individual commit mode each roast gets its own batch name: "<name> #1", "<name> #2", and so on.',
+          'In batch commit mode the session opens one new batch, named by --batch-prefix, and saves every roast into it by batch ID. It stays one batch when the name was used before and when the session runs past midnight. The closing summary prints the batch ID.',
+          '--resume keeps adding to the same batch. A session saved by an earlier CLI version, which stored only the batch name, continues in the batch that holds its first saved roast.',
+          'The batch is opened when the first roast is saved. If no roast is saved into it, for example when every import fails, it is removed when the session ends.',
+          'In individual commit mode each roast is its own batch, named "<name> #1", "<name> #2", and so on.',
         ],
+      },
+    ],
+  },
+  {
+    name: 'roast-batch',
+    summary: 'List, open, rename, and delete roast batches by batch ID',
+    auth: 'member',
+    subcommands: [
+      {
+        name: 'list',
+        summary: 'List your roast batches, newest batch date first',
+        auth: 'member',
+        sdkMethods: ['roastBatches.list'],
+        options: [
+          {
+            flags: '--name <name>',
+            description:
+              'Only batches with exactly this name; several batches can carry the same name',
+          },
+          {
+            flags: '--date-start <YYYY-MM-DD>',
+            description: 'Only batches dated on or after this date',
+          },
+          {
+            flags: '--date-end <YYYY-MM-DD>',
+            description: 'Only batches dated on or before this date',
+          },
+          {
+            flags: '--include-empty',
+            description: 'Also list batches that hold no roasts',
+          },
+          {
+            flags: '--limit <n>',
+            description: 'Maximum number of batches to return',
+            defaultValue: 20,
+            minimum: 1,
+            maximum: 200,
+          },
+          {
+            flags: '--offset <n>',
+            description: 'Number of batches to skip when paging',
+            defaultValue: 0,
+          },
+        ],
+        notes: [
+          'A batch is one roasting session. Each batch has id, name, batch_date, roast_count, roast_ids, and coffee_ids (the inventory items roasted).',
+          'The date filters use the batch date, not the roast dates inside the batch.',
+          'A batch with no roasts is listed only with --include-empty, under a placeholder name.',
+        ],
+        examples: [
+          'purvey roast-batch list --pretty',
+          'purvey roast-batch list --name "wednesday" --pretty',
+        ],
+      },
+      {
+        name: 'get',
+        summary: 'Get one roast batch with the IDs of its roasts',
+        auth: 'member',
+        sdkMethods: ['roastBatches.get'],
+        arguments: [
+          {
+            name: 'batch_id',
+            cliToken: 'id',
+            description: 'Batch ID',
+            required: true,
+            idType: 'batch_id',
+          },
+        ],
+        notes: ['List the full roasts with roast list --batch-id.'],
+      },
+      {
+        name: 'create',
+        summary: 'Open a new, empty roast batch to add roasts to',
+        auth: 'member',
+        sdkMethods: ['roastBatches.create'],
+        options: [
+          {
+            flags: '--name <name>',
+            description: 'Required. Name for the batch; other batches may already use it',
+          },
+          {
+            flags: '--date <YYYY-MM-DD>',
+            description: 'Session date for the batch; defaults to today',
+          },
+          {
+            flags: '--idempotency-key <key>',
+            description:
+              'Key that makes retries safe: repeating the command with the same key does not open a second batch. A new key is generated when omitted',
+          },
+        ],
+        notes: [
+          'Always opens a new batch, even when another batch has the same name.',
+          'Add roasts with --batch-id on roast import, roast create, or roast from-reference. Roasts keep their own dates, so one batch can span days.',
+          'Until it holds a roast, the batch is listed only with --include-empty and reads with a placeholder name.',
+          'roast watch opens its own batch; use this when importing files one at a time.',
+        ],
+        examples: ['purvey roast-batch create --name "wednesday" --pretty'],
+      },
+      {
+        name: 'update',
+        summary: 'Rename or re-date a roast batch',
+        auth: 'member',
+        sdkMethods: ['roastBatches.update'],
+        arguments: [
+          {
+            name: 'batch_id',
+            cliToken: 'id',
+            description: 'Batch ID',
+            required: true,
+            idType: 'batch_id',
+          },
+        ],
+        options: [
+          {
+            flags: '--name <name>',
+            description:
+              "New name for this batch; it also appears on the batch's roasts and on sales recorded against it",
+          },
+          {
+            flags: '--date <YYYY-MM-DD>',
+            description: 'New batch date; roast dates are not changed',
+          },
+        ],
+        notes: ['Pass at least one flag. Other batches with the same name are not changed.'],
+        examples: [
+          'purvey roast-batch update 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --name "wednesday decaf"',
+        ],
+      },
+      {
+        name: 'delete',
+        summary: 'Delete one roast batch and the roasts in it',
+        auth: 'member',
+        sdkMethods: ['roastBatches.delete', 'roastBatches.get'],
+        arguments: [
+          {
+            name: 'batch_id',
+            cliToken: 'id',
+            description: 'Batch ID',
+            required: true,
+            idType: 'batch_id',
+          },
+        ],
+        options: [
+          {
+            flags: '--yes',
+            description: 'Delete without asking for confirmation; needed in scripts and agents',
+          },
+        ],
+        notes: [
+          'Deletes this batch and every roast in it, with their temperature and event data. No other batch is touched, even one with the same name.',
+          'Sales recorded against the batch are kept: they keep the batch name and lose the link to the batch.',
+          'Output is the deleted batch ID, its name, and the IDs of the roasts deleted with it.',
+        ],
+        examples: ['purvey roast-batch delete 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --yes'],
       },
     ],
   },
@@ -1602,6 +1823,11 @@ const commandGroups: CliCommandGroupContract[] = [
             flags: '--coffee-id <id>',
             description: 'Only sales of this inventory item (an inventory ID)',
           },
+          {
+            flags: '--batch-id <uuid>',
+            description: 'Only sales recorded against this roast batch',
+          },
+          { flags: '--roast-id <id>', description: 'Only sales that name this roast' },
           { flags: '--date-start <YYYY-MM-DD>', description: 'Only sales on or after this date' },
           { flags: '--date-end <YYYY-MM-DD>', description: 'Only sales on or before this date' },
           {
@@ -1621,6 +1847,7 @@ const commandGroups: CliCommandGroupContract[] = [
         ],
         notes: [
           '--coffee-id filters by inventory ID.',
+          'Every sale includes batch_id and roast_id. batch_id is null when the sale is not linked to one batch; roast_id is set only when the sale named a roast.',
           '--date-start and --date-end accept YYYY-MM-DD and compose into a range.',
           '--offset + --limit enables pagination through large result sets.',
         ],
@@ -1629,22 +1856,28 @@ const commandGroups: CliCommandGroupContract[] = [
         name: 'record',
         summary: 'Record a new sale',
         auth: 'member',
-        sdkMethods: ['sales.create', 'roasts.list', 'roasts.get'],
+        sdkMethods: ['sales.create', 'roasts.list', 'roasts.get', 'roastBatches.get'],
         confirmedActionEquivalents: ['record_sale'],
         options: [
           {
+            flags: '--batch-id <uuid>',
+            description:
+              'Batch the coffee came from, by batch ID; records the sale against the batch as a whole. Add --coffee-id when the batch holds more than one coffee',
+          },
+          {
             flags: '--roast-id <id>',
             description:
-              'Roast ID the coffee came from; the CLI looks up its inventory item and batch. Use instead of --coffee-id with --batch-name',
+              'Roast the coffee came from; records the sale against that roast and its batch. The CLI looks up the inventory item and batch',
           },
           {
             flags: '--coffee-id <id>',
             description:
-              'Inventory ID of the coffee sold; use with --batch-name instead of --roast-id',
+              'Inventory ID of the coffee sold; use with --batch-id or --batch-name, not with --roast-id',
           },
           {
             flags: '--batch-name <name>',
-            description: 'Batch name of the roast sold; use with --coffee-id',
+            description:
+              'Exact batch name of the coffee sold; use with --coffee-id. Refused when the name matches more than one batch',
           },
           {
             flags: '--oz <amount>',
@@ -1665,9 +1898,10 @@ const commandGroups: CliCommandGroupContract[] = [
           },
         ],
         notes: [
-          'Selector modes: --roast-id resolves its inventory + batch, or pass --coffee-id + --batch-name directly.',
-          'Use exactly one selector mode.',
-          'Sales retain inventory + batch, not roast ID. When several roasts share a batch name on one inventory item, the sale is recorded against that batch as a whole in either selector mode.',
+          'Selector modes: --batch-id (with --coffee-id when the batch holds more than one coffee), --roast-id, or --coffee-id + --batch-name.',
+          '--batch-id records the sale against the batch as a whole, for a bag that could have come from any of its roasts of that coffee. --roast-id also records which roast it came from.',
+          'Batch names can repeat. When --coffee-id + --batch-name matches more than one batch, nothing is recorded and the error lists each batch ID with its date and roast IDs; run the command again with --batch-id.',
+          'The recorded sale includes batch_id, and roast_id when --roast-id was used.',
         ],
       },
       {
@@ -2776,16 +3010,27 @@ const workflows: CliWorkflowContract[] = [
   {
     title: 'Watch a folder for new roasts',
     commands: [
-      'purvey roast watch ~/artisan/ --coffee-id 7',
+      'purvey roast watch ~/artisan/ --coffee-id 7 --batch-prefix "wednesday"',
       'purvey roast watch ~/artisan/ --auto-match',
       'purvey roast watch --resume',
+      'purvey roast-batch list --name "wednesday" --pretty',
+    ],
+  },
+  {
+    title: 'Import several roasts into one batch',
+    commands: [
+      'purvey roast-batch create --name "wednesday" --pretty',
+      'purvey roast import ~/artisan/first.alog --coffee-id 7 --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e',
+      'purvey roast import ~/artisan/second.alog --coffee-id 7 --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e',
+      'purvey roast list --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --pretty',
     ],
   },
   {
     title: 'Rate coffee and record a sale',
     commands: [
       'purvey tasting rate 7 --aroma 4 --body 3 --acidity 5 --sweetness 4 --aftertaste 4',
-      'purvey sales record --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz 12 --price 22.00 --buyer "Jane Smith"',
+      'purvey roast-batch list --pretty',
+      'purvey sales record --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --coffee-id 7 --oz 12 --price 22.00 --buyer "Jane Smith"',
     ],
   },
 ];
@@ -2803,7 +3048,7 @@ const errorPatterns: CliErrorPatternContract[] = [
     title: 'Wrong ID type',
     exitCodes: [EXIT_CODES.INVALID_ARGUMENT, EXIT_CODES.NOT_FOUND],
     guidance: [
-      'Verify whether the command wants catalog_id, inventory_id, roast_id, sale_id, reference_profile_id, or reference_revision_id.',
+      'Verify whether the command wants catalog_id, inventory_id, roast_id, batch_id, sale_id, reference_profile_id, or reference_revision_id.',
       'See the ID map.',
     ],
   },
@@ -2826,6 +3071,13 @@ const errorPatterns: CliErrorPatternContract[] = [
     title: 'Dependency conflict on delete',
     exitCodes: [EXIT_CODES.DEPENDENCY_CONFLICT],
     guidance: ['Delete dependent roast profiles and sales records explicitly, then retry.'],
+  },
+  {
+    title: 'Batch name matches more than one batch',
+    exitCodes: [EXIT_CODES.INVALID_ARGUMENT],
+    guidance: [
+      '`sales record --coffee-id --batch-name` lists each matching batch ID with its date; run it again with --batch-id.',
+    ],
   },
   {
     title: 'Mutually exclusive watch flags',

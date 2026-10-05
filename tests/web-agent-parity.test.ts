@@ -119,13 +119,24 @@ describe('CLI covers every web-agent capability', () => {
   it('declares the selector and classification reads a command performs', () => {
     const sdkMethodsFor = (path: string) =>
       manifestCommands().find((entry) => entry.path === path)?.command.sdkMethods;
-    // recordSale resolves its target through roasts.list, plus roasts.get for --roast-id.
+    // recordSale resolves its target through roasts.list, plus roasts.get for --roast-id and
+    // roastBatches.get for --batch-id and for the candidates of a repeated batch name.
     expect(sdkMethodsFor('sales record')).toEqual(
-      expect.arrayContaining(['sales.create', 'roasts.list', 'roasts.get'])
+      expect.arrayContaining(['sales.create', 'roasts.list', 'roasts.get', 'roastBatches.get'])
     );
     // --coffee-id reads the inventory item; --auto-match lists stock and calls classify.
     expect(sdkMethodsFor('roast watch')).toEqual(
       expect.arrayContaining(['roasts.import', 'inventory.list', 'roasts.classify'])
+    );
+    // Batch commit mode opens the session's batch, reads it back, and removes it when unused;
+    // a session saved with only a batch name finds its batch through a saved roast.
+    expect(sdkMethodsFor('roast watch')).toEqual(
+      expect.arrayContaining([
+        'roastBatches.create',
+        'roastBatches.get',
+        'roastBatches.delete',
+        'roasts.get',
+      ])
     );
     // No command path replaces or clears an Artisan import.
     expect(sdkMethodsFor('roast import')).toEqual(['roasts.import']);
@@ -138,6 +149,25 @@ describe('CLI covers every web-agent capability', () => {
       'referenceProfiles.fromRoast',
       'roasts.get',
     ]);
+  });
+
+  it('covers every roast batch SDK method ahead of the web agent', () => {
+    // Parchment publishes these methods but does not give them to the assistant yet. The CLI
+    // already consumes all five, so the parity rule holds on the day any of them is added.
+    expect(commandsDeclaring('sdkMethods', 'roastBatches.list')).toEqual(['roast-batch list']);
+    expect(commandsDeclaring('sdkMethods', 'roastBatches.get')).toEqual(
+      expect.arrayContaining(['roast-batch get', 'sales record'])
+    );
+    expect(commandsDeclaring('sdkMethods', 'roastBatches.create')).toEqual(
+      expect.arrayContaining(['roast-batch create', 'roast watch'])
+    );
+    expect(commandsDeclaring('sdkMethods', 'roastBatches.update')).toEqual(['roast-batch update']);
+    expect(commandsDeclaring('sdkMethods', 'roastBatches.delete')).toEqual(
+      expect.arrayContaining(['roast-batch delete', 'roast watch'])
+    );
+    // The name-based batch helpers are deprecated in favor of batch ids; nothing calls them.
+    expect(commandsDeclaring('sdkMethods', 'roasts.createBatch')).toEqual([]);
+    expect(commandsDeclaring('sdkMethods', 'roasts.deleteBatch')).toEqual([]);
   });
 
   it('covers the roast-history planning chain with API-key commands', () => {

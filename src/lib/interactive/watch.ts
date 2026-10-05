@@ -15,6 +15,7 @@ import type { ImportRoastResult } from '../roast.js';
 import { CONFIG_DIR } from '../config.js';
 import { listInventory } from '../inventory.js';
 import { AuthError } from '../errors.js';
+import { localDateIso } from '../prompts.js';
 
 // ─── Roast importer seam ────────────────────────────────────────────────────
 
@@ -28,6 +29,8 @@ export interface WatchRoastImportArgs {
   fileName: string;
   coffeeId: number;
   batchName: string;
+  /** Batch to save the roast in, by id. When set, the roast takes that batch's name. */
+  batchId?: string;
   ozIn?: number;
   roastNotes?: string;
   roastTargets?: string;
@@ -40,6 +43,31 @@ export interface WatchRoastImportArgs {
  */
 export type WatchRoastImporter = (args: WatchRoastImportArgs) => Promise<ImportRoastResult>;
 
+// ─── Session batch seam ─────────────────────────────────────────────────────
+
+export interface WatchBatchRecord {
+  id: string;
+  name: string;
+  batchDate: string;
+  /** Roasts currently in the batch. */
+  roastIds: number[];
+}
+
+/**
+ * Batch access for a batch-mode watch session. Like the importer, the production
+ * implementation resolves the caller's identity itself.
+ */
+export interface WatchBatchStore {
+  /** Open a new, empty batch. An existing batch with the same name is left alone. */
+  create(input: { name: string; batchDate: string }): Promise<WatchBatchRecord>;
+  /** Read one batch, or null when it no longer exists. */
+  get(batchId: string): Promise<WatchBatchRecord | null>;
+  /** Delete a batch and any roasts in it. */
+  delete(batchId: string): Promise<void>;
+  /** The batch a saved roast is in, or null when the roast no longer exists. */
+  batchIdForRoast(roastId: number): Promise<string | null>;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface WatchSession {
@@ -51,6 +79,14 @@ export interface WatchSession {
   autoMatch?: boolean;
   interactiveRecovery?: boolean;
   commitMode?: 'batch' | 'individual';
+  /**
+   * Batch commit mode: the one batch every roast of this session is saved in.
+   * Absent until the first roast is saved, and in sessions saved before batches
+   * had ids.
+   */
+  batchId?: string;
+  /** True when this session opened `batchId` itself, rather than joining a batch that already held its roasts. */
+  batchOpenedBySession?: boolean;
   ozIn?: number;
   roastNotes?: string;
   roastTargets?: string;
@@ -63,6 +99,8 @@ export interface ImportRecord {
   roastId: number | null;
   /** Batch name the roast is saved under. Batch commit mode shares one name across the session. */
   batchName: string;
+  /** Id of the batch the roast was saved in. Absent on roasts saved before batches had ids. */
+  batchId?: string;
   /** 1-based position of this file in the watch session; identifies the roast within a shared batch. */
   sequence?: number;
   status: 'pending' | 'success' | 'failed' | 'needs-review';
@@ -88,6 +126,9 @@ interface StartWatchOpts {
   commitMode?: 'batch' | 'individual';
   startedAt?: string;
   resumeImports?: ImportRecord[];
+  /** Batch a resumed session was saving into, with whether that session opened it. */
+  resumeBatchId?: string;
+  resumeBatchOpenedBySession?: boolean;
   promptEach?: boolean;
   autoMatch?: boolean;
   interactiveRecovery?: boolean;
@@ -102,6 +143,8 @@ export interface StartWatchRuntime {
   readdirImpl?: (typeof import('fs/promises'))['readdir'];
   saveWatchSessionImpl?: typeof saveWatchSession;
   roastImporter?: WatchRoastImporter;
+  /** Required in batch commit mode, where the session saves every roast into one batch. */
+  batchStore?: WatchBatchStore;
   watchImpl?: typeof watch;
   addSignalListener?: (signal: 'SIGINT' | 'SIGTERM', listener: () => void) => void;
   removeSignalListener?: (signal: 'SIGINT' | 'SIGTERM', listener: () => void) => void;
@@ -149,6 +192,8 @@ interface QueuedImport {
 }
 
 interface ManualImportRecoveryOptions {
+  /** Batch the session saved its roasts in, so a manual import joins the same batch. */
+  batchId?: string;
   ozIn?: number;
   roastNotes?: string;
   roastTargets?: string;
@@ -162,6 +207,10 @@ export function buildManualImportRecoveryCommand(
   options: ManualImportRecoveryOptions = {}
 ): string {
   let command = 'purvey roast import <file> --coffee-id <id>';
+
+  if (options.batchId !== undefined) {
+    command += ` --batch-id ${options.batchId}`;
+  }
 
   if (options.ozIn !== undefined) {
     command += ` --oz-in ${options.ozIn}`;
@@ -212,9 +261,9 @@ export function generateBatchName(prefix: string, sequence: number): string {
 /**
  * Batch name a watched roast is saved under.
  *
- * Roasts sharing a batch name and roast date are one roast session, so batch
- * commit mode saves every roast under the prefix itself. Individual commit mode
- * keeps a distinct "{prefix} #{n}" name per roast.
+ * Batch commit mode saves every roast into one batch, named by the prefix
+ * itself. Individual commit mode keeps a distinct "{prefix} #{n}" name per
+ * roast, so each roast is its own batch.
  */
 export function resolveWatchBatchName(
   prefix: string,
@@ -295,6 +344,10 @@ export function printVerificationTable(session: WatchSession, autoMatch?: boolea
     printVerificationTableAutoMatch(imports);
   } else {
     printVerificationTableStandard(imports);
+  }
+
+  if (session.batchId !== undefined) {
+    process.stderr.write(`Batch: "${session.batchPrefix}" (batch ID ${session.batchId})\n\n`);
   }
 }
 
@@ -515,6 +568,12 @@ export async function startWatch(
     throw new Error('startWatch requires a roastImporter to import roasts.');
   }
   const importRoast = runtime.roastImporter;
+  const commitMode = opts.commitMode ?? 'batch';
+  if (commitMode === 'batch' && !runtime.batchStore) {
+    throw new Error('startWatch requires a batchStore in batch commit mode.');
+  }
+  // Individual commit mode names each roast's batch itself and never opens a session batch.
+  const batchStore = commitMode === 'batch' ? runtime.batchStore : undefined;
   const watchDirectory = runtime.watchImpl ?? watch;
   const addSignalListener = runtime.addSignalListener ?? process.on.bind(process);
   const removeSignalListener = runtime.removeSignalListener ?? process.removeListener.bind(process);
@@ -554,8 +613,6 @@ export async function startWatch(
     // Non-fatal — if readdir fails we just won't filter pre-existing files
   }
 
-  const commitMode = opts.commitMode ?? 'batch';
-
   // 3. Create session state
   const session: WatchSession = {
     directory,
@@ -566,6 +623,12 @@ export async function startWatch(
     autoMatch: opts.autoMatch ?? false,
     interactiveRecovery: opts.interactiveRecovery ?? false,
     commitMode,
+    ...(commitMode === 'batch' && opts.resumeBatchId !== undefined
+      ? {
+          batchId: opts.resumeBatchId,
+          batchOpenedBySession: opts.resumeBatchOpenedBySession ?? false,
+        }
+      : {}),
     ...(opts.ozIn !== undefined ? { ozIn: opts.ozIn } : {}),
     ...(opts.roastNotes !== undefined ? { roastNotes: opts.roastNotes } : {}),
     ...(opts.roastTargets !== undefined ? { roastTargets: opts.roastTargets } : {}),
@@ -598,6 +661,116 @@ export async function startWatch(
     }
   }
 
+  // ── Session batch (batch commit mode) ──────────────────────────────────────
+  // The batch is opened when the first roast is about to be saved, not when the
+  // watch starts, so a session that sees no files leaves nothing behind.
+  let sessionBatch: Promise<string> | null = null;
+
+  /**
+   * A session saved before batches had ids knows only the shared name. Its saved
+   * roasts were grouped by that name and their roast date, so the session
+   * continues in the batch that holds its first saved roast.
+   */
+  async function findBatchOfSavedRoasts(store: WatchBatchStore): Promise<string | undefined> {
+    const saved = session.imports
+      .filter(
+        (record) =>
+          record.status === 'success' &&
+          record.roastId !== null &&
+          record.batchName === opts.batchPrefix
+      )
+      .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+
+    for (const record of saved) {
+      const batchId = record.batchId ?? (await store.batchIdForRoast(record.roastId!));
+      if (!batchId) continue;
+
+      const batch = await store.get(batchId);
+      if (!batch) continue;
+
+      for (const other of saved) {
+        if (batch.roastIds.includes(other.roastId!)) other.batchId = batch.id;
+      }
+      const elsewhere = saved.filter((other) => !batch.roastIds.includes(other.roastId!));
+      if (elsewhere.length > 0) {
+        process.stderr.write(
+          `ℹ  ${elsewhere.length} roast${elsewhere.length !== 1 ? 's' : ''} saved earlier in this session ${elsewhere.length !== 1 ? 'are' : 'is'} in a different batch: ${elsewhere
+            .map((other) => `#${other.roastId}`)
+            .join(', ')}.\n` +
+            `   Move one into this batch with: purvey roast update <roast-id> --batch-id ${batch.id}\n`
+        );
+      }
+      return batch.id;
+    }
+    return undefined;
+  }
+
+  async function resolveSessionBatch(store: WatchBatchStore): Promise<string> {
+    if (session.batchId !== undefined) {
+      const existing = await store.get(session.batchId);
+      if (existing) return existing.id;
+      process.stderr.write(
+        `⚠ Batch ${session.batchId} no longer exists. New roasts from this session go into a new batch.\n`
+      );
+      session.batchId = undefined;
+      session.batchOpenedBySession = undefined;
+    } else {
+      const joined = await findBatchOfSavedRoasts(store);
+      if (joined !== undefined) {
+        session.batchId = joined;
+        session.batchOpenedBySession = false;
+        await saveSession(session);
+        return joined;
+      }
+    }
+
+    const opened = await store.create({
+      name: opts.batchPrefix,
+      batchDate: localDateIso(new Date(session.startedAt)),
+    });
+    session.batchId = opened.id;
+    session.batchOpenedBySession = true;
+    await saveSession(session);
+    return opened.id;
+  }
+
+  function ensureSessionBatch(store: WatchBatchStore): Promise<string> {
+    sessionBatch ??= resolveSessionBatch(store).catch((err: unknown) => {
+      // Let the next roast try again instead of failing the rest of the session.
+      sessionBatch = null;
+      throw err;
+    });
+    return sessionBatch;
+  }
+
+  /**
+   * Remove the session's batch when the session opened it and never saved a
+   * roast into it, for example when every import failed. Deleting a batch also
+   * deletes its roasts, so the batch is read back and removed only when empty.
+   */
+  async function removeUnusedSessionBatch(store: WatchBatchStore): Promise<void> {
+    const batchId = session.batchId;
+    if (batchId === undefined || !session.batchOpenedBySession) return;
+    if (session.imports.some((r) => r.status === 'success' && r.batchId === batchId)) return;
+
+    try {
+      const batch = await store.get(batchId);
+      if (batch && batch.roastIds.length > 0) return;
+      if (batch) await store.delete(batchId);
+      session.batchId = undefined;
+      session.batchOpenedBySession = undefined;
+      await saveSession(session);
+      process.stderr.write(
+        `🧹 Removed the empty batch "${opts.batchPrefix}" opened for this session; no roasts were saved into it.\n\n`
+      );
+    } catch (err) {
+      process.stderr.write(
+        `⚠ Could not remove the empty batch opened for this session: ${err instanceof Error ? err.message : String(err)}\n` +
+          `   Remove it with: purvey roast-batch delete ${batchId}\n\n`
+      );
+    }
+  }
+
   async function commitQueuedImport(queued: QueuedImport): Promise<void> {
     const { record, coffeeId, coffeeName } = queued;
 
@@ -620,11 +793,13 @@ export async function startWatch(
     }
 
     try {
+      const batchId = batchStore ? await ensureSessionBatch(batchStore) : undefined;
       const result = await importRoast({
         fileContent,
         fileName: record.fileName,
         coffeeId,
         batchName: record.batchName,
+        ...(batchId !== undefined ? { batchId } : {}),
         ozIn: opts.ozIn,
         roastNotes: opts.roastNotes,
         roastTargets: opts.roastTargets,
@@ -636,6 +811,7 @@ export async function startWatch(
       const tempCount = result.message.match(/(\d+) data points/)?.[1] ?? '?';
 
       record.roastId = result.roast_id;
+      record.batchId = batchId ?? result.batch_id;
       record.status = 'success';
       record.error = undefined;
       record.milestones = result.milestones;
@@ -868,7 +1044,7 @@ export async function startWatch(
       : `coffee: ${opts.coffeeName}`;
   const namingLabel =
     commitMode === 'batch'
-      ? `batch: "${opts.batchPrefix}"`
+      ? `batch: "${opts.batchPrefix}"${session.batchId !== undefined ? `, batch ID ${session.batchId}` : ''}`
       : `batch names: "${generateBatchName(opts.batchPrefix, 1)}", "${generateBatchName(opts.batchPrefix, 2)}", …`;
   process.stderr.write(
     `👁  Watching ${directory} for new .alog files (${modeLabel}, ${commitMode} commit mode, ${namingLabel})...\n`
@@ -962,6 +1138,8 @@ export async function startWatch(
             needsReview = session.imports.filter((r) => r.status === 'needs-review');
           }
 
+          if (batchStore) await removeUnusedSessionBatch(batchStore);
+
           // Keep the command fallback for flag mode and cancelled form recovery.
           if (needsReview.length > 0) {
             process.stderr.write(
@@ -972,6 +1150,7 @@ export async function startWatch(
             }
             process.stderr.write(
               `   Use \`${buildManualImportRecoveryCommand({
+                batchId: session.batchId,
                 ozIn: opts.ozIn,
                 roastNotes: opts.roastNotes,
                 roastTargets: opts.roastTargets,

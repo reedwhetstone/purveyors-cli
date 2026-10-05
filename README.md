@@ -13,7 +13,7 @@ Use `purvey --help` for quick command discovery, `purvey context` for the dense 
 - Runtime: Node.js 20+
 - No pre-existing credentials required: `auth`, `config`, `context`, `manifest`, `skill`
 - Viewer role required: `catalog`, including structured process filters and `catalog similar`
-- Member role required: `procurement`, `inventory`, `roast`, `sales`, `tasting`
+- Member role required: `procurement`, `inventory`, `roast`, `roast-batch`, `sales`, `tasting`
 - Mixed public and entitled access: `market` and `price-index` public teaser slices are unauthenticated; filtered, non-public, and evidence slices require a credential and, where entitled, Parchment Intelligence access
 - Preferred machine-readable contract: `purvey manifest`
 - Dense human-readable reference: `purvey context`
@@ -706,7 +706,8 @@ Notes:
 
 - `--coffee-id <id>`; inventory item ID
 - `--roast-id <id>`; exact roast profile ID
-- `--batch-name <text>`
+- `--batch-id <uuid>`; the roasts in one batch
+- `--batch-name <text>`; partial match, across every batch with a matching name
 - `--coffee-name <text>`
 - `--date-start <YYYY-MM-DD>`
 - `--date-end <YYYY-MM-DD>`
@@ -731,7 +732,8 @@ events, and metadata. `data.metadata.revision` is the immutable chart revision t
 `roast create` flags:
 
 - `--coffee-id <id>`; required in flag mode
-- `--batch-name <name>`
+- `--batch-id <uuid>`; add the roast to an existing batch
+- `--batch-name <name>`; add the roast to your batch with this name on the roast date, or start one
 - `--oz-in <oz>`
 - `--oz-out <oz>`
 - `--roast-date <YYYY-MM-DD>`
@@ -742,7 +744,8 @@ events, and metadata. `data.metadata.revision` is the immutable chart revision t
 
 `roast update <id>` flags:
 
-- `--batch-name <name>`
+- `--batch-id <uuid>`; move the roast into this batch
+- `--batch-name <name>`; move the roast into your batch with this name on the roast date, or start one
 - `--oz-out <oz>`
 - `--notes <text>`
 - `--targets <text>`
@@ -750,7 +753,8 @@ events, and metadata. `data.metadata.revision` is the immutable chart revision t
 `roast import [file]` flags:
 
 - `--coffee-id <id>`; required unless `--form`
-- `--batch-name <name>`
+- `--batch-id <uuid>`; add the roast to an existing batch
+- `--batch-name <name>`; add the roast to your batch with this name on the roast date, or start one
 - `--oz-in <oz>`
 - `--roast-notes <text>`
 - `--roast-targets <text>`
@@ -759,7 +763,8 @@ events, and metadata. `data.metadata.revision` is the immutable chart revision t
 `roast from-reference <profile-id> <revision-id>` flags:
 
 - `--coffee-id <id>`; required
-- `--batch-name <name>`
+- `--batch-id <uuid>`; add the roast to an existing batch
+- `--batch-name <name>`; add the roast to your batch with this name on the roast date, or start one
 - `--roast-date <YYYY-MM-DD>`; defaults to the date in the saved Artisan file
 - `--oz-in <oz>`
 - `--oz-out <oz>`
@@ -786,8 +791,10 @@ Examples:
 purvey roast list --catalog-id 128 --pretty
 purvey roast get 123 --include-temps --pretty
 purvey roast chart 123 --target-points 120 --json
+purvey roast list --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --pretty
 purvey roast create --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz-in 16
 purvey roast import ~/artisan/ethiopia.alog --coffee-id 7 --roast-targets "Aim for 18% development"
+purvey roast import ~/artisan/second.alog --coffee-id 7 --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e
 purvey roast from-reference 5ea1af6f-234c-43a9-9bf8-5678dd24f854 8d2c41e0-7b9a-4f3e-a6d1-2c9e5f07b3a4 --coffee-id 7
 purvey roast watch ~/artisan/ --auto-match
 ```
@@ -800,9 +807,69 @@ Notes:
 - `roast from-reference` creates a roast from the Artisan file uploaded with `reference-profile import`, so the `.alog` does not need to be on this machine. It also requires Studio access. Only an uploaded Artisan reference qualifies: a generated plan is never recorded as a roast, and a reference saved from a past roast is refused because that roast is already in your history. Output is Parchment's response unchanged: the created roast with its curve, an import summary, and the reference it came from.
 - `roast watch --auto-match` is mutually exclusive with `--coffee-id`.
 - `roast watch --auto-match` uses the `@purveyors/cli/cherry` helper to send roast metadata and the current stocked-inventory candidates to the canonical Parchment `POST /v1/roasts/classify` endpoint via `@purveyors/sdk`; it never calls an AI provider directly.
-- `roast watch --commit-mode` defaults to `batch`: new roasts are queued and saved together when you stop watching, all under the `--batch-prefix` name (the coffee name by default), so the session appears as one batch on the roast page. `--resume` keeps the same batch name.
-- `roast watch --commit-mode individual` saves each roast as soon as its file appears, under its own batch name: `<name> #1`, `<name> #2`, and so on.
-- Roasts are grouped into a batch by batch name and roast date, so roasts with a different roast date appear as a separate batch even when a resumed session keeps the name. To move an existing roast into a batch, rename it with `purvey roast update <id> --batch-name "<name>"`.
+- Every roast belongs to one batch and carries its `batch_id`. A batch is a roasting session with its own ID; batch names can repeat, so use the ID to say which batch you mean. See [roast-batch](#roast-batch).
+- On `roast create`, `roast import`, `roast from-reference`, and `roast update`, `--batch-id` puts the roast in that batch whatever its roast date, and the roast takes the batch's name. `--batch-name` puts it in your batch with that name on the roast date, or starts one. Pass one or the other; with neither, a new roast goes into a batch named after the coffee and roast date. Neither flag renames a batch: use `purvey roast-batch update <batch-id> --name "<name>"`.
+- `roast import` output includes `batch_id`. Pass it as `--batch-id` to import the next file into the same batch.
+- `roast watch --commit-mode` defaults to `batch`: new roasts are queued and saved together when you stop watching, into one new batch named by `--batch-prefix` (the coffee name by default). The session is one batch even when the name was used before or the session runs past midnight, and the closing summary prints the batch ID. `--resume` keeps adding to the same batch.
+- A watch session saved by an earlier CLI version stored only the batch name. `--resume` continues it in the batch that holds its first saved roast, and names any roasts of the session that are in a different batch so you can move them with `purvey roast update <roast-id> --batch-id <batch-id>`.
+- The watch batch is opened when the first roast is saved. If no roast is saved into it, for example when every import fails, it is removed when the session ends.
+- `roast watch --commit-mode individual` saves each roast as soon as its file appears, as its own batch: `<name> #1`, `<name> #2`, and so on.
+- Deleting the last roast in a batch leaves the batch in place, empty. Remove it with `purvey roast-batch delete <batch-id>`.
+
+### roast-batch
+
+- `purvey roast-batch list`
+- `purvey roast-batch get <id>`
+- `purvey roast-batch create --name <name>`
+- `purvey roast-batch update <id>`
+- `purvey roast-batch delete <id>`
+
+A batch is one roasting session: an ID, a name, a date, and the roasts in it. Names can repeat, for example a weekly "wednesday" batch, so roasts, sales, and deletes refer to a batch by ID.
+
+`roast-batch list` filters:
+
+- `--name <name>`; exact name, returns every batch that carries it
+- `--date-start <YYYY-MM-DD>`; batch date, not roast date
+- `--date-end <YYYY-MM-DD>`
+- `--include-empty`; also list batches that hold no roasts
+- `--limit <n>`; default `20`, `1` to `200`
+- `--offset <n>`; default `0`
+
+`roast-batch create` flags:
+
+- `--name <name>`; required
+- `--date <YYYY-MM-DD>`; session date, defaults to today
+- `--idempotency-key <key>`
+
+`roast-batch update <id>` flags:
+
+- `--name <name>`
+- `--date <YYYY-MM-DD>`
+
+`roast-batch delete <id>` options:
+
+- `--yes`
+
+Examples:
+
+```bash
+purvey roast-batch list --pretty
+purvey roast-batch list --name "wednesday" --pretty
+purvey roast-batch get 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --pretty
+purvey roast-batch create --name "wednesday" --pretty
+purvey roast-batch update 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --name "wednesday decaf"
+purvey roast-batch delete 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --yes
+```
+
+Notes:
+
+- Roast batch commands require an authenticated `member` role.
+- Each batch lists `roast_ids` and `coffee_ids` (the inventory items roasted). Use `purvey roast list --batch-id <id>` for the full roasts.
+- `roast-batch create` always opens a new batch, even when another batch has the same name. Add roasts to it with `--batch-id`. `roast watch` opens its own batch, so `create` is for importing files one at a time.
+- A batch with no roasts is listed only with `--include-empty` and shows a placeholder name until its first roast is added.
+- To find batches left empty, for example after deleting their roasts one at a time: `purvey roast-batch list --include-empty --limit 200 | jq '.[] | select(.roast_count == 0) | .id'`. Remove one with `purvey roast-batch delete <id> --yes`.
+- `roast-batch update --name` renames one batch. The new name also appears on its roasts and on the sales recorded against it. `--date` changes the batch date and leaves roast dates alone.
+- `roast-batch delete` deletes one batch and every roast in it. No other batch is touched, even one with the same name. Sales recorded against the batch are kept: they keep the batch name and lose the link to the batch. Output is the deleted batch ID, its name, and the deleted roast IDs.
 
 ### reference-profile
 
@@ -923,6 +990,8 @@ playback compatibility.
 `sales list` filters:
 
 - `--coffee-id <id>`; green coffee inventory ID
+- `--batch-id <uuid>`; sales recorded against one batch
+- `--roast-id <id>`; sales that name one roast
 - `--date-start <YYYY-MM-DD>`
 - `--date-end <YYYY-MM-DD>`
 - `--buyer <name>`
@@ -931,9 +1000,10 @@ playback compatibility.
 
 `sales record` flags:
 
-- `--roast-id <id>`; resolve the sale inventory and batch from a roast profile
-- `--coffee-id <id>`; resolved selector mode, requires `--batch-name`
-- `--batch-name <name>`; resolved selector mode, requires `--coffee-id`
+- `--batch-id <uuid>`; the batch the coffee came from; records the sale against the batch as a whole
+- `--roast-id <id>`; the roast the coffee came from; records the sale against that roast and its batch
+- `--coffee-id <id>`; inventory ID of the coffee sold; use with `--batch-id` or `--batch-name`
+- `--batch-name <name>`; exact batch name; requires `--coffee-id`
 - `--oz <amount>`; required in flag mode
 - `--price <dollars>`; required in flag mode
 - `--buyer <name>`
@@ -954,9 +1024,10 @@ playback compatibility.
 Examples:
 
 ```bash
-purvey sales record --roast-id 123 --oz 12 --price 22.00 --buyer "Jane Smith"
+purvey sales record --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --coffee-id 7 --oz 12 --price 22.00 --buyer "Jane Smith"
+purvey sales record --roast-id 123 --oz 12 --price 22.00
 purvey sales record --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz 8 --price 16.00
-purvey sales list --pretty
+purvey sales list --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --pretty
 purvey sales update 5 --price 24.00
 purvey sales delete 5 --yes
 ```
@@ -964,8 +1035,10 @@ purvey sales delete 5 --yes
 Notes:
 
 - Sales commands require an authenticated `member` role.
-- Use exactly one selector mode for `sales record`: `--roast-id`, or `--coffee-id` plus `--batch-name`.
-- Sales retain inventory and batch, not roast ID. When several roasts share a batch name on one inventory item, such as a `roast watch` batch, the sale is recorded against that batch as a whole, whether you select it with `--roast-id` or with `--coffee-id` plus `--batch-name`.
+- `sales record` selector modes: `--batch-id` (add `--coffee-id` when the batch holds more than one coffee), `--roast-id` (optionally with `--batch-id`, which must be the roast's own batch), or `--coffee-id` plus `--batch-name`.
+- `--batch-id` records the sale against one batch as a whole. Use it when the bag could have come from any of the batch's roasts of that coffee, such as a `roast watch` batch. `--roast-id` also records which roast the coffee came from; use it when you know, for example when one batch roasted the same coffee to two levels.
+- `--coffee-id` plus `--batch-name` finds your batch with that exact name that holds a roast of the coffee. Batch names can repeat. When the name matches more than one batch, nothing is recorded: the command exits `2` and lists each batch ID with its date and roast IDs, so you can run it again with `--batch-id`.
+- Sales carry `batch_id`, and `roast_id` when the sale named a roast. `batch_id` is `null` on a sale that is not linked to one batch.
 - `--price` is total sale price, not per-ounce price.
 
 ### tasting
@@ -1116,18 +1189,32 @@ purvey catalog search --origin "Ethiopia" --process "natural" --stocked --pretty
 purvey inventory add --catalog-id 128 --qty 10 --cost 85.00
 purvey roast import ~/artisan/guji-light.alog --coffee-id 7 --pretty
 purvey tasting rate 7 --aroma 5 --body 3 --acidity 5 --sweetness 4 --aftertaste 4
-purvey sales record --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz 12 --price 22.00 --buyer "Jane Smith"
+purvey sales record --roast-id 123 --oz 12 --price 22.00 --buyer "Jane Smith"
 ```
+
+`roast import` prints the new roast's `roast_id` and `batch_id`; either one identifies what was sold.
 
 ### Continuous Artisan watch mode
 
 ```bash
-purvey roast watch ~/artisan/ --coffee-id 7
+purvey roast watch ~/artisan/ --coffee-id 7 --batch-prefix "wednesday"
 purvey roast watch ~/artisan/ --auto-match
 purvey roast watch --resume
+purvey roast-batch list --name "wednesday" --pretty
 ```
 
-Watch mode runs until Ctrl+C or SIGTERM. On shutdown it waits for active imports, commits queued batch-mode roasts, prints the verification summary, and leaves session state available for `--resume`.
+Watch mode runs until Ctrl+C or SIGTERM. On shutdown it waits for active imports, commits queued batch-mode roasts into the session's batch, prints the verification summary with the batch ID, and leaves session state available for `--resume`.
+
+### Import several roasts into one batch
+
+```bash
+purvey roast-batch create --name "wednesday" --pretty
+purvey roast import ~/artisan/first.alog --coffee-id 7 --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e
+purvey roast import ~/artisan/second.alog --coffee-id 7 --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e
+purvey sales record --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --oz 12 --price 22.00
+```
+
+Use the `id` that `roast-batch create` prints as the `--batch-id`.
 
 ### Plan an Artisan reference
 
@@ -1183,7 +1270,8 @@ Use the right ID for the right command.
 - `catalog_id`: `coffee_catalog` rows; used by `catalog get`, `catalog similar`, `inventory add --catalog-id`, `tasting get`, `roast list --catalog-id`
 - `inventory id`: `green_coffee_inv` rows; used by `inventory get/update/delete`, `roast --coffee-id`, `tasting rate`, `roast list --coffee-id`
 - `roast_id`: `roast_data` rows; used by `roast get/delete`, `sales record --roast-id`, `roast list --roast-id`, `reference-profile preview-from-roast/from-roast`
-- `sales record` also supports resolving a roast from `inventory id` plus `--batch-name`; because sales retain inventory + batch rather than roast ID, roasts that share a batch name on one inventory item are sold as one batch
+- `batch_id`: a roast batch UUID; used by `roast-batch get/update/delete`, `--batch-id` on `roast list/create/import/update/from-reference`, and `sales record/list --batch-id`. Batch names can repeat; batch IDs cannot
+- `sales record` also accepts `inventory id` plus `--batch-name`, and refuses with the candidate batch IDs when the name matches more than one batch
 - `sale id`: `coffee_sales` rows; used by `sales update/delete`
 - `reference_profile_id`: owner-scoped Studio profile UUID; used by `reference-profile get/chart/preview/save/export` and `roast from-reference`
 - `reference_revision_id`: immutable revision UUID; used by `reference-profile chart/preview/save/export` and `roast from-reference`
@@ -1253,7 +1341,7 @@ Use the [ID reference](#id-reference) section above. `catalog_id` and inventory 
 
 **Pagination only shows the first page**
 
-Only `catalog search` (default 10 results), `inventory list`, `roast list`, and `sales list` (default 20) page with `--limit` and `--offset`.
+Only `catalog search` (default 10 results), `inventory list`, `roast list`, `roast-batch list`, and `sales list` (default 20) page with `--limit` and `--offset`.
 
 ```bash
 purvey inventory list --limit 20 --offset 0

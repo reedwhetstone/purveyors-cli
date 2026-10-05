@@ -3,7 +3,12 @@ import { mkdtemp, rm, writeFile } from 'fs/promises';
 import type { FSWatcher } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { startWatch, type StartWatchRuntime } from '../src/lib/interactive/watch.js';
+import {
+  startWatch,
+  type StartWatchRuntime,
+  type WatchBatchRecord,
+  type WatchBatchStore,
+} from '../src/lib/interactive/watch.js';
 
 const { pickBeanMock, guardCancelMock, classifyRoastMock } = vi.hoisted(() => ({
   pickBeanMock: vi.fn(),
@@ -42,6 +47,47 @@ function createImportResult(roastId: number) {
   };
 }
 
+const SESSION_BATCH_ID = '7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e';
+
+/**
+ * In-memory stand-in for the batch API. `create` always opens a new batch, as
+ * the API does, and `attach` records a roast saved into one.
+ */
+function createFakeBatchStore() {
+  const batches = new Map<string, WatchBatchRecord>();
+  const roastBatch = new Map<number, string>();
+  let opened = 0;
+
+  const store = {
+    create: vi.fn(async ({ name, batchDate }: { name: string; batchDate: string }) => {
+      const id = opened === 0 ? SESSION_BATCH_ID : `00000000-0000-4000-8000-00000000000${opened}`;
+      opened += 1;
+      const batch: WatchBatchRecord = { id, name, batchDate, roastIds: [] };
+      batches.set(id, batch);
+      return batch;
+    }),
+    get: vi.fn(async (batchId: string) => batches.get(batchId) ?? null),
+    delete: vi.fn(async (batchId: string) => {
+      batches.delete(batchId);
+    }),
+    batchIdForRoast: vi.fn(async (roastId: number) => roastBatch.get(roastId) ?? null),
+  } satisfies WatchBatchStore;
+
+  return {
+    store,
+    batches,
+    /** Add a batch that already exists on the account, with the roasts in it. */
+    seed(batch: WatchBatchRecord) {
+      batches.set(batch.id, batch);
+      for (const roastId of batch.roastIds) roastBatch.set(roastId, batch.id);
+    },
+    attach(batchId: string, roastId: number) {
+      batches.get(batchId)?.roastIds.push(roastId);
+      roastBatch.set(roastId, batchId);
+    },
+  };
+}
+
 async function flushPromises(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
@@ -56,6 +102,7 @@ function createRuntime() {
   const close = vi.fn();
   const saveWatchSessionImpl = vi.fn().mockResolvedValue(undefined);
   const roastImporter = vi.fn();
+  const batches = createFakeBatchStore();
   const signalListeners = new Map<'SIGINT' | 'SIGTERM', () => void>();
   let exitKeyListener: (() => void) | null = null;
   const cleanupExitKeyListener = vi.fn(() => {
@@ -66,6 +113,7 @@ function createRuntime() {
     debounceMs: 1,
     saveWatchSessionImpl,
     roastImporter,
+    batchStore: batches.store,
     sessionTokenProvider: vi.fn().mockResolvedValue('session-token'),
     inventoryLister: vi.fn().mockResolvedValue([
       {
@@ -94,6 +142,7 @@ function createRuntime() {
     close,
     saveWatchSessionImpl,
     roastImporter,
+    batches,
     emitFileEvent(filename: string) {
       if (!callback) {
         throw new Error('watch callback was not registered');
@@ -1158,6 +1207,7 @@ describe('startWatch', () => {
 
     expect(pickBeanMock).toHaveBeenCalledWith('session-token', { allowCancel: true });
     expect(runtime.roastImporter).toHaveBeenCalledWith({
+      batchId: SESSION_BATCH_ID,
       fileContent: 'unmatched content',
       fileName: 'unmatched.alog',
       coffeeId: 71,
@@ -1366,6 +1416,539 @@ describe('startWatch', () => {
       error:
         'Failed to fetch inventory: Session expired mid-watch. Run `purvey auth login` and retry.',
     });
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+});
+
+describe('startWatch session batch', () => {
+  const WEDNESDAY = {
+    coffeeId: 7,
+    coffeeName: 'Ethiopia Guji',
+    batchPrefix: 'wednesday',
+    commitMode: 'batch' as const,
+  };
+
+  /** Importer that saves each roast into the fake batch store, numbering roasts from `firstRoastId`. */
+  function saveRoastsInto(runtime: ReturnType<typeof createRuntime>, firstRoastId: number) {
+    let nextRoastId = firstRoastId;
+    runtime.roastImporter.mockImplementation(async (args: { batchId?: string }) => {
+      const roastId = nextRoastId++;
+      const batchId = args.batchId ?? `own-batch-of-${roastId}`;
+      if (args.batchId) runtime.batches.attach(args.batchId, roastId);
+      return { ...createImportResult(roastId), batch_id: batchId };
+    });
+  }
+
+  /** Poll instead of sleeping a fixed time, so a busy machine cannot reorder the steps. */
+  async function waitUntil(condition: () => boolean, what: string): Promise<void> {
+    const deadline = Date.now() + 5000;
+    while (!condition()) {
+      if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
+      await sleep(2);
+    }
+  }
+
+  /** The watch is ready once it is listening for both file events and the stop signal. */
+  async function watching(runtime: ReturnType<typeof createRuntime>) {
+    await waitUntil(() => runtime.hasSignalListener('SIGINT'), 'the watch to start');
+  }
+
+  /** Detect each file in turn, waiting until the session has recorded it before the next. */
+  async function dropFiles(
+    runtime: ReturnType<typeof createRuntime>,
+    watchDir: string,
+    fileNames: string[]
+  ) {
+    await watching(runtime);
+    for (const fileName of fileNames) {
+      await writeFile(join(watchDir, fileName), `${fileName} content`);
+      runtime.emitFileEvent(fileName);
+      await waitUntil(
+        () =>
+          runtime.saveWatchSessionImpl.mock.calls.some(([saved]) =>
+            (saved as { imports: Array<{ fileName: string }> }).imports.some(
+              (record) => record.fileName === fileName
+            )
+          ),
+        `${fileName} to be recorded`
+      );
+    }
+  }
+
+  it('opens one batch for the run and saves every roast into it by ID', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-id-'));
+    const runtime = createRuntime();
+    saveRoastsInto(runtime, 301);
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      // Started late in the evening; the files are saved after midnight.
+      { ...WEDNESDAY, startedAt: new Date(2026, 8, 30, 23, 40).toISOString() },
+      runtime.runtime
+    );
+    await dropFiles(runtime, watchDir, ['first.alog', 'second.alog', 'third.alog']);
+
+    // Nothing is opened until a roast is about to be saved.
+    expect(runtime.batches.store.create).not.toHaveBeenCalled();
+
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.batches.store.create).toHaveBeenCalledTimes(1);
+    expect(runtime.batches.store.create).toHaveBeenCalledWith({
+      name: 'wednesday',
+      batchDate: '2026-09-30',
+    });
+    expect(runtime.roastImporter.mock.calls.map(([args]) => [args.fileName, args.batchId])).toEqual(
+      [
+        ['first.alog', SESSION_BATCH_ID],
+        ['second.alog', SESSION_BATCH_ID],
+        ['third.alog', SESSION_BATCH_ID],
+      ]
+    );
+    expect(runtime.batches.batches.get(SESSION_BATCH_ID)?.roastIds).toEqual([301, 302, 303]);
+    expect(runtime.batches.store.delete).not.toHaveBeenCalled();
+
+    // The session keeps the batch for --resume, and each roast keeps its position.
+    expect(session.batchId).toBe(SESSION_BATCH_ID);
+    expect(session.batchOpenedBySession).toBe(true);
+    expect(
+      session.imports.map((record) => [record.sequence, record.roastId, record.batchId])
+    ).toEqual([
+      [1, 301, SESSION_BATCH_ID],
+      [2, 302, SESSION_BATCH_ID],
+      [3, 303, SESSION_BATCH_ID],
+    ]);
+    expect(runtime.saveWatchSessionImpl).toHaveBeenLastCalledWith(
+      expect.objectContaining({ batchId: SESSION_BATCH_ID, batchOpenedBySession: true })
+    );
+    expect(stderrOutput.join('')).toContain(`Batch: "wednesday" (batch ID ${SESSION_BATCH_ID})`);
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('opens a new batch even when the name is already in use', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-repeat-'));
+    const lastWeek = '99999999-9999-4999-8999-999999999999';
+    const runtime = createRuntime();
+    runtime.batches.seed({
+      id: lastWeek,
+      name: 'wednesday',
+      batchDate: '2026-09-23',
+      roastIds: [201, 202],
+    });
+    saveRoastsInto(runtime, 301);
+
+    const sessionPromise = startWatch({} as never, 'user-1', watchDir, WEDNESDAY, runtime.runtime);
+    await dropFiles(runtime, watchDir, ['first.alog']);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(session.batchId).toBe(SESSION_BATCH_ID);
+    expect(runtime.batches.batches.get(lastWeek)?.roastIds).toEqual([201, 202]);
+    expect(runtime.batches.batches.get(SESSION_BATCH_ID)?.roastIds).toEqual([301]);
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('resumes into the batch ID saved with the session', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-resume-'));
+    const runtime = createRuntime();
+    runtime.batches.seed({
+      id: SESSION_BATCH_ID,
+      name: 'wednesday',
+      batchDate: '2026-09-30',
+      roastIds: [501],
+    });
+    saveRoastsInto(runtime, 502);
+    await writeFile(join(watchDir, 'queued.alog'), 'queued content');
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      {
+        ...WEDNESDAY,
+        startedAt: '2026-09-30T18:00:00.000Z',
+        resumeBatchId: SESSION_BATCH_ID,
+        resumeBatchOpenedBySession: true,
+        resumeImports: [
+          {
+            fileName: 'done.alog',
+            roastId: 501,
+            batchName: 'wednesday',
+            batchId: SESSION_BATCH_ID,
+            sequence: 1,
+            status: 'success',
+            importedAt: '2026-09-30T18:10:00.000Z',
+          },
+          {
+            fileName: 'queued.alog',
+            roastId: null,
+            batchName: 'wednesday',
+            sequence: 2,
+            status: 'pending',
+            importedAt: '2026-09-30T18:20:00.000Z',
+            selectedCoffeeId: 7,
+            selectedCoffeeName: 'Ethiopia Guji',
+          },
+        ],
+      },
+      runtime.runtime
+    );
+    await dropFiles(runtime, watchDir, ['next.alog']);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.batches.store.create).not.toHaveBeenCalled();
+    expect(runtime.batches.store.batchIdForRoast).not.toHaveBeenCalled();
+    expect(runtime.roastImporter.mock.calls.map(([args]) => [args.fileName, args.batchId])).toEqual(
+      [
+        ['queued.alog', SESSION_BATCH_ID],
+        ['next.alog', SESSION_BATCH_ID],
+      ]
+    );
+    expect(runtime.batches.batches.get(SESSION_BATCH_ID)?.roastIds).toEqual([501, 502, 503]);
+    expect(session.batchId).toBe(SESSION_BATCH_ID);
+    expect(session.imports.map((record) => record.sequence)).toEqual([1, 2, 3]);
+    expect(stderrOutput.join('')).toContain(`batch: "wednesday", batch ID ${SESSION_BATCH_ID}`);
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('continues a session saved with only a batch name in the batch that holds its first roast', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-legacy-'));
+    const firstNight = '44444444-4444-4444-8444-444444444444';
+    const afterMidnight = '55555555-5555-4555-8555-555555555555';
+    const runtime = createRuntime();
+    // Saved by name before batches had IDs: grouped by name and roast date, so a
+    // session that ran past midnight was stored as two batches.
+    runtime.batches.seed({
+      id: firstNight,
+      name: 'wednesday',
+      batchDate: '2026-09-30',
+      roastIds: [501, 502],
+    });
+    runtime.batches.seed({
+      id: afterMidnight,
+      name: 'wednesday',
+      batchDate: '2026-10-01',
+      roastIds: [503],
+    });
+    saveRoastsInto(runtime, 504);
+
+    const savedRoast = (roastId: number, sequence: number) => ({
+      fileName: `saved-${sequence}.alog`,
+      roastId,
+      batchName: 'wednesday',
+      sequence,
+      status: 'success' as const,
+      importedAt: '2026-09-30T23:50:00.000Z',
+    });
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      {
+        ...WEDNESDAY,
+        startedAt: '2026-09-30T23:00:00.000Z',
+        resumeImports: [savedRoast(501, 1), savedRoast(502, 2), savedRoast(503, 3)],
+      },
+      runtime.runtime
+    );
+    await dropFiles(runtime, watchDir, ['next.alog']);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.batches.store.batchIdForRoast).toHaveBeenCalledWith(501);
+    expect(runtime.batches.store.create).not.toHaveBeenCalled();
+    expect(runtime.roastImporter).toHaveBeenCalledWith(
+      expect.objectContaining({ fileName: 'next.alog', batchId: firstNight })
+    );
+    expect(session.batchId).toBe(firstNight);
+    // The session joined a batch that already existed, so it is never removed as unused.
+    expect(session.batchOpenedBySession).toBe(false);
+    expect(runtime.batches.store.delete).not.toHaveBeenCalled();
+    expect(session.imports.map((record) => [record.roastId, record.batchId])).toEqual([
+      [501, firstNight],
+      [502, firstNight],
+      [503, undefined],
+      [504, firstNight],
+    ]);
+
+    const output = stderrOutput.join('');
+    expect(output).toContain(
+      '1 roast saved earlier in this session is in a different batch: #503.'
+    );
+    expect(output).toContain(`purvey roast update <roast-id> --batch-id ${firstNight}`);
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('opens a batch for a name-only session that has not saved a roast yet', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-legacy-empty-'));
+    const runtime = createRuntime();
+    saveRoastsInto(runtime, 601);
+    await writeFile(join(watchDir, 'queued.alog'), 'queued content');
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      {
+        ...WEDNESDAY,
+        resumeImports: [
+          {
+            fileName: 'queued.alog',
+            roastId: null,
+            batchName: 'wednesday',
+            sequence: 1,
+            status: 'pending',
+            importedAt: '2026-09-30T18:20:00.000Z',
+            selectedCoffeeId: 7,
+            selectedCoffeeName: 'Ethiopia Guji',
+          },
+        ],
+      },
+      runtime.runtime
+    );
+    await watching(runtime);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.batches.store.create).toHaveBeenCalledTimes(1);
+    expect(session.batchId).toBe(SESSION_BATCH_ID);
+    expect(session.imports[0]).toMatchObject({ roastId: 601, batchId: SESSION_BATCH_ID });
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('starts a new batch when the saved batch no longer exists', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-gone-'));
+    const deleted = '66666666-6666-4666-8666-666666666666';
+    const runtime = createRuntime();
+    saveRoastsInto(runtime, 701);
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      { ...WEDNESDAY, resumeBatchId: deleted, resumeBatchOpenedBySession: true },
+      runtime.runtime
+    );
+    await dropFiles(runtime, watchDir, ['next.alog']);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.batches.store.get).toHaveBeenCalledWith(deleted);
+    expect(runtime.batches.store.create).toHaveBeenCalledTimes(1);
+    expect(session.batchId).toBe(SESSION_BATCH_ID);
+    expect(stderrOutput.join('')).toContain(
+      `Batch ${deleted} no longer exists. New roasts from this session go into a new batch.`
+    );
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('opens no batch when the session saves no roasts', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-none-'));
+    const runtime = createRuntime();
+
+    const sessionPromise = startWatch({} as never, 'user-1', watchDir, WEDNESDAY, runtime.runtime);
+    await watching(runtime);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.batches.store.create).not.toHaveBeenCalled();
+    expect(runtime.batches.store.delete).not.toHaveBeenCalled();
+    expect(session.batchId).toBeUndefined();
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('removes the batch it opened when every import fails', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-cleanup-'));
+    const runtime = createRuntime();
+    runtime.roastImporter.mockRejectedValue(new Error('Roast writes are not enabled'));
+
+    const sessionPromise = startWatch({} as never, 'user-1', watchDir, WEDNESDAY, runtime.runtime);
+    await dropFiles(runtime, watchDir, ['first.alog', 'second.alog']);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.batches.store.create).toHaveBeenCalledTimes(1);
+    expect(runtime.batches.store.delete).toHaveBeenCalledTimes(1);
+    expect(runtime.batches.store.delete).toHaveBeenCalledWith(SESSION_BATCH_ID);
+    expect(runtime.batches.batches.has(SESSION_BATCH_ID)).toBe(false);
+    expect(session.batchId).toBeUndefined();
+    expect(session.imports.map((record) => record.status)).toEqual(['failed', 'failed']);
+    expect(runtime.saveWatchSessionImpl).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ batchId: expect.anything() })
+    );
+    expect(stderrOutput.join('')).toContain(
+      'Removed the empty batch "wednesday" opened for this session; no roasts were saved into it.'
+    );
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('keeps the batch when it holds a roast, even if this run recorded no success', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-keep-'));
+    const runtime = createRuntime();
+    // The roast was saved, but the response was lost before the CLI recorded it.
+    runtime.roastImporter.mockImplementation(async (args: { batchId?: string }) => {
+      if (args.batchId) runtime.batches.attach(args.batchId, 801);
+      throw new Error('socket hang up');
+    });
+
+    const sessionPromise = startWatch({} as never, 'user-1', watchDir, WEDNESDAY, runtime.runtime);
+    await dropFiles(runtime, watchDir, ['first.alog']);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.batches.store.delete).not.toHaveBeenCalled();
+    expect(runtime.batches.batches.get(SESSION_BATCH_ID)?.roastIds).toEqual([801]);
+    expect(session.batchId).toBe(SESSION_BATCH_ID);
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('says how to remove the empty batch when the cleanup itself fails', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-cleanup-fails-'));
+    const runtime = createRuntime();
+    runtime.roastImporter.mockRejectedValue(new Error('offline'));
+    runtime.batches.store.delete.mockRejectedValue(new Error('offline'));
+
+    const sessionPromise = startWatch({} as never, 'user-1', watchDir, WEDNESDAY, runtime.runtime);
+    await dropFiles(runtime, watchDir, ['first.alog']);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    // The batch stays in the session, so --resume reuses it instead of opening another.
+    expect(session.batchId).toBe(SESSION_BATCH_ID);
+    expect(stderrOutput.join('')).toContain(
+      `Remove it with: purvey roast-batch delete ${SESSION_BATCH_ID}`
+    );
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('fails the roast when the batch cannot be opened and tries again for the next one', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-open-fails-'));
+    const runtime = createRuntime();
+    saveRoastsInto(runtime, 901);
+    runtime.batches.store.create.mockRejectedValueOnce(new Error('rate limit exceeded'));
+
+    const sessionPromise = startWatch({} as never, 'user-1', watchDir, WEDNESDAY, runtime.runtime);
+    await dropFiles(runtime, watchDir, ['first.alog', 'second.alog']);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.batches.store.create).toHaveBeenCalledTimes(2);
+    expect(runtime.roastImporter).toHaveBeenCalledTimes(1);
+    expect(session.imports.map((record) => [record.fileName, record.status, record.error])).toEqual(
+      [
+        ['first.alog', 'failed', 'rate limit exceeded'],
+        ['second.alog', 'success', undefined],
+      ]
+    );
+    expect(session.imports[1]?.batchId).toBe(SESSION_BATCH_ID);
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('points manual recovery at the session batch', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-recovery-'));
+    const runtime = createRuntime();
+    saveRoastsInto(runtime, 1001);
+    await writeFile(join(watchDir, 'queued.alog'), 'queued content');
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      {
+        ...WEDNESDAY,
+        resumeImports: [
+          {
+            fileName: 'queued.alog',
+            roastId: null,
+            batchName: 'wednesday',
+            sequence: 1,
+            status: 'pending',
+            importedAt: '2026-09-30T18:20:00.000Z',
+            selectedCoffeeId: 7,
+            selectedCoffeeName: 'Ethiopia Guji',
+          },
+          {
+            fileName: 'unmatched.alog',
+            roastId: null,
+            batchName: 'wednesday',
+            sequence: 2,
+            status: 'needs-review',
+            error: 'Low AI confidence (20%)',
+            importedAt: '2026-09-30T18:25:00.000Z',
+          },
+        ],
+      },
+      runtime.runtime
+    );
+    await watching(runtime);
+    runtime.emitSignal('SIGINT');
+    await sessionPromise;
+
+    expect(stderrOutput.join('')).toContain(
+      `purvey roast import <file> --coffee-id <id> --batch-id ${SESSION_BATCH_ID}`
+    );
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it("does not open a session batch in individual mode and records each roast's own batch", async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-individual-'));
+    const runtime = createRuntime();
+    saveRoastsInto(runtime, 1101);
+
+    const sessionPromise = startWatch(
+      {} as never,
+      'user-1',
+      watchDir,
+      { ...WEDNESDAY, commitMode: 'individual' },
+      runtime.runtime
+    );
+    await dropFiles(runtime, watchDir, ['first.alog', 'second.alog']);
+    runtime.emitSignal('SIGINT');
+    const session = await sessionPromise;
+
+    expect(runtime.batches.store.create).not.toHaveBeenCalled();
+    expect(runtime.batches.store.get).not.toHaveBeenCalled();
+    expect(runtime.batches.store.delete).not.toHaveBeenCalled();
+    expect(
+      runtime.roastImporter.mock.calls.map(([args]) => [args.batchName, args.batchId])
+    ).toEqual([
+      ['wednesday #1', undefined],
+      ['wednesday #2', undefined],
+    ]);
+    expect(session.batchId).toBeUndefined();
+    expect(session.imports.map((record) => [record.sequence, record.batchId])).toEqual([
+      [1, 'own-batch-of-1101'],
+      [2, 'own-batch-of-1102'],
+    ]);
+
+    await rm(watchDir, { recursive: true, force: true });
+  });
+
+  it('requires batch access in batch commit mode', async () => {
+    const watchDir = await mkdtemp(join(tmpdir(), 'purvey-watch-batch-required-'));
+    const { runtime } = createRuntime();
+
+    await expect(
+      startWatch({} as never, 'user-1', watchDir, WEDNESDAY, { ...runtime, batchStore: undefined })
+    ).rejects.toThrow('startWatch requires a batchStore in batch commit mode.');
 
     await rm(watchDir, { recursive: true, force: true });
   });

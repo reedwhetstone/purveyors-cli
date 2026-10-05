@@ -6,6 +6,7 @@ import { requireAuth } from '../lib/auth-guard.js';
 import { confirm, todayIso } from '../lib/prompts.js';
 import { listSales, recordSale, updateSale, deleteSale } from '../lib/sales.js';
 import type { Sale, RecordSaleInput } from '../lib/sales.js';
+import { parseRoastBatchId } from '../lib/roast.js';
 import { pickRoast, guardCancel } from '../lib/interactive/forms.js';
 import { getConfigValue } from '../lib/config.js';
 import {
@@ -22,6 +23,7 @@ export type { Sale };
 type SalesRecordOptions = {
   roastId?: string;
   coffeeId?: string;
+  batchId?: string;
   batchName?: string;
   oz?: string;
   price?: string;
@@ -37,7 +39,7 @@ type SessionSource = {
 /** Keep selection credential-scoped, then refresh and pin the identity at the write boundary. */
 export async function recordInteractiveSale(
   sessionSource: SessionSource,
-  input: Omit<RecordSaleInput, 'roastId' | 'coffeeId' | 'batchName'>,
+  input: Omit<RecordSaleInput, 'roastId' | 'coffeeId' | 'batchId' | 'batchName'>,
   selectRoast: (token: string) => Promise<{ id: number; batchName: string }> = pickRoast,
   onWriteStart: () => void = () => undefined
 ): Promise<Sale> {
@@ -106,7 +108,8 @@ function parseNonNegativeNumberOption(flag: string, value: string): number {
 
 function hasCompleteRecordSaleFlagInput(opts: SalesRecordOptions): boolean {
   const hasResolvedSelector = opts.coffeeId !== undefined && Boolean(opts.batchName?.trim());
-  const hasSelector = opts.roastId !== undefined || hasResolvedSelector;
+  const hasSelector =
+    opts.roastId !== undefined || opts.batchId !== undefined || hasResolvedSelector;
 
   return hasSelector && opts.oz !== undefined && opts.price !== undefined;
 }
@@ -121,8 +124,16 @@ function parseRecordSaleFlagInput(opts: SalesRecordOptions): RecordSaleInput {
 
   const hasRoastId = opts.roastId !== undefined;
   const hasCoffeeId = opts.coffeeId !== undefined;
+  const hasBatchId = opts.batchId !== undefined;
   const rawBatchName = opts.batchName?.trim();
   const hasBatchName = Boolean(rawBatchName);
+
+  if (hasBatchId && opts.batchName !== undefined) {
+    throw new PrvrsError(
+      'INVALID_ARGUMENT',
+      'Use either --batch-id or --batch-name, not both. A batch ID already identifies one batch.'
+    );
+  }
 
   if (hasRoastId && (hasCoffeeId || opts.batchName !== undefined)) {
     throw new PrvrsError(
@@ -131,21 +142,21 @@ function parseRecordSaleFlagInput(opts: SalesRecordOptions): RecordSaleInput {
     );
   }
 
-  if (!hasRoastId && !hasCoffeeId && opts.batchName === undefined) {
+  if (!hasRoastId && !hasBatchId && !hasCoffeeId && opts.batchName === undefined) {
     throw new PrvrsError(
       'INVALID_ARGUMENT',
-      'Missing sale target. Pass --roast-id or both --coffee-id and --batch-name. Use --form for interactive mode.'
+      'Missing sale target. Pass --batch-id, --roast-id, or both --coffee-id and --batch-name. Use --form for interactive mode.'
     );
   }
 
-  if (!hasRoastId && hasCoffeeId && !hasBatchName) {
+  if (!hasRoastId && !hasBatchId && hasCoffeeId && !hasBatchName) {
     throw new PrvrsError(
       'INVALID_ARGUMENT',
-      'Missing --batch-name. Resolved mode requires both --coffee-id and --batch-name.'
+      'Missing --batch-id or --batch-name. With --coffee-id, say which batch was sold.'
     );
   }
 
-  if (!hasRoastId && !hasCoffeeId && opts.batchName !== undefined) {
+  if (!hasRoastId && !hasBatchId && !hasCoffeeId && opts.batchName !== undefined) {
     throw new PrvrsError(
       'INVALID_ARGUMENT',
       'Missing --coffee-id. Resolved mode requires both --coffee-id and --batch-name.'
@@ -159,10 +170,15 @@ function parseRecordSaleFlagInput(opts: SalesRecordOptions): RecordSaleInput {
     sellDate: opts.sellDate,
   };
 
+  if (hasBatchId) {
+    input.batchId = parseRoastBatchId(opts.batchId!, '--batch-id');
+  }
   if (hasRoastId) {
     input.roastId = parsePositiveIntegerOption('--roast-id', opts.roastId!);
-  } else {
+  } else if (hasCoffeeId) {
     input.coffeeId = parsePositiveIntegerOption('--coffee-id', opts.coffeeId!);
+  }
+  if (!hasRoastId && !hasBatchId) {
     input.batchName = rawBatchName!;
   }
 
@@ -183,6 +199,8 @@ export function buildSalesCommand(): Command {
     .command('list')
     .description('List your sales, sorted by sell date (newest first)')
     .option('--coffee-id <id>')
+    .option('--batch-id <uuid>')
+    .option('--roast-id <id>')
     .option('--date-start <YYYY-MM-DD>')
     .option('--date-end <YYYY-MM-DD>')
     .option('--buyer <name>')
@@ -194,6 +212,7 @@ export function buildSalesCommand(): Command {
 Examples:
   purvey sales list --pretty
   purvey sales list --coffee-id 42 --pretty
+  purvey sales list --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --pretty
   purvey sales list --date-start 2026-03-01 --date-end 2026-03-31 --pretty
   purvey sales list --buyer "Jane" --pretty
   purvey sales list --date-start 2026-01-01 --limit 100 --csv > sales-ytd.csv
@@ -201,8 +220,10 @@ Examples:
   purvey sales list --limit 20 --offset 20   # page 2
 
 Notes:
-  Returns sale records with green_coffee_inv_id, batch_name, oz_sold, price, buyer, and sell_date.
+  Returns sale records with green_coffee_inv_id, batch_id, roast_id, batch_name, oz_sold, price,
+  buyer, and sell_date. batch_id is null on a sale that is not linked to one batch.
   --coffee-id filters by inventory ID.
+  --batch-id returns the sales recorded against one batch; --roast-id the sales that name one roast.
   --date-start and --date-end accept YYYY-MM-DD; use together for a date range.
   --buyer accepts partial matches (case-insensitive).
   --offset + --limit enables pagination through large result sets.
@@ -222,6 +243,14 @@ Notes:
           limit: parseSalesListCount(opts.limit as string, '--limit'),
           offset: parseSalesListCount(opts.offset as string, '--offset'),
           greenCoffeeInvId,
+          batchId:
+            opts.batchId !== undefined
+              ? parseRoastBatchId(String(opts.batchId), '--batch-id')
+              : undefined,
+          roastId:
+            opts.roastId !== undefined
+              ? parsePositiveIntegerOption('--roast-id', opts.roastId as string)
+              : undefined,
           dateStart: opts.dateStart as string | undefined,
           dateEnd: opts.dateEnd as string | undefined,
           buyer: opts.buyer as string | undefined,
@@ -240,6 +269,7 @@ Notes:
   sales
     .command('record')
     .description('Record a new sale')
+    .option('--batch-id <uuid>')
     .option('--roast-id <id>')
     .option('--coffee-id <id>')
     .option('--batch-name <name>')
@@ -253,21 +283,29 @@ Notes:
       'after',
       `
 Examples:
-  purvey sales record --roast-id 123 --oz 12 --price 22.00 --pretty
-  purvey sales record --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz 8 --price 16.00
+  purvey sales record --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --oz 12 --price 22.00 --pretty
+  purvey sales record --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --coffee-id 7 --oz 8 --price 16.00
+  purvey sales record --roast-id 123 --oz 12 --price 22.00
   purvey sales record --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz 16 --price 28.00 --sell-date 2026-03-10
   purvey sales record --form     # interactive wizard (browse roasts)
 
 Selector modes:
-  Roast:    --roast-id <id>
-  Resolved: --coffee-id <id> --batch-name <name>
-  Use exactly one selector mode.
-  Sales retain inventory + batch, not roast ID. When several roasts share a batch name on one
-  inventory item, the sale is recorded against that batch as a whole in either selector mode.
+  Batch:    --batch-id <uuid> [--coffee-id <id>]
+  Roast:    --roast-id <id> [--batch-id <uuid>]
+  By name:  --coffee-id <id> --batch-name <name>
+
+  Batch records the sale against one batch as a whole. Use it when the bag could have come from
+  any of the batch's roasts of that coffee. --coffee-id is needed only when the batch holds
+  roasts of more than one inventory item.
+  Roast records the sale against that one roast and its batch. Use it when you know the roast,
+  for example when one batch roasted the same coffee to two levels.
+  By name finds your batch with that exact name that holds a roast of --coffee-id. Batch names
+  can repeat: when the name matches more than one batch, nothing is recorded and the error lists
+  each batch ID with its date and roasts, so you can run the command again with --batch-id.
 
 Required flags: selector mode, --oz, --price
-  Use 'purvey roast list' to find your --roast-id.
-  Use 'purvey roast list --coffee-id <id>' to inspect candidate roasts for resolved mode.
+  Use 'purvey roast-batch list' to find a --batch-id, or 'purvey roast list' for a --roast-id.
+  The recorded sale includes batch_id, and roast_id when you named a roast.
   --price is the total sale price (not per-oz).
   Requires authentication (member role).
 `
