@@ -106,7 +106,6 @@ function listRoastsResponse(params: URLSearchParams): { status: number; body: un
   const q = params.get('q')?.trim();
   if (q) {
     if (q.length > 100) return invalidQuery('q', 'q must be at most 100 characters');
-    // eslint-disable-next-line no-control-regex
     if (/[\u0000-\u001f\u007f]/.test(q)) {
       return invalidQuery('q', 'q must not contain control characters');
     }
