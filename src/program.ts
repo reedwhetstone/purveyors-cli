@@ -157,6 +157,7 @@ Personal Data (member role required):
   roast list        List your roast profiles
   roast get         Get a single roast profile
   roast chart       Get sampled chart data and the chart revision for a roast
+  roast artisan-file  Download the Artisan file a roast was imported from
   roast create      Create a new roast profile
   roast update      Update a roast profile
   roast delete      Delete a roast profile
@@ -201,6 +202,7 @@ Studio reference profiles (member credential plus Studio access):
   reference-profile from-roast  Save a past roast as a reference profile
   reference-profile save     Save an immutable generated plan
   reference-profile export   Download a saved plan as an unsigned .alog
+  reference-profile artisan-file  Download a reference's original Artisan file
 
 Local and reference commands (no pre-existing credentials required):
   config list       Show all config values

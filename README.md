@@ -154,7 +154,7 @@ Remote data commands require a valid owner-bound API key with the required scope
 - `market overview` requires any signed-in session or API key; `market evidence` requires Parchment Intelligence access
 - `price-index history` is public for windows up to 90 days; longer windows require Parchment Intelligence access
 - `price-index` snapshots, `price-index comparisons`, `price-index comparison`, `procurement`, `inventory`, `roast`, `sales`, and `tasting` require the `member` role
-- `reference-profile` requires a `member` credential plus Studio access, enforced server-side by Parchment
+- `reference-profile`, `roast from-reference`, and `roast artisan-file` require a `member` credential plus Studio access, enforced server-side by Parchment
 
 `purvey` uses Google OAuth through purveyors.io.
 
@@ -202,7 +202,7 @@ Credentials are stored at `~/.config/purvey/credentials.json`.
 | `viewer` | Every `catalog` command, including structured process filters on `catalog search` and `catalog similar`                                                    |
 | `member` | All viewer commands, plus `price-index`, `procurement`, `inventory`, `roast`, `sales`, and `tasting` through the scoped key created by `purvey auth login` |
 
-The `reference-profile` commands also require Studio access; the API enforces this entitlement.
+The `reference-profile` commands, `roast from-reference`, and `roast artisan-file` also require Studio access; the API enforces this entitlement.
 
 `catalog similar` needs a sign-in (`purvey auth login`) or any API key with `catalog:read`. The free Green API plan includes it within its monthly quota. Parchment decides access and the CLI maps its 401 and 403 responses to exit code 3 with Parchment's message.
 
@@ -695,6 +695,7 @@ Notes:
 - `purvey roast list`
 - `purvey roast get <id>`
 - `purvey roast chart <id>`
+- `purvey roast artisan-file <id> [--output <path>] [--force]`
 - `purvey roast create`
 - `purvey roast update <id>`
 - `purvey roast delete <id>`
@@ -728,6 +729,33 @@ Notes:
 `roast chart` prints Parchment's canonical chart-data envelope unchanged: sampled series,
 events, and metadata. `data.metadata.revision` is the immutable chart revision that
 `reference-profile compare` accepts as `roast:<id>@<revision>`.
+
+`roast artisan-file <id>` options:
+
+- `--output <path>`; a file to write, or an existing folder to save the file in under its original name. Defaults to the current folder
+- `--force`; replace the output file if it already exists
+
+`roast artisan-file` downloads the Artisan file a roast was imported from, byte for byte as
+you uploaded it, to load as a background in Artisan or to keep. After writing, the file is
+checked against its SHA-256; a file that fails the check is removed and the command exits 1.
+An existing file is never replaced without `--force`. Output is a JSON receipt:
+
+```json
+{
+  "data": {
+    "roastId": 4529,
+    "fileName": "Guji 2026-09-30.alog",
+    "path": "/home/you/artisan/Guji 2026-09-30.alog",
+    "bytes": 70791,
+    "sha256": "3b1f0c2e9a7d4e58b6c1a0f3d2e4b5a69788c7d6e5f4a3b2c1d0e9f8a7b6c5d4"
+  }
+}
+```
+
+`roast list` and `roast get` include `artisan_file_available`, which is `true` when the roast
+has a file to download. A roast entered by hand, logged live, or imported before Artisan
+files were kept has none: the command exits 2 with a message that says which and what to do
+next. The download requires Studio access.
 
 `roast create` flags:
 
@@ -791,6 +819,7 @@ Examples:
 purvey roast list --catalog-id 128 --pretty
 purvey roast get 123 --include-temps --pretty
 purvey roast chart 123 --target-points 120 --json
+purvey roast artisan-file 123 --output ~/artisan/
 purvey roast list --batch-id 7c1d4e2a-9b3f-4a6c-8d5e-2f1a0b9c8d7e --pretty
 purvey roast create --coffee-id 7 --batch-name "Ethiopia Guji Light" --oz-in 16
 purvey roast import ~/artisan/ethiopia.alog --coffee-id 7 --roast-targets "Aim for 18% development"
@@ -884,6 +913,7 @@ Notes:
 - `purvey reference-profile from-roast <roast-id> [--artisan-source] [--roast-revision <token>] [--title <text>] [--notes <text>]`
 - `purvey reference-profile save <profile-id> <revision-id> --request <file>`
 - `purvey reference-profile export <profile-id> <revision-id> --output <file>`
+- `purvey reference-profile artisan-file <profile-id> [--output <path>] [--force]`
 
 Reference-profile commands use the canonical Parchment API through `@purveyors/sdk`. They
 require a member credential and Studio access, which Parchment enforces server-side.
@@ -979,6 +1009,24 @@ saved generated revision, writes the unsigned `.alog` plan locally, and emits a 
 receipt; it refuses to overwrite an existing file unless `--force` is passed. A generated
 profile is never executed roast history, and this CLI does not claim verified Artisan 4.2
 playback compatibility.
+
+#### Download the original Artisan file
+
+`artisan-file` downloads the Artisan file a reference was uploaded from, or saved from a roast
+with `from-roast --artisan-source`, byte for byte as it was stored. It takes the same
+`--output` and `--force` options as `roast artisan-file`, checks the written file against its
+SHA-256, and prints the same receipt with `profileId` in place of `roastId`.
+
+`reference-profile list` includes `artisanFileAvailable`, which is `true` when the reference
+has an original file. `export` and `artisan-file` are different downloads: `export` writes a
+plan Purveyors generated from your adjustments, and `artisan-file` returns the file you
+uploaded. A planned profile, a chart-only reference, or an archived reference has no original
+file to download: the command exits 2 with a message that says why and what to do next.
+
+```bash
+purvey reference-profile list | jq '.data[] | {id, title, artisanFileAvailable}'
+purvey reference-profile artisan-file 5ea1af6f-234c-43a9-9bf8-5678dd24f854 --output ~/artisan/
+```
 
 ### sales
 
@@ -1246,6 +1294,17 @@ purvey reference-profile export 0b7e9f52-3c61-4d8a-9e24-6f1a8c3d5b90 c43a1d7e-95
 Only roasts imported from an Artisan file that is still on record are listed. The saved plan
 is a reference profile, not a roast in your history.
 
+### Get a roast's Artisan file back
+
+```bash
+purvey roast get 4529 | jq '.artisan_file_available'
+purvey roast artisan-file 4529 --output ~/artisan/
+```
+
+The file is the one you imported, unchanged. Load it in Artisan as a background profile, or
+keep it as your copy. For a saved reference, use
+`purvey reference-profile artisan-file <profile-id> --output ~/artisan/`.
+
 ### Export records for spreadsheets
 
 ```bash
@@ -1269,11 +1328,11 @@ Use the right ID for the right command.
 
 - `catalog_id`: `coffee_catalog` rows; used by `catalog get`, `catalog similar`, `inventory add --catalog-id`, `tasting get`, `roast list --catalog-id`
 - `inventory id`: `green_coffee_inv` rows; used by `inventory get/update/delete`, `roast --coffee-id`, `tasting rate`, `roast list --coffee-id`
-- `roast_id`: `roast_data` rows; used by `roast get/delete`, `sales record --roast-id`, `roast list --roast-id`, `reference-profile preview-from-roast/from-roast`
+- `roast_id`: `roast_data` rows; used by `roast get/chart/artisan-file/delete`, `sales record --roast-id`, `roast list --roast-id`, `reference-profile preview-from-roast/from-roast`
 - `batch_id`: a roast batch UUID; used by `roast-batch get/update/delete`, `--batch-id` on `roast list/create/import/update/from-reference`, and `sales record/list --batch-id`. Batch names can repeat; batch IDs cannot
 - `sales record` also accepts `inventory id` plus `--batch-name`, and refuses with the candidate batch IDs when the name matches more than one batch
 - `sale id`: `coffee_sales` rows; used by `sales update/delete`
-- `reference_profile_id`: owner-scoped Studio profile UUID; used by `reference-profile get/chart/preview/save/export` and `roast from-reference`
+- `reference_profile_id`: owner-scoped Studio profile UUID; used by `reference-profile get/chart/preview/save/export/artisan-file` and `roast from-reference`
 - `reference_revision_id`: immutable revision UUID; used by `reference-profile chart/preview/save/export` and `roast from-reference`
 
 ## Environment variables

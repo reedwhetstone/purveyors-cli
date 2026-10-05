@@ -39,6 +39,7 @@ import type { components } from '@purveyors/sdk';
 import type { OutputOptions } from '../types/index.js';
 import { getInventory } from '../lib/inventory.js';
 import { parseReferenceProfileId } from '../lib/reference-profiles.js';
+import { downloadRoastArtisanFile } from '../lib/artisan-file.js';
 import {
   parseStrictFiniteNumber,
   parseStrictInt4Id,
@@ -372,6 +373,7 @@ Notes:
   --stocked only returns roasts for beans currently marked as stocked in inventory.
   --offset + --limit enables pagination through large result sets.
   Returns roast_id, batch_id, batch_name, roast_date, oz_in, oz_out, and bean details.
+  artisan_file_available is true when 'purvey roast artisan-file <id>' can return the roast's Artisan file.
   Requires authentication (member role).
 `
     )
@@ -453,6 +455,7 @@ Notes:
   <id> is the roast ID (integer).
   --include-temps adds the full temperature curve array (can be large).
   --include-events adds roast event markers (FC start, drop, etc.).
+  artisan_file_available is true when 'purvey roast artisan-file <id>' can return the roast's Artisan file.
   Requires authentication (member role).
 `
     )
@@ -501,6 +504,44 @@ Notes:
         });
 
         outputData(data, globalOpts);
+      })
+    );
+
+  // ── roast artisan-file <id> ───────────────────────────────────────────────
+  roast
+    .command('artisan-file <id>')
+    .description('Download the Artisan file a roast was imported from, exactly as you uploaded it')
+    .option('--output <path>')
+    .option('--force')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  purvey roast artisan-file 123
+  purvey roast artisan-file 123 --output ~/artisan/
+  purvey roast artisan-file 123 --output ~/artisan/guji-background.alog --force
+
+Notes:
+  <id> is the roast ID (integer).
+  Writes the file byte for byte as it was imported, to load as a background in Artisan
+  or to keep, then checks it against its SHA-256 and prints a JSON receipt: path, bytes, sha256.
+  Without --output the file goes in the current folder under its original name.
+  An existing file is never replaced unless you pass --force.
+  A roast has a file when artisan_file_available is true in 'purvey roast get <id>'.
+  Requires authentication (member role) and Studio access on your account;
+  API keys need the roast:read scope.
+`
+    )
+    .action(
+      withErrorHandling(async (id: string, opts: Record<string, unknown>, cmd: Command) => {
+        const globalOpts = cmd.optsWithGlobals() as OutputOptions;
+        const roastId = parseRoastInt4Id(id, 'roast ID');
+        const file = await downloadRoastArtisanFile(roastId, {
+          output: opts.output === undefined ? undefined : String(opts.output),
+          force: Boolean(opts.force),
+        });
+
+        outputData({ data: { roastId, ...file } }, globalOpts);
       })
     );
 
