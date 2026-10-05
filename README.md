@@ -576,7 +576,7 @@ Notes:
 
 `market metadata` filters:
 
-- `--dimension <process|disclosure|score>`
+- `--dimension <process|disclosure|score|variety|drying>`; `variety` and `drying` report the share of lots carrying each code, and those shares overlap (`meta.bucketSemantics: "overlapping"`), so do not add them
 - `--origin <origin>`
 - `--market <retail|wholesale|all>`
 - `--grain <week|month>`

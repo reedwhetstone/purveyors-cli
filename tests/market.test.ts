@@ -100,7 +100,7 @@ describe('market command', () => {
   }, 15000);
 
   it('rejects an invalid --dimension on metadata', () => {
-    const result = runCli(['market', 'metadata', '--dimension', 'cultivar', '--json']);
+    const result = runCli(['market', 'metadata', '--dimension', 'species', '--json']);
     const stderr = parseJson(result.stderr);
     expect(result.status).toBe(2);
     expect(stderr).toMatchObject({ code: 'INVALID_ARGUMENT', exitCode: 2 });

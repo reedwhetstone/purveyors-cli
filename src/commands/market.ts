@@ -14,7 +14,9 @@ import type { OutputOptions } from '../types/index.js';
 const SIGNAL_TYPES = ['price_drop', 'below_market', 'value_quality'] as const;
 const MARKETS = ['retail', 'wholesale', 'all'] as const;
 const WINDOWS = ['7d', '30d'] as const;
-const DIMENSIONS = ['process', 'disclosure', 'score'] as const;
+const DIMENSIONS = ['process', 'disclosure', 'score', 'variety', 'drying'] as const;
+/** CLI dimension names that differ from the API's. */
+const API_DIMENSION = { score: 'purveyor_score', variety: 'cultivar' } as const;
 const GRAINS = ['week', 'month'] as const;
 
 function parsePositiveInt(rawValue: string, flag: string, max?: number): number {
@@ -200,7 +202,7 @@ Notes:
   market
     .command('metadata')
     .description('Metadata-trend index (public process/retail/month slice works unauthenticated)')
-    .option('--dimension <process|disclosure|score>')
+    .option('--dimension <process|disclosure|score|variety|drying>')
     .option('--origin <origin>')
     .option('--market <retail|wholesale|all>')
     .option('--grain <week|month>')
@@ -213,10 +215,16 @@ Examples:
   purvey market metadata --pretty
   purvey market metadata --dimension score --origin "Ethiopia" --grain month --json
   purvey market metadata --dimension disclosure --from 2026-04-01 --to 2026-07-01 --json
+  purvey market metadata --dimension variety --market all --json
 
 Notes:
   Public slice is dimension=process, no origin, market=retail, grain=month; anything else requires Intelligence access.
-  Cultivar and drying dimensions are not available yet.`
+  variety and drying report the share of lots carrying each variety or drying
+  method code (see 'purvey catalog taxonomies'). A lot counts under every code
+  it lists and under that code's family, so these shares overlap: they do not
+  sum to 100% and counts must not be added (meta.bucketSemantics is
+  "overlapping"). The undisclosed bucket is lots stating none; unmapped is lots
+  stating one the vocabulary does not cover yet.`
     )
     .action(
       withErrorHandling(async (opts: Record<string, unknown>, cmd: Command) => {
@@ -224,7 +232,8 @@ Notes:
         const query: MetadataIndexQuery = {};
         if (opts.dimension !== undefined) {
           const dimension = parseEnum(opts.dimension as string, '--dimension', DIMENSIONS);
-          query.dimension = dimension === 'score' ? 'purveyor_score' : dimension;
+          query.dimension =
+            dimension === 'score' || dimension === 'variety' ? API_DIMENSION[dimension] : dimension;
         }
         if (opts.origin !== undefined) query.origin = opts.origin as string;
         if (opts.market !== undefined)
