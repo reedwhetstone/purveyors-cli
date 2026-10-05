@@ -710,12 +710,53 @@ Notes:
 - `--batch-id <uuid>`; the roasts in one batch
 - `--batch-name <text>`; partial match, across every batch with a matching name
 - `--coffee-name <text>`
+- `--search <text>`; one term matched against the coffee name, the batch name, and the roast ID
 - `--date-start <YYYY-MM-DD>`
 - `--date-end <YYYY-MM-DD>`
 - `--stocked`
 - `--catalog-id <id>`
+- `--wholesale <true|false>`; `true` for roasts of wholesale coffees, `false` for every other roast
+- `--include-totals`; print `{ data, meta }` with totals for every roast the filters match
 - `--limit <n>`; default `20`
 - `--offset <n>`; default `0`
+
+`--search` finds a roast by one term. A roast matches when its coffee name or its batch name
+contains the text, in any letter case, or when the text is its roast ID, with or without a
+leading `#` (`4529` or `#4529`). A number finds the roast with exactly that ID, and any roast
+with the number in its coffee or batch name. The text is matched as written: `%` and `_` are
+ordinary characters, and `*` stands for any one character. It takes up to 100 characters;
+longer text, or text with a control character, exits 2.
+
+Every filter narrows the list together. `--coffee-name`, `--batch-name`, and `--roast-id` each
+match their one field as before, so `--search guji --batch-name wednesday` returns only roasts
+that match both.
+
+`--wholesale false` includes roasts of coffees with no catalog listing, so `true` and `false`
+together cover every roast. Leave the flag out for both.
+
+By default `roast list` prints a list of roasts, and prints nothing on stdout when no roast
+matches. `--include-totals` prints the page with totals instead:
+
+```json
+{
+  "data": [{ "roast_id": 4531, "coffee_name": "Ethiopia Guji", "batch_name": "wednesday" }],
+  "meta": {
+    "resource": "roasts",
+    "totals": { "roasts": 87, "batches": 59, "average_loss_percent": 15.29 }
+  }
+}
+```
+
+- `data` is the same list of roasts the command prints without the flag (shortened here).
+- `meta.totals.roasts` counts every roast the filters match, whatever `--limit` and `--offset` are.
+- `meta.totals.batches` counts the batches those roasts belong to, by batch ID. Two batches with the same name count as two.
+- `meta.totals.average_loss_percent` is the mean weight loss of the matching roasts that have one recorded, and `null` when none do.
+- An empty result prints `"data": []` with totals of `0`, `0`, and `null`.
+- `--include-totals` does not support `--csv`.
+
+The totals are the same on every page. To read every roast, raise `--offset` by `--limit`; a
+page is the last one when `--offset` plus the number of roasts returned reaches
+`meta.totals.roasts`.
 
 `roast get <id>` options:
 
@@ -817,6 +858,11 @@ Examples:
 
 ```bash
 purvey roast list --catalog-id 128 --pretty
+purvey roast list --search "guji" --pretty
+purvey roast list --search "#4529"
+purvey roast list --search "guji" --date-start 2026-03-01 --include-totals --pretty
+purvey roast list --wholesale false --include-totals | jq '.meta.totals'
+purvey roast list --include-totals --limit 20 --offset 20 | jq '{rows: (.data | length), of: .meta.totals.roasts}'
 purvey roast get 123 --include-temps --pretty
 purvey roast chart 123 --target-points 120 --json
 purvey roast artisan-file 123 --output ~/artisan/
@@ -1406,6 +1452,14 @@ Only `catalog search` (default 10 results), `inventory list`, `roast list`, `roa
 purvey inventory list --limit 20 --offset 0
 purvey inventory list --limit 20 --offset 20
 purvey inventory list --limit 20 --offset 40
+```
+
+`roast list --include-totals` also reports how many roasts match, so a script knows when to
+stop: the last page is the one where `--offset` plus the roasts returned reaches
+`meta.totals.roasts`.
+
+```bash
+purvey roast list --include-totals --limit 20 --offset 40 | jq '.meta.totals.roasts'
 ```
 
 **`inventory delete` fails with dependency conflict**
