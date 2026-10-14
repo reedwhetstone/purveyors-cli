@@ -390,6 +390,11 @@ const commandGroups: CliCommandGroupContract[] = [
               'Only coffees whose processing label contains this text, such as natural or washed (case-insensitive)',
           },
           {
+            flags: '--decaf <true|false>',
+            description:
+              'true selects decaffeinated coffees; false excludes them. Omit for any coffee',
+          },
+          {
             flags: '--processing-base-method <method>',
             description:
               'Only coffees whose structured base process exactly matches this value, such as Natural or Washed. List values with `purvey catalog facets processing_base_method`',
@@ -556,6 +561,8 @@ const commandGroups: CliCommandGroupContract[] = [
           'PURVEYORS_API_KEY or PARCHMENT_API_KEY overrides the scoped API key stored by `purvey auth login`.',
         ],
         examples: [
+          'purvey catalog search --decaf true --stocked --pretty',
+          'purvey catalog search --decaf false --process "natural" --pretty',
           'purvey catalog search --origin "Ethiopia" --process "natural" --pretty',
           'purvey catalog search --processing-base-method "Natural" --fermentation-type "Anaerobic" --pretty',
           'purvey catalog search --process-additive "hops" --processing-confidence-min 0.8 --pretty',
@@ -610,11 +617,16 @@ const commandGroups: CliCommandGroupContract[] = [
           {
             name: 'field',
             description:
-              'The facet to list: supplier, country, processing_base_method, fermentation_type, drying_method, wholesale, grade_size, grade_altitude, grade_defects, grade_cup, grade_preparation, screen_size_min, elevation_band, varieties, species_codes, or drying_methods. Without it, every facet except the grading and code facets is listed',
+              'The facet to list: supplier, country, decaf, processing_base_method, fermentation_type, drying_method, wholesale, grade_size, grade_altitude, grade_defects, grade_cup, grade_preparation, screen_size_min, elevation_band, varieties, species_codes, or drying_methods. Without it, every facet except the grading and code facets is listed',
             required: false,
           },
         ],
         options: [
+          {
+            flags: '--decaf <true|false>',
+            description:
+              'Count only decaffeinated coffees (true) or coffees that are not decaffeinated (false). Omit for any coffee',
+          },
           {
             flags: '--all',
             description:
@@ -629,6 +641,8 @@ const commandGroups: CliCommandGroupContract[] = [
           'Defaults to currently stocked coffees; use --all for every coffee you can see.',
         ],
         examples: [
+          'purvey catalog facets decaf --pretty',
+          'purvey catalog facets country --decaf true --pretty',
           'purvey catalog facets supplier --pretty',
           'purvey catalog facets country --all --json',
           'purvey catalog facets --pretty',

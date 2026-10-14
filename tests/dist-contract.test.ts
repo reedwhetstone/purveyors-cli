@@ -26,6 +26,25 @@ function parseJsonStdout(result: SpawnSyncReturns<string>) {
 }
 
 describe('compiled dist artifact parity', () => {
+  it.each(['search', 'facets'])(
+    'ships strict decaf help and errors in compiled catalog %s',
+    (command) => {
+      const help = run('node', ['dist/index.js', 'catalog', command, '--help']);
+      expect(help.status).toBe(0);
+      expect(help.stderr).toBe('');
+      expect(help.stdout).toContain('--decaf <true|false>');
+
+      const result = run('node', ['dist/index.js', 'catalog', command, '--decaf', 'yes', '--json']);
+      expect(result.status).toBe(2);
+      expect(result.stdout).toBe('');
+      expect(JSON.parse(stripAnsi(result.stderr))).toMatchObject({
+        code: 'INVALID_ARGUMENT',
+        exitCode: 2,
+        message: 'Invalid --decaf: "yes". Use true or false.',
+      });
+    }
+  );
+
   it('keeps dist help aligned with the machine-readable onboarding surface', () => {
     const distHelpResult = run('node', ['dist/index.js', '--help']);
     const sourceHelpResult = run('pnpm', ['exec', 'tsx', 'src/index.ts', '--help']);

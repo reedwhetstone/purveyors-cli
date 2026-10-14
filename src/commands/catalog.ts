@@ -107,6 +107,12 @@ function parseNonNegativeIntegerArg(rawValue: string, message: string): number {
   return parsed;
 }
 
+function parseDecafArg(rawValue: string): boolean {
+  if (rawValue === 'true') return true;
+  if (rawValue === 'false') return false;
+  throw new PrvrsError('INVALID_ARGUMENT', `Invalid --decaf: "${rawValue}". Use true or false.`);
+}
+
 // ─── Command builder ──────────────────────────────────────────────────────────
 
 /**
@@ -124,6 +130,7 @@ export function buildCatalogCommand(): Command {
     .description('Search coffees by origin, process, price, or catalog metadata')
     .option('--origin <origin>')
     .option('--process <method>')
+    .option('--decaf <true|false>', '', parseDecafArg)
     .option('--processing-base-method <method>')
     .option('--fermentation-type <type>')
     .option('--process-additive <additive>')
@@ -160,6 +167,8 @@ export function buildCatalogCommand(): Command {
       'after',
       `
 Examples:
+  purvey catalog search --decaf true --stocked --pretty
+  purvey catalog search --decaf false --process "natural" --pretty
   purvey catalog search --origin "Ethiopia" --pretty
   purvey catalog search --origin "Colombia" --process "honey" --pretty
   purvey catalog search --processing-base-method "Natural" --fermentation-type "Anaerobic" --pretty
@@ -192,6 +201,7 @@ Notes:
   All filters are optional. Without flags, returns up to --limit results.
   --origin accepts partial matches (e.g. "Ethiopia" matches "Ethiopia Guji").
   --process matches the broad processing label.
+  --decaf true finds decaffeinated coffees; false excludes them. Omit it for any coffee.
   --processing-base-method, --fermentation-type, --process-additive, and
   --processing-disclosure-level require exact structured metadata matches.
   --processing-confidence-min accepts a decimal from 0 to 1.
@@ -406,6 +416,7 @@ Notes:
           supplier: opts.supplier as string | undefined,
           dryingMethod: opts.dryingMethod as string | undefined,
           flavor,
+          decaf: opts.decaf as boolean | undefined,
           processingBaseMethod: opts.processingBaseMethod as string | undefined,
           fermentationType: opts.fermentationType as string | undefined,
           processAdditive: opts.processAdditive as string | undefined,
@@ -508,10 +519,13 @@ Notes:
     .command('facets [field]')
     .description('List counted catalog facet values for filter discovery')
     .option('--all')
+    .option('--decaf <true|false>', '', parseDecafArg)
     .addHelpText(
       'after',
       `
 Examples:
+  purvey catalog facets decaf --pretty
+  purvey catalog facets country --decaf true --pretty
   purvey catalog facets supplier --pretty
   purvey catalog facets country --all --json
   purvey catalog facets --pretty      # every facet except the grading and code facets
@@ -519,7 +533,7 @@ Examples:
   purvey catalog facets varieties --pretty
 
 Fields:
-  supplier, country, processing_base_method, fermentation_type, drying_method, wholesale
+  supplier, country, decaf, processing_base_method, fermentation_type, drying_method, wholesale
   Grading: grade_size, grade_altitude, grade_defects,
   grade_cup, grade_preparation, screen_size_min, elevation_band
   Codes: varieties, species_codes, drying_methods
@@ -543,7 +557,10 @@ Notes:
           const globalOpts = cmd.optsWithGlobals() as OutputOptions;
           const stockedOnly = opts.all ? false : true;
           if (field === undefined) {
-            outputData(await getCatalogFacets({ stockedOnly }), globalOpts);
+            outputData(
+              await getCatalogFacets({ stockedOnly, decaf: opts.decaf as boolean | undefined }),
+              globalOpts
+            );
             return;
           }
           if (!catalogFacetFields.includes(field as (typeof catalogFacetFields)[number])) {
@@ -555,6 +572,7 @@ Notes:
           const data = await listCatalogFacets({
             field: field as (typeof catalogFacetFields)[number],
             stockedOnly,
+            decaf: opts.decaf as boolean | undefined,
           });
 
           outputData(data, globalOpts);

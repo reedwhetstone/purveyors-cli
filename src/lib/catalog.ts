@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import type { CatalogProofSummary as SdkCatalogProofSummary, components } from '@purveyors/sdk';
+import type {
+  CatalogItem as SdkCatalogItem,
+  CatalogProofSummary as SdkCatalogProofSummary,
+  components,
+} from '@purveyors/sdk';
 import { AuthError, PrvrsError } from './errors.js';
 import {
   createParchmentClient,
@@ -15,59 +19,8 @@ import { POSTGRES_INT4_MAX } from './strict-number.js';
 
 export type CatalogProofSummary = SdkCatalogProofSummary;
 
-export interface CatalogItem {
-  id: number;
-  name: string | null;
-  source: string | null;
-  continent: string | null;
-  country: string | null;
-  region: string | null;
-  processing: string | null;
-  processing_base_method: string | null;
-  fermentation_type: string | null;
-  process_additives: string[] | null;
-  process_additive_detail: string | null;
-  fermentation_duration_hours: number | null;
-  processing_notes: string | null;
-  processing_disclosure_level: string | null;
-  processing_confidence: number | null;
-  processing_evidence_available: boolean | null;
-  drying_method: string | null;
-  cultivar_detail: string | null;
-  grade: string | null;
-  appearance: string | null;
-  type: string | null;
-  description_short: string | null;
-  description_long: string | null;
-  farm_notes: string | null;
-  cupping_notes: string | null;
-  ai_description: string | null;
-  roast_recs: string | null;
-  cost_lb: number | null;
-  price_per_lb: number | null;
-  lot_size: string | null;
-  bag_size: string | null;
-  score_value: number | null;
-  purveyor_score: number | null;
-  purveyor_score_confidence: number | null;
-  purveyor_score_tier: string | null;
-  purveyor_score_factors: unknown;
-  purveyor_score_version: string | null;
-  purveyor_score_updated_at: string | null;
-  stocked: boolean | null;
-  stocked_date: string | null;
-  unstocked_date: string | null;
-  arrival_date: string | null;
-  last_updated: string | null;
-  public_coffee: boolean | null;
-  wholesale: boolean | null;
-  price_tiers: Array<{ min_lbs: number; price: number }> | null;
-  proof?: CatalogProofSummary | null;
-  /** ADR-016 grading (paid tiers): disclosed screen, labeled codes, lab analysis, cup score protocol. */
-  grading?: components['schemas']['CatalogItem']['grading'];
-  /** ADR-018 canonical variety, species and drying codes with labels; omitted when no supplier value matched the vocabulary. */
-  taxonomy?: components['schemas']['CatalogItem']['taxonomy'];
-}
+/** Canonical catalog rows, including decaf facts, come from the SDK contract. */
+export type CatalogItem = SdkCatalogItem;
 
 export interface SimilarBean {
   coffee_id: number;
@@ -123,106 +76,10 @@ export interface CatalogSimilarityQuery {
   mode: CatalogSimilarityMode;
 }
 
-export interface CatalogSimilarityTargetSummary {
-  id: number;
-  name: string;
-  source: string | null;
-  origin: string | null;
-  country: string | null;
-  continent: string | null;
-  processing: string | null;
-  processing_base_method: string | null;
-  fermentation_type: string | null;
-  drying_method: string | null;
-  stocked: boolean | null;
-  arrival_date: string | null;
-  stocked_date: string | null;
-  price_per_lb: number | null;
-  price_tiers: unknown;
-  cost_lb: number | null;
-  pricing: CatalogCanonicalPricing;
-  proof: CatalogProofSummary;
-}
-
-export interface CatalogSimilarityMatch {
-  coffee: {
-    id: number;
-    name: string;
-    source: string | null;
-    origin: string | null;
-    country: string | null;
-    continent: string | null;
-    processing: string | null;
-    processing_base_method: string | null;
-    fermentation_type: string | null;
-    drying_method: string | null;
-    stocked: boolean | null;
-    arrival_date: string | null;
-    stocked_date: string | null;
-    proof: CatalogProofSummary;
-  };
-  pricing: CatalogCanonicalPricing;
-  price_delta_1lb: {
-    amount: number | null;
-    percent: number | null;
-    currency: 'USD';
-  };
-  score: {
-    average: number;
-    dimensions: {
-      origin: number | null;
-      processing: number | null;
-      tasting: number | null;
-    };
-    chunk_matches: number;
-  };
-  match: {
-    category: CatalogMatchCategory;
-    classification: CatalogMatchClassification;
-    confidence: CatalogMatchConfidenceLabel;
-    beta: true;
-    language: string;
-  };
-  explanation: {
-    summary: string;
-    signals: string[];
-  };
-  compatibility: {
-    cost_lb: number | null;
-  };
-}
-
-export interface CatalogSimilarityResponse {
-  data: {
-    target: CatalogSimilarityTargetSummary;
-    groups: {
-      canonical_candidates: CatalogSimilarityMatch[];
-      similar_recommendations: CatalogSimilarityMatch[];
-    };
-    matches?: CatalogSimilarityMatch[];
-  };
-  meta: {
-    resource: 'catalog-similarity';
-    namespace: '/v1/catalog/{id}/similar';
-    version: 'v1';
-    status: 'beta';
-    auth?: {
-      kind: 'session' | 'api-key';
-      role: string | null;
-      apiPlan: unknown;
-    };
-    access?: {
-      requiredCapability: 'canUseBeanMatching';
-      canUseBeanMatching: true;
-    };
-    query: CatalogSimilarityQuery;
-    copy?: {
-      confidence: string;
-    };
-    classification_version: 'canonical-match-v1';
-    query_strategy: CatalogSimilarityQueryStrategy;
-  };
-}
+export type CatalogSimilarityResponse = components['schemas']['CatalogSimilarityResponse'];
+export type CatalogSimilarityTargetSummary = CatalogSimilarityResponse['data']['target'];
+export type CatalogSimilarityMatch =
+  CatalogSimilarityResponse['data']['groups']['canonical_candidates'][number];
 
 export interface CatalogStats {
   total: number;
@@ -266,7 +123,7 @@ export interface CatalogPremiumRankedItem {
   pricing: {
     price_per_lb: number | null;
     cost_lb: number | null;
-    price_tiers: Array<{ min_lbs: number; price: number }> | null;
+    price_tiers: SdkCatalogItem['price_tiers'];
   };
   stocked: boolean | null;
   stocked_date: string | null;
@@ -440,6 +297,7 @@ export const searchCatalogSchema = z
     supplier: z.string().optional(),
     dryingMethod: z.string().optional(),
     flavor: z.array(z.string().trim().min(1)).min(1).max(20).optional(),
+    decaf: z.boolean().optional(),
     processingBaseMethod: z.string().optional(),
     fermentationType: z.string().optional(),
     processAdditive: z.string().optional(),
@@ -547,6 +405,7 @@ export const catalogGradingFacetFields = [
 export const catalogTaxonomyFacetFields = ['varieties', 'species_codes', 'drying_methods'] as const;
 
 export const catalogFacetFields = [
+  'decaf',
   'supplier',
   'country',
   'processing_base_method',
@@ -559,6 +418,7 @@ export const catalogFacetFields = [
 
 /** CLI facet field names mapped to the canonical counted-facet keys. */
 export const catalogFacetKeys: Record<CatalogFacetField, CatalogFacetKey> = {
+  decaf: 'decaf',
   supplier: 'sources',
   country: 'countries',
   processing_base_method: 'processing_base_method',
@@ -577,10 +437,16 @@ export const catalogFacetKeys: Record<CatalogFacetField, CatalogFacetKey> = {
   drying_methods: 'drying_methods',
 };
 
-export const catalogFacetsSchema = z.object({
-  field: z.enum(catalogFacetFields),
+const catalogFacetOptionsSchema = z.object({
+  decaf: z.boolean().optional(),
   stockedOnly: z.boolean().default(true).optional(),
+  includeGrading: z.boolean().optional(),
+  includeTaxonomy: z.boolean().optional(),
 });
+
+export const catalogFacetsSchema = catalogFacetOptionsSchema
+  .omit({ includeGrading: true, includeTaxonomy: true })
+  .extend({ field: z.enum(catalogFacetFields) });
 
 export type CatalogFacetsInput = z.input<typeof catalogFacetsSchema>;
 
@@ -686,11 +552,13 @@ export function sanitizeFilterValue(value: string): string {
 
 /** Get per-lb price, preferring price_tiers then generated column then legacy cost_lb */
 function getPerLbPrice(item: {
-  price_tiers?: Array<{ price: number }> | null;
+  price_tiers?: SdkCatalogItem['price_tiers'];
   price_per_lb?: number | null;
   cost_lb?: number | null;
 }): number | null {
-  return item.price_tiers?.[0]?.price ?? item.price_per_lb ?? item.cost_lb ?? null;
+  const firstTier = Array.isArray(item.price_tiers) ? item.price_tiers[0] : undefined;
+  const tierPrice = firstTier && typeof firstTier.price === 'number' ? firstTier.price : undefined;
+  return tierPrice ?? item.price_per_lb ?? item.cost_lb ?? null;
 }
 
 function round(value: number, places = 2): number {
@@ -793,27 +661,27 @@ function toPremiumRankedItem(item: CatalogItem, rank: number): CatalogPremiumRan
   return {
     rank,
     id: item.id,
-    name: item.name,
-    supplier: item.source,
+    name: item.name ?? null,
+    supplier: item.source ?? null,
     origin: {
-      continent: item.continent,
-      country: item.country,
-      region: item.region,
+      continent: item.continent ?? null,
+      country: item.country ?? null,
+      region: item.region ?? null,
     },
     processing: {
-      label: item.processing,
-      base_method: item.processing_base_method,
-      fermentation_type: item.fermentation_type,
-      drying_method: item.drying_method,
+      label: item.processing ?? null,
+      base_method: item.processing_base_method ?? null,
+      fermentation_type: item.fermentation_type ?? null,
+      drying_method: item.drying_method ?? null,
     },
     purveyor_score: summarizePurveyorScore(item),
     pricing: {
-      price_per_lb: item.price_per_lb,
-      cost_lb: item.cost_lb,
+      price_per_lb: item.price_per_lb ?? null,
+      cost_lb: item.cost_lb ?? null,
       price_tiers: item.price_tiers,
     },
-    stocked: item.stocked,
-    stocked_date: item.stocked_date,
+    stocked: item.stocked ?? null,
+    stocked_date: item.stocked_date ?? null,
     signals: buildRankSignals(item),
   };
 }
@@ -868,7 +736,7 @@ export function computeSupplierAggregates(
         .filter((score): score is number => score !== null);
       const confidences = supplierItems
         .map((item) => item.purveyor_score_confidence)
-        .filter((confidence): confidence is number => confidence !== null);
+        .filter((confidence): confidence is number => typeof confidence === 'number');
       const prices = supplierItems
         .map((item) => getPerLbPrice(item))
         .filter((p): p is number => p !== null);
@@ -1111,6 +979,7 @@ export async function searchCatalog(opts: SearchCatalogInput): Promise<CatalogIt
     include: parsed.includeProof ? 'proof' : undefined,
     origin: parsed.origin,
     processing: parsed.process,
+    decaf: parsed.decaf === undefined ? undefined : parsed.decaf ? 'true' : 'false',
     processing_base_method: parsed.processingBaseMethod,
     fermentation_type: parsed.fermentationType,
     process_additive: parsed.processAdditive,
@@ -1148,7 +1017,7 @@ export async function searchCatalog(opts: SearchCatalogInput): Promise<CatalogIt
     result,
     parsed.includeProof ? 'Catalog search with proof' : 'Catalog search'
   );
-  return envelope.data as CatalogItem[];
+  return envelope.data;
 }
 
 /**
@@ -1188,15 +1057,16 @@ export async function getCatalogStats(): Promise<CatalogStats> {
  * returned unchanged.
  */
 export async function getCatalogFacets(
-  input: { stockedOnly?: boolean; includeGrading?: boolean; includeTaxonomy?: boolean } = {}
+  input: z.input<typeof catalogFacetOptionsSchema> = {}
 ): Promise<CanonicalCatalogFacetsResponse> {
-  const stockedOnly = input.stockedOnly ?? true;
+  const parsed = catalogFacetOptionsSchema.parse(input);
+  const stockedOnly = parsed.stockedOnly ?? true;
   const include =
-    input.includeGrading && input.includeTaxonomy
+    parsed.includeGrading && parsed.includeTaxonomy
       ? ('grading,taxonomy' as const)
-      : input.includeGrading
+      : parsed.includeGrading
         ? ('grading' as const)
-        : input.includeTaxonomy
+        : parsed.includeTaxonomy
           ? ('taxonomy' as const)
           : undefined;
   // Parchment decides access to grading and taxonomy facets.
@@ -1204,6 +1074,9 @@ export async function getCatalogFacets(
   return unwrapParchment(
     await client.catalog.facets({
       stocked: stockedOnly ? 'true' : 'all',
+      ...(parsed.decaf === undefined
+        ? {}
+        : { decaf: parsed.decaf ? ('true' as const) : ('false' as const) }),
       ...(include ? { include } : {}),
     }),
     'Catalog facets'
@@ -1220,6 +1093,7 @@ export async function listCatalogFacets(input: CatalogFacetsInput): Promise<Cata
   const facet = catalogFacetKeys[parsed.field];
   const envelope = await getCatalogFacets({
     stockedOnly: parsed.stockedOnly,
+    decaf: parsed.decaf,
     includeGrading: (catalogGradingFacetFields as readonly string[]).includes(parsed.field),
     includeTaxonomy: (catalogTaxonomyFacetFields as readonly string[]).includes(parsed.field),
   });

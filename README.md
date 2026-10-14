@@ -82,6 +82,9 @@ purvey catalog search --origin "Ethiopia" --stocked --pretty
 # Example with structured process filters and proof output
 purvey catalog search --origin "Ethiopia" --processing-base-method "Washed" --include-proof --pretty
 
+# Find decaf without choosing a processing label
+purvey catalog search --decaf true --stocked --pretty
+
 # 4. Read a public Market Index teaser slice
 purvey market signals --summary --pretty
 
@@ -321,6 +324,11 @@ Notes:
 
 ### catalog
 
+Catalog rows expose `decaffeinated` and `decafMethod` separately from processing. Use
+`--decaf true` or `--decaf false` to filter without choosing a farm processing method.
+Catalog filters and facet counts use the access granted to your credential; access
+denials return exit code `3`.
+
 - `purvey catalog search`
 - `purvey catalog get <id>`
 - `purvey catalog stats`
@@ -340,6 +348,7 @@ Notes:
 
 - `--origin <text>`; origin, country, continent, or region
 - `--process <method>`; processing method
+- `--decaf <true|false>`; true selects decaffeinated coffees, false excludes them; omit for any coffee
 - `--processing-base-method <method>`; canonical structured process base method
 - `--fermentation-type <type>`; structured fermentation type
 - `--process-additive <additive>`; disclosed process additive
@@ -407,7 +416,9 @@ Variety, species, and drying code filters (each coffee carries a `taxonomy` obje
 
 `catalog facets [field]` options:
 
-- Fields: `supplier`, `country`, `processing_base_method`, `fermentation_type`, `drying_method`, `wholesale`
+- `--decaf <true|false>`; count only decaf or only non-decaf coffees; omit for either.
+
+- Fields: `supplier`, `country`, `decaf`, `processing_base_method`, `fermentation_type`, `drying_method`, `wholesale`
 - Grading fields: `grade_size`, `grade_altitude`, `grade_defects`, `grade_cup`, `grade_preparation`, `screen_size_min`, `elevation_band`
 - Code fields: `varieties`, `species_codes`, `drying_methods`. Counts roll up: a family such as `bourbon` counts every coffee carrying it or any code under it, once
 - Without a field, prints the canonical `/v1/catalog/facets` envelope (`values`, `facets`, `meta`) unchanged; it omits grading and code facets, so name one of those fields to get its counts. With a field, prints `{ field, facet, data, meta }` for that counted facet.
